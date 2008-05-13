@@ -220,6 +220,9 @@ start_couchdb () {
         touch $PID_FILE
         interactive_option="+Bd -noinput"
     fi
+    
+    ini_file_list="[\\\"$INI_FILE\\\"]"
+    
     command="`%ICU_CONFIG% --invoke` \
         %ERL% $interactive_option -sasl errlog_type error \
         -pa %erlanglibdir%/couch-%version%/ebin \
@@ -229,8 +232,8 @@ start_couchdb () {
         -eval \"application:load(couch)\" \
         -eval \"crypto:start()\" \
         -eval \"inets:start()\" \
-        -eval \"couch_server:start(), receive done -> done end.\" \
-        -couchini $INI_FILE"
+        -eval \"couch_server:start($ini_file_list), receive done -> done end.\" "
+
     if test "$BACKGROUND_BOOLEAN" = "true" \
         -a "$RECURSED_BOOLEAN" = "false"; then
         # Recursively call and detach a duplicate couchdb command.

@@ -16,7 +16,7 @@
 
 -export([start/0,start/1,start/2,stop/0,stop/1]).
 -export([open/1,create/2,delete/1,all_databases/0,get_version/0]).
--export([init/1, handle_call/3,sup_start_link/2]).
+-export([init/1, handle_call/3,sup_start_link/0]).
 -export([handle_cast/2,code_change/3,handle_info/2,terminate/2]).
 -export([dev_start/0,remote_restart/0]).
 
@@ -29,14 +29,10 @@
     }).
 
 start() ->
-    start("").
+    start([]).
 
-start(IniFile) when is_atom(IniFile) ->
-    couch_server_sup:start_link(atom_to_list(IniFile) ++ ".ini");
-start(IniNum) when is_integer(IniNum) ->
-    couch_server_sup:start_link("couch" ++ integer_to_list(IniNum) ++ ".ini");
-start(IniFile) ->
-    couch_server_sup:start_link(IniFile).
+start(IniFiles) ->
+    couch_server_sup:start_link(IniFiles).
 
 start(_Type, _Args) ->
     start().
@@ -61,7 +57,9 @@ get_version() ->
         "0.0.0"
     end.
 
-sup_start_link(RootDir, Options) ->
+sup_start_link() ->
+    RootDir = couch_config:lookup({"CouchDB", "RootDirectory"}), 
+    Options = couch_config:lookup({"CouchDB", "ServerOptions"}), 
     gen_server:start_link({local, couch_server}, couch_server, {RootDir, Options}, []).
 
 open(Filename) ->

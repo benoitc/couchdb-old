@@ -885,8 +885,41 @@ var tests = {
     var compactedsize = db.info().disk_size;
     
     T(deletesize > originalsize);
+    },
+    
+  runtime_config: function(debug) {
+    if(debug) debugger;
+    var xhr;
+
+    xhr = CouchDB.request("GET", "/_config/HTTPd/Port");
+    T(xhr.status == 200);
+    T(JSON.parse(xhr.responseText).ok);
+
+    xhr = CouchDB.request("POST", "/_config/HTTPd/Port", {"body":"5985"});
+    T(xhr.status == 200);
+    var res = JSON.parse(xhr.responseText);
+    T(res.ok);
+    T(res.value == "5985");
+
+    xhr = CouchDB.request("GET", "/_config/HTTPd/Port");
+    T(xhr.status == 200);
+    var res = JSON.parse(xhr.responseText);
+    T(res.ok);
+    T(res.value == "5985");
+
+    xhr = CouchDB.request("DELETE", "/_config/HTTPd/Port");
+    T(xhr.status == 200);
+    var res = JSON.parse(xhr.responseText);
+    T(res.ok);
+    T(res.old_value == "5985");
+
+    xhr = CouchDB.request("PUT", "/_config/HTTPd/Port", {"body":"5984"});
+    T(xhr.status == 200);
+    var res = JSON.parse(xhr.responseText);
+    T(res.ok);
+    T(res.value == "5984");
     }
-};
+  };
 
 function makeDocs(start, end, templateDoc) {
   var templateDocSrc = templateDoc ? templateDoc.toSource() : "{}"

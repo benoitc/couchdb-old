@@ -13,7 +13,6 @@
 -module(couch_server_sup).
 -behaviour(supervisor).
 
--define(DEFAULT_INI, "couch.ini").
 
 -export([start_link/1,stop/0]).
 
@@ -22,26 +21,17 @@
 %% supervisor callbacks
 -export([init/1]).
 
-start_link(IniFilename) ->
+start_link(IniFiles) ->
     case whereis(couch_server_sup) of
     undefined ->
-        start_server(IniFilename);
+        couch_config:start_link(),
+        couch_config:load_ini_files(IniFiles),
+        start_server();
     _Else ->
         {error, already_started}
     end.
 
-start_server("") ->
-        % no ini file specified, check the command line args
-    IniFile =
-    case init:get_argument(couchini) of
-    {ok, [CmdLineIniFilename]} ->
-        CmdLineIniFilename;
-    _Else ->
-        ?DEFAULT_INI
-    end,
-    start_server(IniFile);
-start_server(InputIniFilename) ->
-
+start_server() ->
     case init:get_argument(pidfile) of
     {ok, [PidFile]} ->
         case file:write_file(PidFile, os:getpid()) of
@@ -51,36 +41,12 @@ start_server(InputIniFilename) ->
     _ -> ok
     end,
 
-    {ok, Cwd} = file:get_cwd(),
-    IniFilename = couch_util:abs_pathname(InputIniFilename),
-    IniBin =
-    case file:read_file(IniFilename) of
-    {ok, IniBin0} ->
-        IniBin0;
-    {error, enoent} ->
-        Msg = io_lib:format("Couldn't find server configuration file ~s.", [InputIniFilename]),
-        io:format("~s~n", [Msg]),
-        throw({startup_error, Msg})
-    end,
-    {ok, Ini} = couch_util:parse_ini(binary_to_list(IniBin)),
-
-    ConsoleStartupMsg = proplists:get_value({"Couch", "ConsoleStartupMsg"}, Ini, "Apache CouchDB is starting."),
-    LogLevel = list_to_atom(proplists:get_value({"Couch", "LogLevel"}, Ini, "error")),
-    DbRootDir = proplists:get_value({"Couch", "DbRootDir"}, Ini, "."),
-    BindAddress = proplists:get_value({"Couch", "BindAddress"}, Ini, any),
-    Port = proplists:get_value({"Couch", "Port"}, Ini, 5984),
-    DocumentRoot = proplists:get_value({"Couch", "DocumentRoot"}, Ini, "share/www"),
-    LogFile = proplists:get_value({"Couch", "LogFile"}, Ini, "couchdb.log"),
-    UtilDriverDir = proplists:get_value({"Couch", "UtilDriverDir"}, Ini, ""),
-    UpdateNotifierExes = proplists:get_all_values({"Couch", "DbUpdateNotificationProcess"}, Ini),
-    FtSearchQueryServer = proplists:get_value({"Couch", "FullTextSearchQueryServer"}, Ini, ""),
-    RemoteRestart = list_to_atom(proplists:get_value({"Couch", "AllowRemoteRestart"}, Ini, "undefined")),
-    ServerOptions = [{remote_restart, RemoteRestart}],
-    QueryServers = [{Lang, QueryExe} || {{"Couch Query Servers", Lang}, QueryExe} <- Ini],
-    
+    ConsoleStartupMsg = couch_config:lookup({"CouchDB", "ConsoleStartupMsg"}),
+    UpdateNotificationProcesses = couch_config:lookup({"CouchDB", "UpdateNotificationProcesses"}, []),
+    FtSearchQueryServer = couch_config:lookup({"Fulltext", "QueryServer"}, []),
     ChildProcesses =
         [{couch_log,
-            {couch_log, start_link, [LogFile, LogLevel]},
+            {couch_log, start_link, []},
             permanent,
             brutal_kill,
             worker,
@@ -92,38 +58,44 @@ start_server(InputIniFilename) ->
             supervisor,
             dynamic},
         {couch_server,
-            {couch_server, sup_start_link, [DbRootDir, ServerOptions]},
+            {couch_server, sup_start_link, []},
             permanent,
             brutal_kill,
             worker,
             [couch_server]},
+        % {couch_util,
+        %     {couch_util, start_link, []},
+        %     permanent,
+        %     brutal_kill,
+        %     worker,
+        %     [couch_util]},
         {couch_query_servers,
-            {couch_query_servers, start_link, [QueryServers]},
+            {couch_query_servers, start_link, []},
             permanent,
             brutal_kill,
             worker,
             [couch_query_servers]},
         {couch_view,
-            {couch_view, start_link, [DbRootDir]},
+            {couch_view, start_link, []},
             permanent,
             brutal_kill,
             worker,
             [couch_view]},
         {couch_httpd,
-            {couch_httpd, start_link, [BindAddress, Port, DocumentRoot]},
+            {couch_httpd, start_link, []},
             permanent,
             1000,
             supervisor,
             [couch_httpd]}
         ] ++
-        lists:map(fun(UpdateNotifierExe) ->
-            {UpdateNotifierExe,
-                {couch_db_update_notifier, start_link, [UpdateNotifierExe]},
+        lists:map(fun(UpdateNotificationProcess) when is_list(UpdateNotificationProcesses) ->
+            {UpdateNotificationProcess,
+                {couch_db_update_notifier, start_link, [UpdateNotificationProcess]},
                 permanent,
                 1000,
                 supervisor,
                 [couch_db_update_notifier]}
-            end, UpdateNotifierExes)
+            end, UpdateNotificationProcesses)
         ++
         case FtSearchQueryServer of
         "" ->
@@ -137,10 +109,10 @@ start_server(InputIniFilename) ->
                 [couch_ft_query]}]
         end,
 
-    io:format("couch ~s (LogLevel=~s)~n", [couch_server:get_version(), LogLevel]),
     io:format("~s~n", [ConsoleStartupMsg]),
     
-    couch_util:start_driver(UtilDriverDir),
+    
+    couch_util:start_driver(),
     
     % ensure these applications are running
     application:start(inets),
@@ -150,44 +122,49 @@ start_server(InputIniFilename) ->
     StartResult = (catch supervisor:start_link(
         {local, couch_server_sup}, couch_server_sup, ChildProcesses)),
 
-    ConfigInfo = io_lib:format("Config Info ~s:~n\tCurrentWorkingDir=~s~n" ++
-        "\tDbRootDir=~s~n" ++
-        "\tBindAddress=~p~n" ++
-        "\tPort=~p~n" ++
-        "\tDocumentRoot=~s~n" ++
-        "\tLogFile=~s~n" ++
-        "\tUtilDriverDir=~s~n" ++
-        "\tDbUpdateNotificationProcesses=~s~n" ++
-        "\tFullTextSearchQueryServer=~s~n" ++
-        "~s",
-            [IniFilename,
-            Cwd,
-            DbRootDir,
-            BindAddress,
-            Port,
-            DocumentRoot,
-            LogFile,
-            UtilDriverDir,
-            UpdateNotifierExes,
-            FtSearchQueryServer,
-            [lists:flatten(io_lib:format("\t~s=~s~n", [Lang, QueryExe])) || {Lang, QueryExe} <- QueryServers]]),
-    ?LOG_DEBUG("~s", [ConfigInfo]),
-
     case StartResult of
     {ok,_} ->
         % only output when startup was successful
         io:format("Apache CouchDB has started. Time to relax.~n");
     _ ->
         % Since we failed startup, unconditionally dump configuration data to console
-        io:format("~s", [ConfigInfo]),
-        ok
+        ok = couch_config:dump()
     end,
     process_flag(trap_exit, false),
     StartResult.
 
 stop() ->
     catch exit(whereis(couch_server_sup), normal),
+    couch_config:stop(),
     couch_log:stop().
 
 init(ChildProcesses) ->
     {ok, {{one_for_one, 10, 3600}, ChildProcesses}}.
+
+% dump_config() ->
+%     io:format("Debug: ~p~n", [dying]),
+%     ?LOG_DEBUG("~s", [okay]).
+%     % {ok, Cwd} = file:get_cwd(),
+%     % ConfigInfo = io_lib:format("Config Info:~n\tCurrentWorkingDir=~s~n" ++
+%     %        "\tDbRootDir=~s~n" ++
+%     %        "\tBindAddress=~p~n" ++
+%     %        "\tPort=~p~n" ++
+%     %        "\tDocumentRoot=~s~n" ++
+%     %        "\tLogFile=~s~n" ++
+%     %        "\tLogLevel=~s~n" ++
+%     %        "\tUtilDriverDir=~s~n" ++
+%     %        "\tDbUpdateNotificationProcesses=~s~n" ++
+%     %        "\tFullTextSearchQueryServer=~s~n" ++
+%     %        "~s",
+%     %            [Cwd,
+%     %            couch_config:lookup({couchdb, root_directory}),
+%     %            couch_config:lookup({couchdb, util_driver_dir}),
+%     %            couch_config:lookup({couchdb, update_notification_processes}),
+%     %            couch_config:lookup({httpd, bind_address}),
+%     %            couch_config:lookup({httpd, port}),
+%     %            couch_config:lookup({httpd, document_root}),
+%     %            couch_config:lookup({log, file}),
+%     %            couch_config:lookup({log, level}),
+%     %            couch_config:lookup({fulltext, query_server}),
+%     %            [lists:flatten(io_lib:format("\t~s=~s~n", [Lang, QueryExe])) || {Lang, QueryExe} <- couch_config:lookup({couchdb, view_query_servers})]]),
+%     %            ?LOG_INFO("~s", [ConfigInfo]).

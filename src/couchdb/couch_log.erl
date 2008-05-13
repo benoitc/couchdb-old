@@ -13,7 +13,7 @@
 -module(couch_log).
 -behaviour(gen_event).
 
--export([start_link/2,stop/0]).
+-export([start_link/0,stop/0]).
 -export([debug_on/0,info_on/0,get_level/0,get_level_integer/0, set_level/1]).
 -export([init/1, handle_event/2, terminate/2, code_change/3, handle_info/2, handle_call/2]).
 
@@ -34,7 +34,9 @@ level_atom(?LEVEL_DEBUG) -> debug;
 level_atom(?LEVEL_TMI) -> tmi.
 
 
-start_link(Filename, Level) ->
+start_link() ->
+    Filename = couch_config:lookup({"Log", "File"}),
+    Level = couch_config:lookup({"Log", "Level"}),
     couch_event_sup:start_link({local, couch_log}, error_logger, couch_log, {Filename, Level}).
 
 stop() ->
@@ -42,7 +44,7 @@ stop() ->
 
 init({Filename, Level}) ->
     {ok, Fd} = file:open(Filename, [append]),
-    {ok, {Fd, level_integer(Level)}}.
+    {ok, {Fd, level_integer(list_to_atom(Level))}}.
 
 debug_on() ->
     get_level_integer() =< ?LEVEL_DEBUG.

@@ -13,12 +13,12 @@
 -module(couch_query_servers).
 -behaviour(gen_server).
 
--export([start_link/1]).
+-export([start_link/0]).
 
 -export([init/1, terminate/2, handle_call/3, handle_cast/2, handle_info/2,code_change/3,stop/0]).
 -export([start_doc_map/2, map_docs/2, stop_doc_map/1]).
 
--export([test/0, test/1]).
+-export([test/0]).
 
 -include("couch_db.hrl").
 
@@ -26,7 +26,8 @@ timeout() ->
     % hardcoded 5 sec timeout per document
     5000.
 
-start_link(QueryServerList) ->
+start_link() ->
+    QueryServerList = couch_config:lookup_match({{"CouchDB Query Servers", '$1'}, '$2'}, []),
     gen_server:start_link({local, couch_query_servers}, couch_query_servers, QueryServerList, []).
 
 stop() ->
@@ -182,11 +183,11 @@ handle_info(_Whatever, {Cmd, Ports}) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-test() ->
-    test("../js/js -f main.js").
+% test() ->
+%     test("../js/js -f main.js").
 
-test(Cmd) ->
-    start_link(Cmd),
+test() ->
+    start_link(),
     {ok, DocMap} = start_doc_map("javascript", ["function(doc) {if (doc[0] == 'a') return doc[1];}"]),
     {ok, Results} = map_docs(DocMap, [#doc{body={"a", "b"}}, #doc{body={"c", "d"}},#doc{body={"a", "c"}}]),
     io:format("Results: ~w~n", [Results]),

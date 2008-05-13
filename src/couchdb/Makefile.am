@@ -31,6 +31,7 @@ couchincludedir = $(erlanglibdir)/couch-$(version)/include
 couch_file_collection = \
     cjson.erl \
     couch_btree.erl \
+	couch_config.erl \
     couch_db.erl \
     couch_db_update_notifier.erl \
     couch_doc.erl \
@@ -52,6 +53,7 @@ couchebin_DATA = \
     cjson.beam \
     couch.app \
     couch_btree.beam \
+	couch_config.beam \
     couch_db.beam \
     couch_db_update_notifier.beam \
     couch_doc.beam \

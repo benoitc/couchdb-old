@@ -13,7 +13,7 @@
 -module(couch_httpd).
 -include("couch_db.hrl").
 
--export([start_link/3, stop/0]).
+-export([start_link/0, stop/0]).
 
 -record(doc_query_args, {
     options = [],
@@ -34,7 +34,12 @@
     skip = 0
 }).
 
-start_link(BindAddress, Port, DocumentRoot) ->
+start_link() ->
+    % read config
+    BindAddress = couch_config:lookup({"HTTPd", "BindAddress"}),
+    Port = couch_config:lookup({"HTTPd", "Port"}),
+    DocumentRoot = couch_config:lookup({"HTTPd", "DocumentRoot"}),
+    
     Loop = fun (Req) -> handle_request(Req, DocumentRoot) end,
     mochiweb_http:start([
         {loop, Loop},
@@ -74,14 +79,8 @@ handle_request(Req, DocumentRoot) ->
         atom_to_list(Req:get(method)) ++ " " ++ Path,
         Resp:get(code)
     ]).
-
-handle_request(Req, DocumentRoot, Method, Path) ->
-    % Start = erlang:now(),
-    X = handle_request0(Req, DocumentRoot, Method, Path),
-    % io:format("now_diff:~p~n", [timer:now_diff(erlang:now(), Start)]),
-    X.
     
-handle_request0(Req, DocumentRoot, Method, Path) ->
+handle_request(Req, DocumentRoot, Method, Path) ->
     case Path of
         "/" ->
             handle_welcome_request(Req, Method);
@@ -95,6 +94,8 @@ handle_request0(Req, DocumentRoot, Method, Path) ->
             {ok, Req:respond({301, [{"Location", "/_utils/"}], <<>>})};
         "/_utils/" ++ PathInfo ->
             {ok, Req:serve_file(PathInfo, DocumentRoot)};
+        "/_config/" ++ Config ->
+            handle_config_request(Req, Method, {config, Config});
         _Else ->
             handle_db_request(Req, Method, {Path})
     end.
@@ -542,6 +543,58 @@ handle_attachment_request(Req, 'GET', _DbName, Db, DocId, FileName) ->
 
 handle_attachment_request(_Req, _Method, _DbName, _Db, _DocId, _FileName) ->
     throw({method_not_allowed, "GET,HEAD"}).
+
+% Config request handlers
+
+handle_config_request(_Req, Method, {config, Config}) ->
+    [Module, Key] = string:tokens(Config, "/"),
+    handle_config_request(_Req, Method, {[list_to_atom(Module), list_to_atom(Key)]});
+
+
+% PUT /_config/Module/Key
+% "value"
+handle_config_request(_Req, 'PUT', {[Module, Key]}) ->
+     handle_config_request(_Req, 'POST', {[Module, Key]});
+
+% POST,PUT /_config/Module/Key
+% "value"
+ 
+handle_config_request(Req, 'POST', {[Module, Key]}) ->
+    Value = binary_to_list(Req:recv_body()),
+    ok = couch_config:store({Module, Key}, Value),
+    send_json(Req, 200, {obj, [
+        {ok, true},
+        {module, Module},
+        {key, Key},
+        {value, Value}
+    ]});
+    
+% GET /_config/Module/Key
+handle_config_request(Req, 'GET', {[Module, Key]}) ->
+    send_json(Req, 200, {obj, [
+        {ok, true},
+        {module, Module},
+        {key, Key},
+        {value, couch_config:lookup({Module, Key})}
+     ]});
+    
+% DELETE /_config/Key
+handle_config_request(Req, 'DELETE', {[Module, Key]}) ->
+    OldValue = couch_config:lookup({Module, Key}),
+    couch_config:unset({Module, Key}),
+    send_json(Req, 200, {obj, [
+        {ok, true},
+        {module, Module},
+        {key, Key},
+        {old_value, OldValue}
+     ]}).
+
+% TODO:
+% POST,PUT /_config/
+% [{Key, Value}, {K2, V2}, {K3, V3}]
+% 
+% POST,PUT/_config/Key?value=Value
+
 
 % View request handling internals
 
