@@ -109,7 +109,7 @@ start_server() ->
                 [couch_ft_query]}]
         end,
 
-    io:format("~s~n", [ConsoleStartupMsg]),
+    io:format("~s~n~n", [ConsoleStartupMsg]),
 
 
     couch_util:start_driver(),
