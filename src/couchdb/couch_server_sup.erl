@@ -109,11 +109,11 @@ start_server() ->
                 [couch_ft_query]}]
         end,
 
-    io:format("~s~n~n", [ConsoleStartupMsg]),
-    
-    
+    io:format("~s~n", [ConsoleStartupMsg]),
+
+
     couch_util:start_driver(),
-    
+
     % ensure these applications are running
     application:start(inets),
     application:start(crypto),
@@ -125,8 +125,8 @@ start_server() ->
     case StartResult of
     {ok,_} ->
         % only output when startup was successful
-        io:format("Find Futon, the management interface, at:~nhttp://~s:~s/_utils/index.html~n~n", [couch_config:lookup({"HTTPd", "BindAddress"}), couch_config:lookup({"HTTPd", "Port"})]),
-        io:format("Apache CouchDB has started. Time to relax.~n");
+        io:format("Apache CouchDB has started, time to relax. See http://~s:~s/_utils/index.html~n",
+            [couch_config:lookup({"HTTPd", "BindAddress"}), couch_config:lookup({"HTTPd", "Port"})]);
     _ ->
         % Since we failed startup, unconditionally dump configuration data to console
         ok = couch_config:dump()

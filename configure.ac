@@ -235,6 +235,6 @@ AC_CONFIG_FILES([var/Makefile])
 AC_OUTPUT
 
 echo
-echo "You have configured Apache CouchDB. Time to relax."
+echo "You have configured Apache CouchDB, time to relax."
 echo
 echo "Run \`make && make install' to install."

@@ -131,7 +131,7 @@ check_status () {
     PID=$(_get_pid)
     if test -n "$PID"; then
         if kill -0 $PID 2> /dev/null; then
-            echo "Apache CouchDB is running as process $PID. Time to relax."
+            echo "Apache CouchDB is running as process $PID, time to relax."
             return $SCRIPT_OK
         else
             echo >&2 << EOF
@@ -220,9 +220,9 @@ start_couchdb () {
         touch $PID_FILE
         interactive_option="+Bd -noinput"
     fi
-    
+
     ini_file_list="[\\\"$INI_FILE\\\"]"
-    
+
     command="`%ICU_CONFIG% --invoke` \
         %ERL% $interactive_option -sasl errlog_type error \
         -pa %erlanglibdir%/couch-%version%/ebin \
@@ -239,7 +239,7 @@ start_couchdb () {
         # Recursively call and detach a duplicate couchdb command.
         $0 -c $INI_FILE -b -r $RESPAWN_TIMEOUT -p $PID_FILE \
             -o $STDOUT_FILE -e $STDERR_FILE -R &
-        echo "Apache CouchDB has started. Time to relax."
+        echo "Apache CouchDB has started, time to relax."
     else
         if test "$RECURSED_BOOLEAN" = "true"; then
             while true; do
