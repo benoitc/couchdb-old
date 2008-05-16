@@ -41,7 +41,6 @@ start_server() ->
     _ -> ok
     end,
 
-    ConsoleStartupMsg = couch_config:lookup({"CouchDB", "ConsoleStartupMsg"}),
     UpdateNotificationProcesses = couch_config:lookup({"CouchDB", "UpdateNotificationProcesses"}, []),
     FtSearchQueryServer = couch_config:lookup({"Fulltext", "QueryServer"}, []),
     ChildProcesses =
@@ -108,9 +107,6 @@ start_server() ->
                 supervisor,
                 [couch_ft_query]}]
         end,
-
-    io:format("~s~n", [ConsoleStartupMsg]),
-
 
     couch_util:start_driver(),
 

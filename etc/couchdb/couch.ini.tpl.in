@@ -1,16 +1,13 @@
 ; @configure_input@
 
 [CouchDB]
-ConsoleStartupMsg=Apache CouchDB is starting.
 RootDirectory=%pkgstatelibdir%
 UtilDriverDir=%couchprivlibdir%
-
 
 [HTTPd]
 Port=5984
 BindAddress=127.0.0.1
 DocumentRoot=%pkgdatadir%/www
-
 
 [Log]
 File=%pkgstatelogdir%/couch.log
@@ -18,4 +15,4 @@ Level=info
 
 [CouchDB Query Servers]
 text/javascript=%bindir%/%couchjs_command_name% %pkgdatadir%/server/main.js
-  
+
