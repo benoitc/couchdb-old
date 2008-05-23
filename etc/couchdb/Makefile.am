@@ -22,11 +22,12 @@ couchjs_command_name = `echo couchjs | sed '$(transform)'`
 couchprivlibdir = $(erlanglibdir)/couch-$(version)/priv/lib
 
 couch.ini: couch.ini.tpl
-	sed -e "s|%bindir%|@bindir@|g" \
-	    -e "s|%pkgconfdir%|@pkgconfdir@|g" \
-	    -e "s|%pkgdatadir%|@pkgdatadir@|g" \
-	    -e "s|%pkgstatelibdir%|@pkgstatelibdir@|g" \
-	    -e "s|%pkgstatelogdir%|@pkgstatelogdir@|g" \
-	    -e "s|%couchprivlibdir%|$(couchprivlibdir)|g" \
-	    -e "s|%couchjs_command_name%|$(couchjs_command_name)|g" \
+	sed -r -e "s|%bindir%|@bindir@|g" \
+	       -e "s|%pkgconfdir%|@pkgconfdir@|g" \
+	       -e "s|%pkgdatadir%|@pkgdatadir@|g" \
+	       -e "s|%pkgstatelibdir%|@pkgstatelibdir@|g" \
+	       -e "s|%pkgstatelogdir%|@pkgstatelogdir@|g" \
+	       -e "s|%couchprivlibdir%|$(couchprivlibdir)|g" \
+	       -e "s|%couchjs_command_name%|$(couchjs_command_name)|g" \
+	       -e "s|([^:])/+|\1/|g" \
 	< $< > $@
