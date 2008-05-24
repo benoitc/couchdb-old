@@ -16,23 +16,22 @@ var map_results = []; // holds temporary emitted values during doc map
 
 var sandbox = null;
 
-map = function(key, value) {
-    map_results.push([key, value]);
-  }
-  
-sum = function(values) {
-    var values_sum=0;
-    for(var i in values) {
-      values_sum += values[i];
-    }
-    return values_sum;
-  }
+emit = function(key, value) {
+  map_results.push([key, value]);
+}
 
+sum = function(values) {
+  var rv = 0;
+  for (var i in values) {
+    rv += values[i];
+  }
+  return rv;
+}
 
 try {
   // if possible, use evalcx (not always available)
   sandbox = evalcx('');
-  sandbox.map = map;
+  sandbox.emit = emit;
   sandbox.sum = sum;
 } catch (e) {}
 
@@ -53,8 +52,8 @@ while (cmd = eval(readline())) {
       case "add_fun":
         // The second arg is a string that will compile to a function.
         // and then we add it to funs array
-          funs.push(safe_compile_function(cmd[1]));
-          print("true");
+        funs.push(compileFunction(cmd[1]));
+        print("true");
         break;
       case "map_doc":
         // The second arg is a document. We compute all the map functions against
@@ -97,19 +96,20 @@ while (cmd = eval(readline())) {
         }
         print(toJSON(buf));
         break;
-      
+
       case "combine":
       case "reduce":
-        {  
+        {
         var keys = null;
         var values = null;
         var reduceFuns = cmd[1];
         var is_combine = false;
+        
         if (cmd[0] == "reduce") {
           var kvs = cmd[2];
           keys = new Array(kvs.length);
           values = new Array(kvs.length);
-          for (var i = 0; i < kvs.length; i++) {
+          for(var i = 0; i < kvs.length; i++) {
               keys[i] = kvs[i][0];
               values[i] = kvs[i][1];
           }
@@ -117,13 +117,13 @@ while (cmd = eval(readline())) {
           values = cmd[2];
           is_combine = true;
         }
-        
-        for(var i in reduceFuns) {
-          reduceFuns[i] = safe_compile_function(reduceFuns[i]);
+
+        for (var i in reduceFuns) {
+          reduceFuns[i] = compileFunction(reduceFuns[i]);
         }
-        
+
         var reductions = new Array(funs.length);
-        for (var i = 0; i < reduceFuns.length; i++) {
+        for(var i = 0; i < reduceFuns.length; i++) {
           try {
             reductions[i] = reduceFuns[i](keys, values, is_combine);
           } catch (err) {
@@ -138,30 +138,30 @@ while (cmd = eval(readline())) {
         print("[true," + toJSON(reductions) + "]");
         }
         break;
-     
+
       default:
         print(toJSON({error: "query_server_error",
             reason: "unknown command '" + cmd[0] + "'"}));
         quit();
     }
-  } catch(exception) {
+  } catch (exception) {
     print(toJSON(exception));
   }
 }
 
 
-function safe_compile_function(Src) {
+function compileFunction(source) {
   try {
-    var functionObject = sandbox ? evalcx(Src, sandbox) : eval(Src);
+    var functionObject = sandbox ? evalcx(source, sandbox) : eval(source);
   } catch (err) {
     throw {error: "compilation_error",
-      reason: err.toString() + " (" + Src + ")"};
+      reason: err.toString() + " (" + source + ")"};
   }
   if (typeof(functionObject) == "function") {
     return functionObject;
   } else {
     throw {error: "compilation_error",
-      reason: "expression does not eval to a function. (" + Src + ")"};
+      reason: "expression does not eval to a function. (" + source + ")"};
   }
 }
 

@@ -145,7 +145,8 @@ function CouchDatabasePage() {
           clearTimeout(dirtyTimeout);
           dirtyTimeout = setTimeout(function() {
             var buttons = $("#viewcode button.save, #viewcode button.revert");
-            page.isDirty = $("#viewcode textarea").val() != page.storedViewCode;
+            page.isDirty = ($("#viewcode_map").val() != page.storedViewCode.map)
+              || ($("#viewcode_reduce").val() != page.storedViewCode.reduce);
             if (page.isDirty) {
               buttons.removeAttr("disabled");
             } else {
@@ -214,13 +215,15 @@ function CouchDatabasePage() {
         },
         success: function(resp) {
           page.storedViewCode = resp.views[localViewName];
-          $("#viewcode textarea").val(page.storedViewCode);
+          $("#viewcode_map").val(page.storedViewCode.map);
+          $("#viewcode_reduce").val(page.storedViewCode.reduce || "");
           $("#viewcode button.revert, #viewcode button.save").attr("disabled", "disabled");
           if (callback) callback();
         }
       });
     } else {
-      $("#viewcode textarea").val(page.storedViewCode);
+      $("#viewcode_map").val(page.storedViewCode.map);
+      $("#viewcode_reduce").val(page.storedViewCode.reduce || "");
       page.isDirty = false;
       $("#viewcode button.revert, #viewcode button.save").attr("disabled", "disabled");
       if (callback) callback();
@@ -274,10 +277,13 @@ function CouchDatabasePage() {
           if (!data.name) errors.name = "Please enter a view name";
           callback(errors);
         } else {
-          var viewCode = $("#viewcode textarea").val();
+          var viewCode = {
+            map: $("#viewcode_map").val(),
+            reduce: $("#viewcode_reduce").val() || undefined
+          };
           var docId = ["_design", data.docid].join("/");
           function save(doc) {
-            if (!doc) doc = {_id: docId, language: "text/javascript"};
+            if (!doc) doc = {_id: docId, language: "javascript"};
             if (doc.views === undefined) doc.views = {};
             doc.views[data.name] = viewCode;
             db.saveDoc(doc, {
@@ -311,7 +317,9 @@ function CouchDatabasePage() {
     $(document.body).addClass("loading");
     db.openDoc(["_design", designDocId].join("/"), {
       success: function(doc) {
-        doc.views[localViewName] = $("#viewcode textarea").val();
+        var viewDef = doc.views[localViewName];
+        viewDef.map = $("#viewcode_map").val();
+        viewDef.reduce = $("#viewcode_reduce").val() || undefined;
         db.saveDoc(doc, {
           success: function(resp) {
             page.isDirty = false;
@@ -351,11 +359,11 @@ function CouchDatabasePage() {
     $("#documents tbody.content").empty();
     this.updateDesignDocLink();
 
-    function handleResults(resp) {
+    options.success = function(resp) {
       if (resp.offset === undefined) {
         resp.offset = 0;
       }
-      if (resp.offset > 0) {
+      if (resp.total_rows !== null && resp.offset > 0) {
         $("#paging a.prev").attr("href", "#" + (resp.offset - options.count)).click(function() {
           var firstDoc = resp.rows[0];
           page.updateDocumentListing({
@@ -369,7 +377,7 @@ function CouchDatabasePage() {
       } else {
         $("#paging a.prev").removeAttr("href");
       }
-      if (resp.total_rows - resp.offset > options.count) {
+      if (resp.total_rows !== null && resp.total_rows - resp.offset > options.count) {
         $("#paging a.next").attr("href", "#" + (resp.offset + options.count)).click(function() {
           var lastDoc = resp.rows[resp.rows.length - 1];
           page.updateDocumentListing({
@@ -384,34 +392,45 @@ function CouchDatabasePage() {
         $("#paging a.next").removeAttr("href");
       }
 
-      for (var i = 0; i < resp.rows.length; i++) {
-        var row = resp.rows[i];
+      if (resp.total_rows != null) {
+        for (var i = 0; i < resp.rows.length; i++) {
+          var row = resp.rows[i];
+          var tr = $("<tr></tr>");
+          var key = row.key;
+          $("<td class='key'><a href='document.html?" + encodeURIComponent(db.name) +
+            "/" + encodeURIComponent(row.id) + "'><em></em><br>" +
+            "<span class='docid'>ID:&nbsp;" + row.id + "</span></a></td>")
+            .find("em").text(key !== null ? prettyPrintJSON(key, 0, "") : "null").end()
+            .appendTo(tr);
+          var value = row.value;
+          $("<td class='value'></td>").text(
+            value !== null ? prettyPrintJSON(value, 0, "") : "null"
+          ).appendTo(tr).dblclick(function() {
+            location.href = this.previousSibling.firstChild.href;
+          });
+          tr.appendTo("#documents tbody.content");
+        }
+        $("#documents tbody.footer td span").text(
+          "Showing " + Math.min(resp.total_rows, resp.offset + 1) + "-" +
+          (resp.offset + resp.rows.length) + " of " + resp.total_rows +
+          " document" + (resp.total_rows != 1 ? "s" : ""));
+        $("#documents").removeClass("reduced");
+      } else {
         var tr = $("<tr></tr>");
-        var key = row.key;
-        $("<td class='key'><a href='document.html?" + encodeURIComponent(db.name) +
-          "/" + encodeURIComponent(row.id) + "'><em></em><br>" +
-          "<span class='docid'>ID:&nbsp;" + row.id + "</span></a></td>")
-          .find("em").text(key !== null ? prettyPrintJSON(key, 0, "") : "null").end()
-          .appendTo(tr);
-        var value = row.value;
+        $("<td class='key'></td>").appendTo(tr);
         $("<td class='value'></td>").text(
-          value !== null ? prettyPrintJSON(value, 0, "") : "null"
-        ).appendTo(tr).dblclick(function() {
-          location.href = this.previousSibling.firstChild.href;
-        });
+          resp.result !== null ? prettyPrintJSON(resp.result) : "null"
+        ).appendTo(tr);
         tr.appendTo("#documents tbody.content");
+        $("#documents tbody.footer td span").text("Showing reduce result");
+        $("#documents").addClass("reduced");
       }
-
       $("#documents tbody tr:odd").addClass("odd");
-      $("#documents tbody.footer td span").text(
-        "Showing " + Math.min(resp.total_rows, resp.offset + 1) + "-" +
-        (resp.offset + resp.rows.length) + " of " + resp.total_rows +
-        " document" + (resp.total_rows != 1 ? "s" : ""));
       $(document.body).removeClass("loading");
     }
-    options.success = handleResults;
-    options.error = function(error, reason) {
-      alert(reason);
+    options.error = function(status, error, reason) {
+      alert("Error: " + error + "\n\n" + reason);
+      $(document.body).removeClass("loading");
     }
 
     if (!viewName) {
@@ -420,18 +439,25 @@ function CouchDatabasePage() {
     } else {
       if (viewName == "_temp_view") {
         $("#viewcode").show().addClass("expanded");
-        var query = $("#viewcode textarea").val();
-        $.cookies.set(db.name + ".query", query);
-        db.query(query, options);
+        var mapFun = $("#viewcode_map").val();
+        $.cookies.set(db.name + ".map", mapFun);
+        var reduceFun = $("#viewcode_reduce").val() || null;
+        if (reduceFun != null) {
+          $.cookies.set(db.name + ".reduce", reduceFun);
+        } else {
+          $.cookies.remove(db.name + ".reduce");
+        }
+        db.query(mapFun, reduceFun, null, options);
       } else if (viewName == "_design_docs") {
         options.startkey = options.descending ? "_design/ZZZZ" : "_design/";
         options.endkey = options.descending ? "_design/" : "_design/ZZZZ";
         db.allDocs(options);
       } else {
         $("#viewcode").show();
-        var currentViewCode = $("#viewcode textarea").val();
+        var currentMapCode = $("#viewcode_map").val();
+        var currentReduceCode = $("#viewcode_reduce").val() || null;
         if (page.isDirty) {
-          db.query(currentViewCode, options);
+          db.query(currentMapCode, currentReduceCode, null, options);
         } else {
           db.view(viewName.substr(8), options);
         }

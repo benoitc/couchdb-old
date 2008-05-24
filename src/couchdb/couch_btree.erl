@@ -390,40 +390,42 @@ modify_kvnode(Bt, [{Key, Value} | RestKVs], [{ActionType, ActionKey, ActionValue
     end.
 
 
+collect_node(_Bt, {P, R}, nil, nil) ->
+    {[], [{nil, {P,R}}]};
 collect_node(Bt, {P, R}, KeyStart, KeyEnd) ->
     case get_node(Bt, P) of
     {kp_node, NodeList} ->
         collect_kp_node(Bt, NodeList, KeyStart, KeyEnd);
     {kv_node, KVs} ->
-        GTEKeyStartKVs =
-        case KeyStart of
-        nil ->
-            KVs;
-        _ ->
-            lists:dropwhile(
-                fun({Key,_}) ->
-                    less(Bt, Key, KeyStart)
-                end, KVs)
-        end,
-        KVs2 =
-        case KeyEnd of
-        nil ->
-            GTEKeyStartKVs;
-        _ ->
-            lists:dropwhile(
-                fun({Key,_}) -> 
-                    less(Bt, KeyEnd, Key)
-                end, lists:reverse(GTEKeyStartKVs))
-        end,
-        case length(KVs2) == length(KVs) of
-        true -> % got full node, return the already calculated reduction
-            {[], [{nil, {P, R}}]};
-        false -> % otherwise return the keyvalues for later reduction
-            {KVs2, []}
-        end
+        collect_kv_node(Bt, {P,R}, KVs, KeyStart, KeyEnd)
     end.
 
-
+collect_kv_node(Bt, {P,R}, KVs, KeyStart, KeyEnd) ->
+    GTEKeyStartKVs =
+    case KeyStart of
+    nil ->
+        KVs;
+    _ ->
+        lists:dropwhile(fun({Key,_}) -> less(Bt, Key, KeyStart) end, KVs)
+    end,
+    KVs2 =
+    case KeyEnd of
+    nil ->
+        GTEKeyStartKVs;
+    _ ->
+        lists:dropwhile(
+            fun({Key,_}) -> 
+                less(Bt, KeyEnd, Key)
+            end, lists:reverse(GTEKeyStartKVs))
+    end,
+    case length(KVs2) == length(KVs) of
+    true -> % got full node, return the already calculated reduction
+        {[], [{nil, {P, R}}]};
+    false -> % otherwise return the keyvalues for later reduction
+        {[assemble(Bt,K,V) || {K,V} <- KVs2], []}
+    end.
+        
+        
 collect_kp_node(Bt, NodeList, KeyStart, KeyEnd) ->   
     Nodes =
     case KeyStart of
@@ -568,9 +570,10 @@ stream_kv_node(Bt, Reds, KVs, StartKey, Dir, Fun, Acc) ->
 stream_kv_node2(_Bt, _Reds, _PrevKVs, [], _Dir, _Fun, Acc) ->
     {ok, Acc};
 stream_kv_node2(Bt, Reds, PrevKVs, [{K,V} | RestKVs], Dir, Fun, Acc) ->
-    case Fun(assemble(Bt, K, V), {PrevKVs, Reds}, Acc) of
+    AssembledKV = assemble(Bt, K, V),
+    case Fun(AssembledKV, {PrevKVs, Reds}, Acc) of
     {ok, Acc2} ->
-        stream_kv_node2(Bt, Reds, [{K,V} | PrevKVs], RestKVs, Dir, Fun, Acc2);
+        stream_kv_node2(Bt, Reds, [AssembledKV | PrevKVs], RestKVs, Dir, Fun, Acc2);
     {stop, Acc2} ->
         {stop, Acc2}
     end.

@@ -52,7 +52,7 @@ stop() ->
     mochiweb_http:stop(?MODULE).
 
 handle_request(Req, DocumentRoot) ->
-    
+
     % alias HEAD to GET as mochiweb takes care of stripping the body
     Method = case Req:get(method) of
         'HEAD' -> 'GET';
@@ -67,7 +67,7 @@ handle_request(Req, DocumentRoot) ->
     ?LOG_DEBUG("Method:      ~p", [Method]),
     ?LOG_DEBUG("Request URI: ~p", [Path]),
     ?LOG_DEBUG("Headers: ~p", [mochiweb_headers:to_list(Req:get(headers))]),
-    
+
     {ok, Resp} = case catch(handle_request(Req, DocumentRoot, Method, Path)) of
         {ok, Resp0} ->
             {ok, Resp0};
@@ -82,6 +82,12 @@ handle_request(Req, DocumentRoot) ->
     ]).
     
 handle_request(Req, DocumentRoot, Method, Path) ->
+    % Start = erlang:now(),
+    X = handle_request0(Req, DocumentRoot, Method, Path),
+    % io:format("now_diff:~p~n", [timer:now_diff(erlang:now(), Start)]),
+    X.
+
+handle_request0(Req, DocumentRoot, Method, Path) ->
     case Path of
         "/" ->
             handle_welcome_request(Req, Method);
@@ -132,25 +138,25 @@ handle_replicate_request(Req, 'POST') ->
 handle_replicate_request(_Req, _Method) ->
     throw({method_not_allowed, "POST"}).
 
-handle_unkown_private_uri_request(Req, _Method, UnknownPrivatePath) ->    
+handle_unkown_private_uri_request(Req, _Method, UnknownPrivatePath) ->
   KnownPrivatePaths = ["_utils"],
-  Msg = {obj, 
+  Msg = {obj,
     [
-      {error, "Sorry, we could not find the private path '_" ++ 
-        mochiweb_util:unquote(UnknownPrivatePath) ++ 
-        "' you are looking for. We only know about the following path(s): '" ++ 
+      {error, "Could not find the private path '_" ++
+        mochiweb_util:unquote(UnknownPrivatePath) ++
+        "'. Known private path(s): '" ++
         lists:flatten(KnownPrivatePaths) ++ "'"}
     ]
   },
   send_error(Req, 404, Msg).
-  
+
 % Database request handlers
 
 handle_db_request(Req, Method, {Path}) ->
     UriParts = string:tokens(Path, "/"),
     [DbName|Rest] = UriParts,
     handle_db_request(Req, Method, {mochiweb_util:unquote(DbName), Rest});
-    
+
 handle_db_request(Req, 'PUT', {DbName, []}) ->
     case couch_server:create(DbName, []) of
         {ok, _Db} ->
@@ -251,7 +257,7 @@ handle_db_request(_Req, _Method, {_DbName, _Db, ["_compact"]}) ->
     throw({method_not_allowed, "POST"});
 
 handle_db_request(Req, 'GET', {DbName, _Db, ["_search"]}) ->
-    case Req:parse_qs() of 
+    case Req:parse_qs() of
         [{"q", Query}] when (length(Query) > 0) ->
             {ok, Response} = couch_ft_query:execute(DbName, Query),
             send_json(Req, {obj, [{ok, true} | Response]});
@@ -398,30 +404,30 @@ handle_db_request(Req, 'POST', {DbName, _Db, ["_temp_view"]}) ->
         end_docid = EndDocId
     } = QueryArgs = parse_view_query(Req),
 
-    ContentType = case Req:get_primary_header_value("content-type") of
-        undefined ->
-            "text/javascript";
-        Else ->
-            Else
+    case Req:get_primary_header_value("content-type") of
+        undefined -> ok;
+        "application/json" -> ok;
+        Else -> throw({incorrect_mime_type, Else})
     end,
-    case cjson:decode(Req:recv_body()) of
-    {obj, Props} ->
-        MapSrc = proplists:get_value("map",Props),
-        RedSrc = proplists:get_value("reduce",Props),
-        {ok, View} = couch_view:get_reduce_view(
-                {temp, DbName, ContentType, MapSrc, RedSrc}),
-        {ok, Value} = couch_view:reduce(View, {StartKey, StartDocId}, {EndKey, EndDocId}),
-        send_json(Req, {obj, [{ok,true}, {result, Value}]});
-    Src when is_list(Src) ->
-        
-        {ok, View} = couch_view:get_map_view({temp, DbName, ContentType, Src}),
+    {obj, Props} = cjson:decode(Req:recv_body()),
+    Language = proplists:get_value("language", Props, "javascript"),
+    MapSrc = proplists:get_value("map", Props),
+    case proplists:get_value("reduce", Props, null) of
+    null ->
+        {ok, View} = couch_view:get_map_view({temp, DbName, Language, MapSrc}),
         Start = {StartKey, StartDocId},
         {ok, TotalRows} = couch_view:get_row_count(View),
         FoldlFun = make_view_fold_fun(Req, QueryArgs, TotalRows,
                 fun couch_view:reduce_to_count/1),
         FoldAccInit = {Count, SkipCount, undefined, []},
         FoldResult = couch_view:fold(View, Start, Dir, FoldlFun, FoldAccInit),
-        finish_view_fold(Req, TotalRows, FoldResult)
+        finish_view_fold(Req, TotalRows, FoldResult);
+
+    RedSrc ->
+        {ok, View} = couch_view:get_reduce_view(
+                {temp, DbName, Language, MapSrc, RedSrc}),
+        {ok, Value} = couch_view:reduce(View, {StartKey, StartDocId}, {EndKey, EndDocId}),
+        send_json(Req, {obj, [{ok,true}, {result, Value}]})
     end;
 
 handle_db_request(_Req, _Method, {_DbName, _Db, ["_temp_view"]}) ->
@@ -700,7 +706,7 @@ parse_view_query(Req) ->
         {"descending", "false"} ->
           % The descending=false behaviour is the default behaviour, so we
           % simpply ignore it. This is only for convenience when playing with
-          % the HTTP API, so that a user doesn't get served an error when 
+          % the HTTP API, so that a user doesn't get served an error when
           % flipping true to false in the descending option.
           Args;
         {"skip", Value} ->
@@ -739,7 +745,7 @@ make_view_fold_fun(Req, QueryArgs, TotalViewCount, ReduceCountFun) ->
             couch_view:less_json({ViewKey, ViewId}, {EndKey, EndDocId})
         end
     end,
-    
+
     NegCountFun = fun({{Key, DocId}, Value}, OffsetReds,
                       {AccCount, AccSkip, Resp, AccRevRows}) ->
         Offset = ReduceCountFun(OffsetReds),
@@ -923,25 +929,33 @@ send_json(Req, Code, Value) ->
     send_json(Req, Code, [], Value).
 
 send_json(Req, Code, Headers, Value) ->
-    Resp = start_json_response(Req, Code, Headers),
-    Resp:write_chunk(cjson:encode(Value)),
-    end_json_response(Resp),
+    ContentType = negotiate_content_type(Req),
+    Body = cjson:encode(Value),
+    Resp = Req:respond({Code, [{"Content-Type", ContentType}] ++ Headers,
+                        Body}),
     {ok, Resp}.
 
 start_json_response(Req, Code) ->
     start_json_response(Req, Code, []).
 
 start_json_response(Req, Code, Headers) ->
-    AcceptedTypes = case Req:get_header_value("Accept") of
-        undefined       -> [];
-        AcceptHeader    -> string:tokens(AcceptHeader, ", ")
-    end,
-    ContentType = case lists:member("application/json", AcceptedTypes) of
-        true  -> "application/json";
-        false -> "text/plain;charset=utf-8"
-    end,
+    ContentType = negotiate_content_type(Req),
     Req:respond({Code, [{"Content-Type", ContentType}] ++ Headers, chunked}).
 
 end_json_response(Resp) ->
     Resp:write_chunk(""),
     {ok, Resp}.
+
+negotiate_content_type(Req) ->
+    %% Determine the appropriate Content-Type header for a JSON response
+    %% depending on the Accept header in the request. A request that explicitly
+    %% lists the correct JSON MIME type will get that type, otherwise the
+    %% response will have the generic MIME type "text/plain"
+    AcceptedTypes = case Req:get_header_value("Accept") of
+        undefined       -> [];
+        AcceptHeader    -> string:tokens(AcceptHeader, ", ")
+    end,
+    case lists:member("application/json", AcceptedTypes) of
+        true  -> "application/json";
+        false -> "text/plain;charset=utf-8"
+    end.

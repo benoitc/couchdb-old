@@ -59,7 +59,7 @@ var tests = {
     // has a value of 4, and then returns the document's b value.
     var mapFunction = function(doc){
       if(doc.a==4)
-        map(null, doc.b);
+        emit(null, doc.b);
     };
 
     results = db.query(mapFunction);
@@ -91,15 +91,15 @@ var tests = {
     // 1 more document should now be in the result.
     T(results.total_rows == 3);
     T(db.info().doc_count == 6);
-    
+
     var reduceFunction = function(keys, values){
         return sum(values);
     };
-    
-    result = db.reduce_query(mapFunction, reduceFunction);
+
+    result = db.query(mapFunction, reduceFunction);
 
     T(result.result == 33);
-      
+
    // delete a document
     T(db.deleteDoc(existingDoc).ok);
 
@@ -208,7 +208,7 @@ var tests = {
     }
 
     // query all documents, and return the doc.integer member as a key.
-    results = db.query(function(doc){ map(doc.integer, null) });
+    results = db.query(function(doc){ emit(doc.integer, null) });
 
     T(results.total_rows == numDocsToCreate);
 
@@ -218,7 +218,9 @@ var tests = {
     }
 
     // do the query again, but with descending output
-    results = db.query(function(doc){ map(doc.integer, null) }, {descending:true});
+    results = db.query(function(doc){ emit(doc.integer, null) }, null, {
+      descending: true
+    });
 
     T(results.total_rows == numDocsToCreate);
 
@@ -227,7 +229,7 @@ var tests = {
       T(results.rows[numDocsToCreate-1-i].key==i);
     }
   },
-  
+
   reduce: function(debug) {
     var db = new CouchDB("test_suite_db");
     db.deleteDb();
@@ -237,26 +239,23 @@ var tests = {
     var docs = makeDocs(1,numDocs + 1);
     T(db.bulkSave(docs).ok);
     var summate = function(N) {return (N+1)*N/2;};
-    
-    var map = function (doc) {map(doc.integer, doc.integer)};
-    var reduce = function (keys, values) { return sum(values); }; 
-    var result = db.reduce_query(map, reduce).result;
+
+    var map = function (doc) {emit(doc.integer, doc.integer)};
+    var reduce = function (keys, values) { return sum(values); };
+    var result = db.query(map, reduce).result;
     T(result == summate(numDocs));
-    
-    result = db.reduce_query(map, reduce, {startkey:4,endkey:4}).result;
-    
+
+    result = db.query(map, reduce, {startkey: 4, endkey: 4}).result;
     T(result == 4);
-    
-    result = db.reduce_query(map, reduce, {startkey:4,endkey:5}).result;
-    
+
+    result = db.query(map, reduce, {startkey: 4, endkey: 5}).result;
     T(result == 9);
-    
-    result = db.reduce_query(map, reduce, {startkey:4,endkey:6}).result;
-    
+
+    result = db.query(map, reduce, {startkey: 4, endkey: 6}).result;
     T(result == 15);
-    
+
     for(var i=1; i<numDocs/2; i+=30) {
-      result = db.reduce_query(map, reduce, {startkey:i,endkey:numDocs-i}).result;
+      result = db.query(map, reduce, {startkey: i, endkey: numDocs - i}).result;
       T(result == summate(numDocs-i) - summate(i-1));
     }
   },
@@ -277,7 +276,7 @@ var tests = {
 
     var generateListOfCitiesAndState = "function(doc) {" +
     " for (var i = 0; i < doc.cities.length; i++)" +
-    "  map(doc.cities[i] + \", \" + doc._id, null);" +
+    "  emit(doc.cities[i] + \", \" + doc._id, null);" +
     "}";
 
     var results = db.query(generateListOfCitiesAndState);
@@ -348,7 +347,7 @@ var tests = {
 
     // query all documents, and return the doc.foo member as a key.
     results = db.query(function(doc){
-        map(null, doc.longtest);
+        emit(null, doc.longtest);
     });
   },
 
@@ -376,7 +375,7 @@ var tests = {
     }
 
     // check that views and key collation don't blow up
-    var rows = db.query(function(doc) { map(null, doc.text) }).rows;
+    var rows = db.query(function(doc) { emit(null, doc.text) }).rows;
     for (var i=0; i<texts.length; i++) {
       T(rows[i].value == texts[i]);
     }
@@ -436,13 +435,15 @@ var tests = {
 
     var designDoc = {
       _id:"_design/test",
-      language: "text/javascript",
+      language: "javascript",
       views: {
-        all_docs: "function(doc) { map(doc.integer, null) }",
-        no_docs: "function(doc) {}",
-        single_doc: "function(doc) { if (doc._id == \"1\") { map(1, null) }}",
-        summate: {map:"function (doc) {map(doc.integer, doc.integer)};",
-                        reduce:"function (keys, values) { return sum(values); };"}
+        all_docs: {map: "function(doc) { emit(doc.integer, null) }"},
+        no_docs: {map: "function(doc) {}"},
+        single_doc: {map: "function(doc) { if (doc._id == \"1\") { emit(1, null) }}"},
+        summate: {map:"function (doc) {emit(doc.integer, doc.integer)};",
+                  reduce:"function (keys, values) { return sum(values); };"},
+        summate2: {map:"function (doc) {emit(doc.integer, doc.integer)};",
+                  reduce:"function (keys, values) { return sum(values); };"}
       }
     }
     T(db.save(designDoc).ok);
@@ -458,24 +459,26 @@ var tests = {
       T(db.view("test/single_doc").total_rows == 1)
       restartServer();
     }
-    
-    
+
+
     var summate = function(N) {return (N+1)*N/2;};
     var result = db.view("test/summate").result;
     T(result == summate(numDocs));
-    
+
     result = db.view("test/summate", {startkey:4,endkey:4}).result;
-    
     T(result == 4);
-    
+
     result = db.view("test/summate", {startkey:4,endkey:5}).result;
-    
     T(result == 9);
-    
-    result =db.view("test/summate", {startkey:4,endkey:6}).result;
-    
+
+    result = db.view("test/summate", {startkey:4,endkey:6}).result;
     T(result == 15);
-    
+
+    // Verify that a shared index (view def is an exact copy of "summate")
+    // does not confuse the reduce stage
+    result = db.view("test/summate2", {startkey:4,endkey:6}).result;
+    T(result == 15);
+
     for(var i=1; i<numDocs/2; i+=30) {
       result = db.view("test/summate", {startkey:i,endkey:numDocs-i}).result;
       T(result == summate(numDocs-i) - summate(i-1));
@@ -488,7 +491,7 @@ var tests = {
     restartServer();
     T(db.open(designDoc._id) == null);
     T(db.view("test/no_docs") == null);
-    
+
   },
 
   view_collation: function(debug) {
@@ -548,14 +551,14 @@ var tests = {
       db.save({_id:(i).toString(), foo:values[i]});
     }
 
-    var queryFun = function(doc) { map(doc.foo, null); }
+    var queryFun = function(doc) { emit(doc.foo, null); }
     var rows = db.query(queryFun).rows;
     for (i=0; i<values.length; i++) {
       T(equals(rows[i].key, values[i]))
     }
 
     // everything has collated correctly. Now to check the descending output
-    rows = db.query(queryFun, {descending:true}).rows
+    rows = db.query(queryFun, null, {descending: true}).rows
     for (i=0; i<values.length; i++) {
       T(equals(rows[i].key, values[values.length - 1 -i]))
     }
@@ -563,7 +566,7 @@ var tests = {
     // now check the key query args
     for (i=1; i<values.length; i++) {
       var queryOptions = {key:values[i]}
-      rows = db.query(queryFun, queryOptions).rows;
+      rows = db.query(queryFun, null, queryOptions).rows;
       T(rows.length == 1 && equals(rows[0].key, values[i]))
     }
   },
@@ -600,7 +603,7 @@ var tests = {
 
     var results = dbB.query(function(doc) {
       if (doc._conflicts) {
-        map(doc._id, doc._conflicts);
+        emit(doc._id, doc._conflicts);
       }
     });
     T(results.rows[0].value[0] == conflictRev);
@@ -615,12 +618,16 @@ var tests = {
     var docs = makeDocs(0, 100);
     T(db.bulkSave(docs).ok);
 
-    var queryFun = function(doc) { map(doc.integer, null) };
+    var queryFun = function(doc) { emit(doc.integer, null) };
     var i;
 
     // page through the view ascending and going forward
     for (i = 0; i < docs.length; i += 10) {
-      var queryResults = db.query(queryFun, {startkey:i, startkey_docid:i, count:10});
+      var queryResults = db.query(queryFun, null, {
+        startkey: i,
+        startkey_docid: i,
+        count: 10
+      });
       T(queryResults.rows.length == 10)
       T(queryResults.total_rows == docs.length)
       T(queryResults.offset == i)
@@ -632,8 +639,11 @@ var tests = {
 
     // page through the view ascending and going backward
     for (i = docs.length - 1; i >= 0; i -= 10) {
-      var queryResults = db.query(queryFun, {startkey:i, startkey_docid:i,
-                                             count:-10})
+      var queryResults = db.query(queryFun, null, {
+        startkey: i,
+        startkey_docid: i,
+        count:-10
+      });
       T(queryResults.rows.length == 10)
       T(queryResults.total_rows == docs.length)
       T(queryResults.offset == i - 9)
@@ -645,8 +655,12 @@ var tests = {
 
     // page through the view descending and going forward
     for (i = docs.length - 1; i >= 0; i -= 10) {
-      var queryResults = db.query(queryFun, {startkey:i, startkey_docid:i,
-                                             descending:true, count:10})
+      var queryResults = db.query(queryFun, null, {
+        startkey: i,
+        startkey_docid: i,
+        descending: true,
+        count: 10
+      });
       T(queryResults.rows.length == 10)
       T(queryResults.total_rows == docs.length)
       T(queryResults.offset == docs.length - i - 1)
@@ -658,8 +672,12 @@ var tests = {
 
     // page through the view descending and going backward
     for (i = 0; i < docs.length; i += 10) {
-      var queryResults = db.query(queryFun, {startkey:i, startkey_docid:i,
-                                             descending:true, count:-10});
+      var queryResults = db.query(queryFun, null, {
+        startkey: i,
+        startkey_docid: i,
+        descending: true,
+        count:-10
+      });
       T(queryResults.rows.length == 10)
       T(queryResults.total_rows == docs.length)
       T(queryResults.offset == docs.length - i - 10)
@@ -668,11 +686,15 @@ var tests = {
         T(queryResults.rows[j].key == i + 9 - j);
       }
     }
-    
+
     // ignore decending=false. CouchDB should just ignore that.
     for (i = 0; i < docs.length; i += 10) {
-      var queryResults = db.query(queryFun, {startkey:i, startkey_docid:i, 
-                                             descending:false, count:10});
+      var queryResults = db.query(queryFun, null, {
+        startkey: i,
+        startkey_docid: i,
+        descending: false,
+        count: 10
+      });
       T(queryResults.rows.length == 10)
       T(queryResults.total_rows == docs.length)
       T(queryResults.offset == i)
@@ -695,7 +717,7 @@ var tests = {
     // make sure that attempting to change the document throws an error
     var results = db.query(function(doc) {
       doc._id = "foo";
-      map(null, doc);
+      emit(null, doc);
     });
     T(results.total_rows == 0);
 
@@ -703,18 +725,18 @@ var tests = {
     // garbage collector
     var results = db.query(function(doc) {
       gc();
-      map(null, doc);
+      emit(null, doc);
     });
     T(results.total_rows == 0);
 
     // make sure that a view cannot access the map_funs array defined used by
     // the view server
-    var results = db.query(function(doc) { map_funs.push(1); map(null, doc) });
+    var results = db.query(function(doc) { map_funs.push(1); emit(null, doc) });
     T(results.total_rows == 0);
 
     // make sure that a view cannot access the map_results array defined used by
     // the view server
-    var results = db.query(function(doc) { map_results.push(1); map(null, doc) });
+    var results = db.query(function(doc) { map_results.push(1); emit(null, doc) });
     T(results.total_rows == 0);
   },
 
@@ -730,7 +752,7 @@ var tests = {
     var results = db.query(
       "function(doc) {\n" +
       "  var xml = new XML(doc.content);\n" +
-      "  map(xml.title.text(), null);\n" +
+      "  emit(xml.title.text(), null);\n" +
       "}");
     T(results.total_rows == 2);
     T(results.rows[0].key == "Testing E4X");
@@ -739,7 +761,7 @@ var tests = {
     var results = db.query(
       "function(doc) {\n" +
       "  var xml = new XML(doc.content);\n" +
-      "  map(xml.title.@id, null);\n" +
+      "  emit(xml.title.@id, null);\n" +
       "}");
     T(results.total_rows == 2);
     T(results.rows[0].key == "e4x");
@@ -928,7 +950,7 @@ var tests = {
     var docs = makeDocs(0, 10);
     var saveResult = db.bulkSave(docs);
     T(saveResult.ok);
-    
+
 
     var binAttDoc = {
       _id:"bin_doc",
@@ -941,28 +963,28 @@ var tests = {
     }
 
     T(db.save(binAttDoc).ok);
-    
+
     var originalsize = db.info().disk_size;
-    
+
     for(var i in docs) {
         db.deleteDoc(docs[i]);
     }
     var deletesize = db.info().disk_size;
     T(deletesize > originalsize);
-    
+
     var xhr = CouchDB.request("POST", "/test_suite_db/_compact");
     T(xhr.status == 202);
     //compaction isn't instantaneous, loop until done
     while(db.info().compact_running) {};
-    
-    
+
+
 
     var xhr = CouchDB.request("GET", "/test_suite_db/bin_doc/foo.txt");
     T(xhr.responseText == "This is a base64 encoded text")
     T(xhr.getResponseHeader("content-type") == "text/plain")
-    
+
     var compactedsize = db.info().disk_size;
-    
+
     T(deletesize > originalsize);
     },
     

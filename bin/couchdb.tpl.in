@@ -66,6 +66,8 @@ Usage: $basename [OPTION]
 
 The $basename command runs the %package_name% server.
 
+Erlang inherits the environment of this command.
+
 The exit status is 0 for success or 1 for failure.
 
 The \`-s' option will exit 0 for running and 1 for not running.
@@ -116,11 +118,6 @@ _load_configuration () {
 _get_pid () {
     if test -f $PID_FILE; then
         PID=$(cat $PID_FILE)
-    fi
-    if test -z "$PID"; then
-        # Resort to searching for the running process manually.
-        PID=$(ps auxww | grep erlang | grep -- "couch_server:start()" | \
-            grep -v grep | awk "{print \$2}")
     fi
     echo $PID
 }
@@ -224,9 +221,9 @@ start_couchdb () {
     ini_file_list="[\\\"$INI_FILE\\\"]"
 
     command="`%ICU_CONFIG% --invoke` \
-        %ERL% $interactive_option -sasl errlog_type error \
+        %ERL% $interactive_option -smp auto -sasl errlog_type error \
         -pa %erlanglibdir%/couch-%version%/ebin \
-            %erlanglibdir%/mochiweb-r64/ebin \
+            %erlanglibdir%/mochiweb-r73/ebin \
         -eval \"application:load(inets)\" \
         -eval \"application:load(crypto)\" \
         -eval \"application:load(couch)\" \

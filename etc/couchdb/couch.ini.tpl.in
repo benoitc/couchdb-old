@@ -14,5 +14,4 @@ File=%pkgstatelogdir%/couch.log
 Level=info
 
 [CouchDB Query Servers]
-text/javascript=%bindir%/%couchjs_command_name% %pkgdatadir%/server/main.js
-
+javascript=%bindir%/%couchjs_command_name% %pkgdatadir%/server/main.js
