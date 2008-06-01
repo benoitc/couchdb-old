@@ -1,18 +1,37 @@
--module(couch_ini_writer).
--export([save_change_to_file/2]).
+% Licensed under the Apache License, Version 2.0 (the "License"); you may not
+% use this file except in compliance with the License.  You may obtain a copy of
+% the License at
+%
+%   http://www.apache.org/licenses/LICENSE-2.0
+%
+% Unless required by applicable law or agreed to in writing, software
+% distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+% WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
+% License for the specific language governing permissions and limitations under
+% the License.
 
-save_change_to_file(Config, File) ->
+-module(couch_config_writer).
+-export([save_config/2]).
+
+save_config({{Module, Variable}, Value}, File) ->
+    % open file and create a list of lines
     {ok, Stream} = file:read_file(File),
     {ok, Lines} = regexp:split(binary_to_list(Stream), "\r\n|\n|\r|\032"),
     
-    NewFileContents = save_loop(Config, Lines, "", "", []),
+    % prepare input variables
+    ModuleName = "[" ++ atom_to_list(Module) ++ "]",
+    VariableList = atom_to_list(Variable),
     
+    % produce the contents for the config file
+    NewFileContents = save_loop({{ModuleName, VariableList}, Value}, Lines, "", "", []),
+    
+    % do the save, close the config file and get out
     save_file(File, NewFileContents),
     file:close(Stream),
     ok.
     
 save_loop({{Module, Variable}, Value}, [Line|Rest], OldCurrentModule, Contents, DoneVariables) ->
-    
+
     % if we find a new [ini section] (Module), save that for reference
     NewCurrentModule = parse_module(Line, OldCurrentModule),
 
@@ -70,7 +89,7 @@ parse_module(Line, OldModule) ->
         {match, Start, Length} ->
             string:substr(Line, Start, Length)
     end.
-    
+
 parse_variable(Line, Variable, Value) ->
     case regexp:match(Line, "^" ++ Variable ++ "=") of
         nomatch ->
@@ -81,7 +100,6 @@ parse_variable(Line, Variable, Value) ->
         {match, _Start, _Length} ->
             Variable ++ "=" ++ Value
     end.
-            
-    
+
 save_file(File, Contents) ->
     file:write_file(File, list_to_binary(Contents)).

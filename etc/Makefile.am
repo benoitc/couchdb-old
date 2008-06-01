@@ -40,7 +40,7 @@ default/couchdb: default/couchdb.tpl
 	        mkdir default; \
 	    fi \
 	fi
-	sed -r -e "s|%configure_input%|$@. Generated from $< by configure.|" \
+	sed -E -e "s|%configure_input%|$@. Generated from $< by configure.|" \
 	       -e "s|%pkgconfdir%|@pkgconfdir@|g" \
 	       -e "s|%sysconfdir%|@sysconfdir@|" \
 	       -e "s|%localstatedir%|@localstatedir@|" \
@@ -55,7 +55,7 @@ init/couchdb: init/couchdb.tpl
 	        mkdir init; \
 	    fi \
 	fi
-	sed -r -e "s|%configure_input%|$@. Generated from $< by configure.|" \
+	sed -E -e "s|%configure_input%|$@. Generated from $< by configure.|" \
 	       -e "s|%bindir%|@bindir@|" \
 	       -e "s|%sysconfdir%|@sysconfdir@|" \
 	       -e "s|%erlangbindir%|@erlangbindir@|" \
@@ -74,7 +74,7 @@ launchd/org.apache.couchdb.plist: launchd/org.apache.couchdb.plist.tpl
 	        mkdir launchd; \
 	    fi \
 	fi
-	sed -r -e "s|%configure_input%|$@. Generated from $< by configure.|" \
+	sed -E -e "s|%configure_input%|$@. Generated from $< by configure.|" \
 	       -e "s|%bindir%|@bindir@|" \
 	       -e "s|%couchdb_command_name%|$(couchdb_command_name)|" \
 	       -e "s|([^:])/+|\1/|g" \

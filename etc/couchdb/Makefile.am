@@ -22,7 +22,7 @@ couchjs_command_name = `echo couchjs | sed '$(transform)'`
 couchprivlibdir = $(erlanglibdir)/couch-$(version)/priv/lib
 
 couch.ini: couch.ini.tpl
-	sed -r -e "s|%bindir%|@bindir@|g" \
+	sed -E -e "s|%bindir%|@bindir@|g" \
 	       -e "s|%pkgconfdir%|@pkgconfdir@|g" \
 	       -e "s|%pkgdatadir%|@pkgdatadir@|g" \
 	       -e "s|%pkgstatelibdir%|@pkgstatelibdir@|g" \

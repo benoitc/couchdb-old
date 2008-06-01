@@ -118,6 +118,8 @@ start_server() ->
     StartResult = (catch supervisor:start_link(
         {local, couch_server_sup}, couch_server_sup, ChildProcesses)),
 
+    io:format("start result: '~p'", [StartResult]),
+
     case StartResult of
     {ok,_} ->
         % only output when startup was successful

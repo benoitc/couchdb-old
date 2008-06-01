@@ -106,6 +106,8 @@ handle_request0(Req, DocumentRoot, Method, Path) ->
             {ok, Req:respond({301, [{"Location", "/_utils/"}], <<>>})};
         "/_utils/" ++ PathInfo ->
             {ok, Req:serve_file(PathInfo, DocumentRoot)};
+        "/_config/" ++ Config ->
+            handle_config_request(Req, Method, {config, Config});
         "/_" ++ _Path ->
             throw({not_found, unknown_private_path});
         "/favicon.ico" ->

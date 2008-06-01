@@ -34,18 +34,14 @@ lookup_match(Key) -> gen_server:call(?MODULE, {lookup_match, Key}).
 lookup_match(Key, Default) -> gen_server:call(?MODULE, {lookup_match, Key, Default}).
 dump() -> gen_server:call(?MODULE, {dump, []}).
 
-
 unset(Key) -> gen_server:call(?MODULE, {unset, Key}).
-
 
 init([]) ->     
     Tap = ets:new(?MODULE, []),
     {ok, Tap}.
 
-
 handle_call({store, Config}, _From, Tab) ->
-    [ets:insert(Tab, {Key, Value}) || {Key, Value} <- Config],
-    commit(Config),
+    [insert_and_commit(Tab, Config2) || Config2 <- Config],
     {reply, ok, Tab};
 
 handle_call({init_value, Key, Value}, _From, Tab) ->
@@ -72,8 +68,6 @@ handle_call({dump, []}, _From, Tab) ->
     io:format("~p~n", [ets:match(Tab, '$1')]),
     {reply, ok, Tab}.
 
-
-
 lookup(Key, Fun, Default, Tab) ->
     Reply = case Fun(Tab, Key) of
         [{Key, Value}] ->
@@ -85,9 +79,17 @@ lookup(Key, Fun, Default, Tab) ->
     end,
     {reply, Reply, Tab}.
 
-commit(Config) ->
-    couch_config_writer:save_config(Config, ?MODULE:lookup({"_CouchDB", "ConfigurationStorageFile"})),
-    ok.
+insert_and_commit(Tab, Config) ->
+    {reply, File, _Tab} = 
+        lookup({"_CouchDB", "ConfigurationStorageFile"}, 
+            fun(Tab_, Key_) -> ets:lookup(Tab_, Key_) end, 
+            null, Tab
+        ),
+    ets:insert(Tab, Config),
+    commit(Config, File).
+
+commit(Config, File) ->
+    couch_config_writer:save_config(Config, File).
 
 handle_cast(_Msg, State) -> {noreply, State}.
 handle_info(_Msg, State) -> {noreply, State}.
@@ -95,13 +97,12 @@ terminate(_Reason, _State) -> ok.
 code_change(_OldVersion, State, _Extra) -> {ok, State}.
 
 load_ini_files(IniFiles) ->
-    % load all ini files in the order they come in.
-    lists:foreach(fun(IniFile) -> load_ini_file(IniFile) end, IniFiles),
-    
     % store the name of the last ini file for storing changes made at runtime
     [LastIniFile|_] = lists:reverse(IniFiles),
-    couch_config:init_value({"_CouchDB", "ConfigurationStorageFile"}, LastIniFile).
+    couch_config:init_value({"_CouchDB", "ConfigurationStorageFile"}, LastIniFile),
 
+    % load all ini files in the order they come in.
+    lists:foreach(fun(IniFile) -> load_ini_file(IniFile) end, IniFiles).
 
 load_ini_file(IniFile) ->
     IniFilename = couch_util:abs_pathname(IniFile),

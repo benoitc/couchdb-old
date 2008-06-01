@@ -1038,35 +1038,35 @@ var tests = {
     if(debug) debugger;
     var xhr;
 
-    xhr = CouchDB.request("GET", "/_config/HTTPd/Port");
+    xhr = CouchDB.request("GET", "/_config/CouchDB/ConsoleStartupMsg");
     T(xhr.status == 200);
     T(JSON.parse(xhr.responseText).ok);
 
-    xhr = CouchDB.request("POST", "/_config/HTTPd/Port", {"body":"5985"});
+    xhr = CouchDB.request("POST", "/_config/CouchDB/ConsoleStartupMsg", {"body":"CouchDB is awesome."});
     T(xhr.status == 200);
     var res = JSON.parse(xhr.responseText);
     T(res.ok);
-    T(res.value == "5985");
+    T(res.value == "CouchDB is awesome.");
 
-    xhr = CouchDB.request("GET", "/_config/HTTPd/Port");
+    xhr = CouchDB.request("GET", "/_config/CouchDB/ConsoleStartupMsg");
     T(xhr.status == 200);
     var res = JSON.parse(xhr.responseText);
     T(res.ok);
-    T(res.value == "5985");
+    T(res.value == "CouchDB is awesome.");
 
-    xhr = CouchDB.request("DELETE", "/_config/HTTPd/Port");
+    xhr = CouchDB.request("DELETE", "/_config/CouchDB/ConsoleStartupMsg");
     T(xhr.status == 200);
     var res = JSON.parse(xhr.responseText);
     T(res.ok);
-    T(res.old_value == "5985");
+    T(res.old_value == "CouchDB is awesome.");
 
-    xhr = CouchDB.request("PUT", "/_config/HTTPd/Port", {"body":"5984"});
+    xhr = CouchDB.request("PUT", "/_config/CouchDB/ConsoleStartupMsg", {"body":"Apache CouchDB is starting."});
     T(xhr.status == 200);
     var res = JSON.parse(xhr.responseText);
     T(res.ok);
-    T(res.value == "5984");
-    }
-  };
+    T(res.value == "Apache CouchDB is starting.");
+  }
+};
 
 function makeDocs(start, end, templateDoc) {
   var templateDocSrc = templateDoc ? templateDoc.toSource() : "{}"
