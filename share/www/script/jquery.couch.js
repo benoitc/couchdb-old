@@ -20,8 +20,8 @@
         type: "GET", url: "/_all_dbs",
         complete: function(req) {
           var resp = $.httpData(req, "json");
-          if (req.status == 200 && options.success) {
-            options.success(resp);
+          if (req.status == 200) {
+            if (options.success) options.success(resp);
           } else if (options.error) {
             options.error(req.status, resp.error, resp.reason);
           } else {
@@ -40,11 +40,13 @@
         compact: function(options) {
           options = options || {};
           $.ajax({
-            type: "POST", url: this.uri + "_compact", dataType: "json",
+            type: "POST", url: this.uri + "_compact",
+            contentType: "application/json",
+            dataType: "json", data: "", processData: false, 
             complete: function(req) {
               var resp = $.httpData(req, "json");
-              if (req.status == 202 && options.success) {
-                options.success(resp);
+              if (req.status == 202) {
+                if (options.success) options.success(resp);
               } else if (options.error) {
                 options.error(req.status, resp.error, resp.reason);
               } else {
@@ -56,11 +58,12 @@
         create: function(options) {
           options = options || {};
           $.ajax({
-            type: "PUT", url: this.uri, dataType: "json",
+            type: "PUT", url: this.uri, contentType: "application/json",
+            dataType: "json", data: "", processData: false, 
             complete: function(req) {
               var resp = $.httpData(req, "json");
-              if (req.status == 201 && options.success) {
-                options.success(resp);
+              if (req.status == 201) {
+                if (options.success) options.success(resp);
               } else if (options.error) {
                 options.error(req.status, resp.error, resp.reason);
               } else {
@@ -75,8 +78,8 @@
             type: "DELETE", url: this.uri, dataType: "json",
             complete: function(req) {
               var resp = $.httpData(req, "json");
-              if (req.status == 202 && options.success) {
-                options.success(resp);
+              if (req.status == 200) {
+                if (options.success) options.success(resp);
               } else if (options.error) {
                 options.error(req.status, resp.error, resp.reason);
               } else {
@@ -91,8 +94,8 @@
             type: "GET", url: this.uri, dataType: "json",
             complete: function(req) {
               var resp = $.httpData(req, "json");
-              if (req.status == 200 && options.success) {
-                options.success(resp);
+              if (req.status == 200) {
+                if (options.success) options.success(resp);
               } else  if (options.error) {
                 options.error(req.status, resp.error, resp.reason);
               } else {
@@ -109,8 +112,8 @@
             dataType: "json",
             complete: function(req) {
               var resp = $.httpData(req, "json");
-              if (req.status == 200 && options.success) {
-                options.success(resp);
+              if (req.status == 200) {
+                if (options.success) options.success(resp);
               } else if (options.error) {
                 options.error(req.status, resp.error, resp.reason);
               } else {
@@ -128,8 +131,8 @@
             dataType: "json",
             complete: function(req) {
               var resp = $.httpData(req, "json");
-              if (req.status == 200 && options.success) {
-                options.success(resp);
+              if (req.status == 200) {
+                if (options.success) options.success(resp);
               } else if (options.error) {
                 options.error(req.status, resp.error, resp.reason);
               } else {
@@ -149,14 +152,14 @@
           }
           $.ajax({
             type: method, url: uri + encodeOptions(options),
-            dataType: "json", data: toJSON(doc),
             contentType: "application/json",
+            dataType: "json", data: toJSON(doc),
             complete: function(req) {
               var resp = $.httpData(req, "json")
               doc._id = resp.id;
               doc._rev = resp.rev;
-              if (req.status == 201 && options.success) {
-                options.success(resp);
+              if (req.status == 201) {
+                if (options.success) options.success(resp);
               } else if (options.error) {
                 options.error(req.status, resp.error, resp.reason);
               } else {
@@ -173,8 +176,8 @@
             dataType: "json",
             complete: function(req) {
               var resp = $.httpData(req, "json");
-              if (req.status == 202 && options.success) {
-                options.success(resp);
+              if (req.status == 200) {
+                if (options.success) options.success(resp);
               } else if (options.error) {
                 options.error(req.status, resp.error, resp.reason);
               } else {
@@ -201,8 +204,8 @@
             data: toJSON(body), dataType: "json",
             complete: function(req) {
               var resp = $.httpData(req, "json");
-              if (req.status == 200 && options.success) {
-                options.success(resp);
+              if (req.status == 200) {
+                if (options.success) options.success(resp);
               } else if (options.error) {
                 options.error(req.status, resp.error, resp.reason);
               } else {
@@ -218,8 +221,8 @@
             dataType: "json",
             complete: function(req) {
               var resp = $.httpData(req, "json");
-              if (req.status == 200 && options.success) {
-                options.success(resp);
+              if (req.status == 200) {
+                if (options.success) options.success(resp);
               } else if (options.error) {
                 options.error(req.status, resp.error, resp.reason);
               } else {
@@ -237,8 +240,8 @@
         type: "GET", url: "/", dataType: "json",
         complete: function(req) {
           var resp = $.httpData(req, "json");
-          if (req.status == 200 && options.success) {
-            options.success(resp);
+          if (req.status == 200) {
+            if (options.success) options.success(resp);
           } else if (options.error) {
             options.error(req.status, resp.error, resp.reason);
           } else {
@@ -256,8 +259,8 @@
         contentType: "application/json",
         complete: function(req) {
           var resp = $.httpData(req, "json");
-          if (req.status == 200 && options.success) {
-            options.success(resp);
+          if (req.status == 200) {
+            if (options.success) options.success(resp);
           } else if (options.error) {
             options.error(req.status, resp.error, resp.reason);
           } else {

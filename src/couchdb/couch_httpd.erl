@@ -15,6 +15,9 @@
 
 -export([start_link/0, stop/0, handle_request/2]).
 
+% Maximum size of document PUT request body (4GB)
+-define(MAX_DOC_SIZE, (4*1024*1024*1024)).
+
 -record(doc_query_args, {
     options = [],
     rev = "",
@@ -52,7 +55,6 @@ stop() ->
     mochiweb_http:stop(?MODULE).
 
 handle_request(Req, DocumentRoot) ->
-
     % alias HEAD to GET as mochiweb takes care of stripping the body
     Method = case Req:get(method) of
         'HEAD' -> 'GET';
@@ -63,10 +65,12 @@ handle_request(Req, DocumentRoot) ->
     % removed, but URL quoting left intact
     {Path, _, _} = mochiweb_util:urlsplit_path(Req:get(raw_path)),
 
-    ?LOG_DEBUG("Version:     ~p", [Req:get(version)]),
-    ?LOG_DEBUG("Method:      ~p", [Method]),
-    ?LOG_DEBUG("Request URI: ~p", [Path]),
-    ?LOG_DEBUG("Headers: ~p", [mochiweb_headers:to_list(Req:get(headers))]),
+    ?LOG_DEBUG("~s ~s ~p~nHeaders: ~p", [
+        atom_to_list(Req:get(method)),
+        Path,
+        Req:get(version),
+        mochiweb_headers:to_list(Req:get(headers))
+    ]),
 
     {ok, Resp} = case catch(handle_request(Req, DocumentRoot, Method, Path)) of
         {ok, Resp0} ->
@@ -93,18 +97,25 @@ handle_request0(Req, DocumentRoot, Method, Path) ->
             handle_welcome_request(Req, Method);
         "/_all_dbs" ->
             handle_all_dbs_request(Req, Method);
-        "/favicon.ico" ->
-            {ok, Req:serve_file("favicon.ico", DocumentRoot)};
         "/_replicate" ->
             handle_replicate_request(Req, Method);
+        "/_restart" ->
+            handle_restart_request(Req, Method);
         "/_utils" ->
             {ok, Req:respond({301, [{"Location", "/_utils/"}], <<>>})};
         "/_utils/" ++ PathInfo ->
             {ok, Req:serve_file(PathInfo, DocumentRoot)};
+<<<<<<< .working
         "/_config/" ++ Config ->
             handle_config_request(Req, Method, {config, Config});
         "/_" ++ UnknownPrivatePath ->
             handle_unkown_private_uri_request(Req, Method, UnknownPrivatePath);
+=======
+        "/_" ++ _Path ->
+            throw({not_found, unknown_private_path});
+        "/favicon.ico" ->
+            {ok, Req:serve_file("favicon.ico", DocumentRoot)};
+>>>>>>> .merge-right.r660315
         _Else ->
             handle_db_request(Req, Method, {Path})
     end.
@@ -138,17 +149,12 @@ handle_replicate_request(Req, 'POST') ->
 handle_replicate_request(_Req, _Method) ->
     throw({method_not_allowed, "POST"}).
 
-handle_unkown_private_uri_request(Req, _Method, UnknownPrivatePath) ->
-  KnownPrivatePaths = ["_utils"],
-  Msg = {obj,
-    [
-      {error, "Could not find the private path '_" ++
-        mochiweb_util:unquote(UnknownPrivatePath) ++
-        "'. Known private path(s): '" ++
-        lists:flatten(KnownPrivatePaths) ++ "'"}
-    ]
-  },
-  send_error(Req, 404, Msg).
+handle_restart_request(Req, 'POST') ->
+    couch_server:remote_restart(),
+    send_json(Req, {obj, [{ok, true}]});
+
+handle_restart_request(_Req, _Method) ->
+    throw({method_not_allowed, "POST"}).
 
 % Database request handlers
 
@@ -179,7 +185,7 @@ handle_db_request(Req, Method, {DbName, Rest}) ->
 
 handle_db_request(Req, 'DELETE', {DbName, _Db, []}) ->
     ok = couch_server:delete(DbName),
-    send_json(Req, 202, {obj, [
+    send_json(Req, 200, {obj, [
         {ok, true}
     ]});
 
@@ -361,7 +367,7 @@ handle_db_request(Req, 'GET', {DbName, _Db, ["_view", DocId, ViewName]}) ->
         direction = Dir,
         start_docid = StartDocId,
         end_docid = EndDocId
-        } = QueryArgs = parse_view_query(Req),
+    } = QueryArgs = parse_view_query(Req),
     case couch_view:get_map_view({DbName, "_design/" ++ DocId, ViewName}) of
     {ok, View} ->
         {ok, RowCount} = couch_view:get_row_count(View),
@@ -391,6 +397,14 @@ handle_db_request(Req, 'POST', {_DbName, Db, ["_missing_revs"]}) ->
     JsonResults = [{Id, list_to_tuple(Revs)} || {Id, Revs} <- Results],
     send_json(Req, {obj, [
         {missing_revs, {obj, JsonResults}}
+    ]});
+
+handle_db_request(Req, 'POST', {_DbName, Db, ["_increment_update_seq"]}) ->
+    % NOTE, use at own risk. This functionality is experimental
+    % and might go away entirely.
+    {ok, NewSeq} = couch_db:increment_update_seq(Db),
+    send_json(Req, {obj, [{ok, true},
+        {update_seq, NewSeq}
     ]});
 
 handle_db_request(Req, 'POST', {DbName, _Db, ["_temp_view"]}) ->
@@ -466,7 +480,7 @@ handle_doc_request(Req, 'DELETE', _DbName, Db, DocId) ->
         throw({bad_request, "Document rev and etag have different values"})
     end,
     {ok, NewRev} = couch_db:delete_doc(Db, DocId, [RevToDelete]),
-    send_json(Req, 202, {obj, [
+    send_json(Req, 200, {obj, [
         {ok, true},
         {id, DocId},
         {rev, NewRev}
@@ -481,31 +495,30 @@ handle_doc_request(Req, 'GET', _DbName, Db, DocId) ->
     case Revs of
     [] ->
         case Rev of
-        "" ->
-            % open most recent rev
+        "" -> % open most recent rev
             case couch_db:open_doc(Db, DocId, Options) of
-            {ok, #doc{revs=[DocRev|_]}=Doc} ->
-                Etag = none_match(Req, DocRev),
-                JsonDoc = couch_doc:to_json_obj(Doc, Options),
-                AdditionalHeaders =
-                    case Doc#doc.meta of
-                    [] -> [{"Etag", Etag}]; % output etag when we have no meta
-                    _ -> []
-                    end,
-                send_json(Req, 200, AdditionalHeaders, JsonDoc);
-            Error ->
-                throw(Error)
+                {ok, #doc{revs=[DocRev|_]}=Doc} ->
+                    true;
+                Error ->
+                    Doc = DocRev = undefined,
+                    throw(Error)
             end;
-        _ ->
-            % open a specific rev (deletions come back as stubs)
+        _ -> % open a specific rev (deletions come back as stubs)
             case couch_db:open_doc_revs(Db, DocId, [Rev], Options) of
-            {ok, [{ok, Doc}]} ->
-                send_json(Req, 200, [],
-                          couch_doc:to_json_obj(Doc, Options));
-            {ok, [Else]} ->
-                throw(Else)
+                {ok, [{ok, Doc}]} ->
+                    DocRev = Rev;
+                {ok, [Else]} ->
+                    Doc = DocRev = undefined,
+                    throw(Else)
             end
-        end;
+        end,
+        Etag = none_match(Req, DocRev),
+        AdditionalHeaders = case Doc#doc.meta of
+            [] -> [{"Etag", Etag}]; % output etag when we have no meta
+            _ -> []
+        end,
+        JsonDoc = couch_doc:to_json_obj(Doc, Options),
+        send_json(Req, 200, AdditionalHeaders, JsonDoc);
     _ ->
         {ok, Results} = couch_db:open_doc_revs(Db, DocId, Revs, Options),
         Resp = start_json_response(Req, 200),
@@ -532,7 +545,7 @@ handle_doc_request(Req, 'GET', _DbName, Db, DocId) ->
     end;
 
 handle_doc_request(Req, 'PUT', _DbName, Db, DocId) ->
-    Json = {obj, DocProps} = cjson:decode(Req:recv_body()),
+    Json = {obj, DocProps} = cjson:decode(Req:recv_body(?MAX_DOC_SIZE)),
     DocRev = proplists:get_value("_rev", DocProps),
     Etag = case Req:get_header_value("If-Match") of
         undefined ->
