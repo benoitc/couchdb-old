@@ -106,17 +106,10 @@ handle_request0(Req, DocumentRoot, Method, Path) ->
             {ok, Req:respond({301, [{"Location", "/_utils/"}], <<>>})};
         "/_utils/" ++ PathInfo ->
             {ok, Req:serve_file(PathInfo, DocumentRoot)};
-<<<<<<< .working
-        "/_config/" ++ Config ->
-            handle_config_request(Req, Method, {config, Config});
-        "/_" ++ UnknownPrivatePath ->
-            handle_unkown_private_uri_request(Req, Method, UnknownPrivatePath);
-=======
         "/_" ++ _Path ->
             throw({not_found, unknown_private_path});
         "/favicon.ico" ->
             {ok, Req:serve_file("favicon.ico", DocumentRoot)};
->>>>>>> .merge-right.r660315
         _Else ->
             handle_db_request(Req, Method, {Path})
     end.
