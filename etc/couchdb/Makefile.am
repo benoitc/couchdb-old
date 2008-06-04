@@ -28,11 +28,11 @@ abs_pkgstatelibdir = $(abspath $(pkgstatelibdir))
 abs_pkgstatelogdir = $(abspath $(pkgstatelogdir))
 
 couch.ini: couch.ini.tpl
-	sed -E -e "s|%bindir%|$(abs_bindir)|g" \
-	       -e "s|%pkgconfdir%|$(abs_pkgconfdir)|g" \
-	       -e "s|%pkgdatadir%|$(abs_pkgdatadir)|g" \
-	       -e "s|%pkgstatelibdir%|$(abs_pkgstatelibdir)|g" \
-	       -e "s|%pkgstatelogdir%|$(abs_pkgstatelogdir)|g" \
-	       -e "s|%couchprivlibdir%|$(couchprivlibdir)|g" \
-	       -e "s|%couchjs_command_name%|$(couchjs_command_name)|g" \
+	sed -e "s|%bindir%|$(abs_bindir)|g" \
+	    -e "s|%pkgconfdir%|$(abs_pkgconfdir)|g" \
+	    -e "s|%pkgdatadir%|$(abs_pkgdatadir)|g" \
+	    -e "s|%pkgstatelibdir%|$(abs_pkgstatelibdir)|g" \
+	    -e "s|%pkgstatelogdir%|$(abs_pkgstatelogdir)|g" \
+	    -e "s|%couchprivlibdir%|$(couchprivlibdir)|g" \
+	    -e "s|%couchjs_command_name%|$(couchjs_command_name)|g" \
 	< $< > $@

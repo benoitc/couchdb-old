@@ -46,10 +46,10 @@ default/couchdb: default/couchdb.tpl
 	        mkdir default; \
 	    fi \
 	fi
-	sed -E -e "s|%configure_input%|$@. Generated from $< by configure.|" \
-	       -e "s|%pkgconfdir%|$(abs_pkgconfdir)|g" \
-	       -e "s|%sysconfdir%|$(abs_sysconfdir)|" \
-	       -e "s|%localstatedir%|$(abs_localstatedir)|" \
+	sed -e "s|%configure_input%|$@. Generated from $< by configure.|" \
+	    -e "s|%pkgconfdir%|$(abs_pkgconfdir)|g" \
+	    -e "s|%sysconfdir%|$(abs_sysconfdir)|" \
+	    -e "s|%localstatedir%|$(abs_localstatedir)|" \
 	< $< > $@
 
 init/couchdb: init/couchdb.tpl
@@ -60,11 +60,11 @@ init/couchdb: init/couchdb.tpl
 	        mkdir init; \
 	    fi \
 	fi
-	sed -E -e "s|%configure_input%|$@. Generated from $< by configure.|" \
-	       -e "s|%bindir%|$(abs_bindir)|" \
-	       -e "s|%sysconfdir%|$(abs_sysconfdir)|" \
-	       -e "s|%erlangbindir%|$(abs_erlangbindir)|" \
-	       -e "s|%couchdb_command_name%|$(couchdb_command_name)|" \
+	sed -e "s|%configure_input%|$@. Generated from $< by configure.|" \
+	    -e "s|%bindir%|$(abs_bindir)|" \
+	    -e "s|%sysconfdir%|$(abs_sysconfdir)|" \
+	    -e "s|%erlangbindir%|$(abs_erlangbindir)|" \
+	    -e "s|%couchdb_command_name%|$(couchdb_command_name)|" \
 	< $< > $@
 
 logrotate.d/couchdb: logrotate.d/couchdb.tpl
@@ -78,9 +78,9 @@ launchd/org.apache.couchdb.plist: launchd/org.apache.couchdb.plist.tpl
 	        mkdir launchd; \
 	    fi \
 	fi
-	sed -E -e "s|%configure_input%|$@. Generated from $< by configure.|" \
-	       -e "s|%bindir%|$(abs_bindir)|" \
-	       -e "s|%couchdb_command_name%|$(couchdb_command_name)|" \
+	sed -e "s|%configure_input%|$@. Generated from $< by configure.|" \
+	    -e "s|%bindir%|$(abs_bindir)|" \
+	    -e "s|%couchdb_command_name%|$(couchdb_command_name)|" \
 	< $< > $@
 
 install-data-hook:
