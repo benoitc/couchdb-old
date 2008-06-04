@@ -19,8 +19,8 @@ save_config({{Module, Variable}, Value}, File) ->
     {ok, Lines} = regexp:split(binary_to_list(Stream), "\r\n|\n|\r|\032"),
     
     % prepare input variables
-    ModuleName = "[" ++ atom_to_list(Module) ++ "]",
-    VariableList = atom_to_list(Variable),
+    ModuleName = "[" ++ Module ++ "]",
+    VariableList = Variable,
     
     % produce the contents for the config file
     NewFileContents = save_loop({{ModuleName, VariableList}, Value}, Lines, "", "", []),

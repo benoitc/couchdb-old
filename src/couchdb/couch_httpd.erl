@@ -13,7 +13,7 @@
 -module(couch_httpd).
 -include("couch_db.hrl").
 
--export([start_link/0, stop/0, handle_request/2]).
+-export([start_link/0, stop/0, handle_request/1, handle_request/2]).
 
 % Maximum size of document PUT request body (4GB)
 -define(MAX_DOC_SIZE, (4*1024*1024*1024)).
@@ -39,11 +39,21 @@
 }).
 
 start_link() ->
-    % read config
-    BindAddress = couch_config:lookup({"HTTPd", "BindAddress"}),
-    Port = couch_config:lookup({"HTTPd", "Port"}),
-    DocumentRoot = couch_config:lookup({"HTTPd", "DocumentRoot"}),
+
+    % read config and register for configuration changes
     
+    % just stop if one of the config settings change. couch_server_sup
+    % will restart us and then we will pick up the new settings.
+    ConfigChangeCallbackFunction =  fun() -> couch_httpd:stop() end,
+    
+    BindAddress = couch_config:lookup_and_register(
+        {"HTTPd", "BindAddress"}, ConfigChangeCallbackFunction),
+    Port = couch_config:lookup_and_register(
+        {"HTTPd", "Port"}, ConfigChangeCallbackFunction),
+    DocumentRoot = couch_config:lookup_and_register(
+        {"HTTPd", "DocumentRoot"}, ConfigChangeCallbackFunction),
+    
+    % and off we go
     Loop = fun (Req) -> apply(couch_httpd, handle_request, [Req, DocumentRoot]) end,
     mochiweb_http:start([
         {loop, Loop},
@@ -54,6 +64,9 @@ start_link() ->
 
 stop() ->
     mochiweb_http:stop(?MODULE).
+
+handle_request(config_change) ->
+    stop().
 
 handle_request(Req, DocumentRoot) ->
     % alias HEAD to GET as mochiweb takes care of stripping the body
@@ -649,7 +662,7 @@ handle_attachment_request(_Req, _Method, _DbName, _Db, _DocId, _FileName) ->
 
 handle_config_request(_Req, Method, {config, Config}) ->
     [Module, Key] = string:tokens(Config, "/"),
-    handle_config_request(_Req, Method, {[list_to_atom(Module), list_to_atom(Key)]});
+    handle_config_request(_Req, Method, {[Module, Key]});
 
 
 % PUT /_config/Module/Key

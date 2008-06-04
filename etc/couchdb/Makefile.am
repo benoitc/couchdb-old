@@ -28,7 +28,7 @@ abs_pkgstatelibdir = $(abspath $(pkgstatelibdir))
 abs_pkgstatelogdir = $(abspath $(pkgstatelogdir))
 
 couch.ini: couch.ini.tpl
-	sed -r -e "s|%bindir%|$(abs_bindir)|g" \
+	sed -E -e "s|%bindir%|$(abs_bindir)|g" \
 	       -e "s|%pkgconfdir%|$(abs_pkgconfdir)|g" \
 	       -e "s|%pkgdatadir%|$(abs_pkgdatadir)|g" \
 	       -e "s|%pkgstatelibdir%|$(abs_pkgstatelibdir)|g" \

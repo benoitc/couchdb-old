@@ -14,7 +14,7 @@
 -behaviour(gen_server).
 -behaviour(application).
 
--export([start/0,start/1,start/2,stop/0,stop/1]).
+-export([start/0,start/1,start/2,stop/0,stop/1,restart/0]).
 -export([open/1,create/2,delete/1,all_databases/0,get_version/0]).
 -export([init/1, handle_call/3,sup_start_link/0]).
 -export([handle_cast/2,code_change/3,handle_info/2,terminate/2]).
@@ -37,6 +37,10 @@ start(IniFiles) ->
 start(_Type, _Args) ->
     start().
 
+restart() ->
+    stop(),
+    start().
+    
 stop() ->
     couch_server_sup:stop().
 

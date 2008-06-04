@@ -16,29 +16,34 @@
 -define(DEFAULT_INI, "couch.ini").
 
 -behaviour(gen_server).
--export([start_link/0, init/1   , 
+-export([start_link/0, init/1, stop/0,
     handle_call/3, handle_cast/2, handle_info/2, 
     terminate/2, code_change/3]).
--export([store/2, 
+-export([store/2, register/2, lookup_and_register/2,
     lookup/1, lookup/2, lookup_match/1, lookup_match/2, dump/0,
     init_value/2, unset/1, load_ini_file/1, 
     load_ini_files/1]).
 
 start_link() -> gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).    
 
+stop() ->
+    ok.
+
 init_value(Key, Value) -> gen_server:call(?MODULE, {init_value, Key, Value}).
 store(Key, Value) -> gen_server:call(?MODULE, {store, [{Key, Value}]}).
 lookup(Key) -> gen_server:call(?MODULE, {lookup, Key}).
 lookup(Key, Default) -> gen_server:call(?MODULE, {lookup, Key, Default}).
+lookup_and_register(Key, CallbackFunction) -> gen_server:call(?MODULE, {lookup_and_register, Key, CallbackFunction}).
 lookup_match(Key) -> gen_server:call(?MODULE, {lookup_match, Key}).
 lookup_match(Key, Default) -> gen_server:call(?MODULE, {lookup_match, Key, Default}).
 dump() -> gen_server:call(?MODULE, {dump, []}).
+register(Key, Fun) -> gen_server:call(?MODULE, {register, Key, Fun}).
 
 unset(Key) -> gen_server:call(?MODULE, {unset, Key}).
 
 init([]) ->     
-    Tap = ets:new(?MODULE, []),
-    {ok, Tap}.
+    Tab = ets:new(?MODULE, [set]),
+    {ok, Tab}.
 
 handle_call({store, Config}, _From, Tab) ->
     [insert_and_commit(Tab, Config2) || Config2 <- Config],
@@ -54,10 +59,14 @@ handle_call({unset, Key}, _From, Tab) ->
 
 handle_call({lookup, Key}, _From, Tab) ->
     lookup(Key, fun(Tab_, Key_) -> ets:lookup(Tab_, Key_) end, null, Tab);
-
+    
 handle_call({lookup, Key, Default}, _From, Tab) ->
     lookup(Key, fun(Tab_, Key_) -> ets:lookup(Tab_, Key_) end, Default, Tab);
 
+handle_call({lookup_and_register, Key, CallbackFunction}, _From, Tab) ->
+    ?MODULE:handle_call({register, Key, CallbackFunction}, _From, Tab),
+    lookup(Key, fun(Tab_, Key_) -> ets:lookup(Tab_, Key_) end, null, Tab);
+    
 handle_call({lookup_match, Key}, _From, Tab) ->
     lookup(Key, fun(Tab_, Key_) -> ets:match(Tab_, Key_) end, null, Tab);
 
@@ -66,7 +75,29 @@ handle_call({lookup_match, Key, Default}, _From, Tab) ->
 
 handle_call({dump, []}, _From, Tab) ->
     io:format("~p~n", [ets:match(Tab, '$1')]),
+    {reply, ok, Tab};
+    
+handle_call({register, Key, Fun}, From, Tab) ->
+    io:format("registered for '~p' '", [Key]),
+    ets:insert(Tab, {{"_CouchDB", Key}, {From, Fun}}),
     {reply, ok, Tab}.
+
+notify_registered_modules(Tab, {{Module, Variable}, _Value}) ->
+    % ModuleName = atom_to_list(Module),
+    % VariableName = atom_to_list(Variable),
+    Look = ets:lookup(Tab, {"_CouchDB", {Module, Variable}}),
+    io:format("looked for '~p' and got '~p'~n", [{Module, Variable}, Look]),
+    
+    case Look of
+        % found
+        [{{"_CouchDB", {Module, Variable}}, {_From, Fun}}] ->
+            io:format("got it '~p'~n", [ets:lookup(Tab, {Module, Variable})]),
+            Fun();
+        _ -> % not found
+            io:format("not it~n", []),
+            ok
+    end.
+            
 
 lookup(Key, Fun, Default, Tab) ->
     Reply = case Fun(Tab, Key) of
@@ -80,12 +111,18 @@ lookup(Key, Fun, Default, Tab) ->
     {reply, Reply, Tab}.
 
 insert_and_commit(Tab, Config) ->
+    ets:insert(Tab, Config),
+    {Key, _Value} = Config,
+    io:format("just inserted '~p' and now it is '~p~n", [Config, ets:lookup(Tab, Key)]),
     {reply, File, _Tab} = 
         lookup({"_CouchDB", "ConfigurationStorageFile"}, 
             fun(Tab_, Key_) -> ets:lookup(Tab_, Key_) end, 
             null, Tab
         ),
-    ets:insert(Tab, Config),
+
+    io:format("got it '~p' but stored '~p'~n", [ets:lookup(Tab, {"HTTPd", "Port"}), Config]),
+
+    notify_registered_modules(Tab, Config),
     commit(Config, File).
 
 commit(Config, File) ->
@@ -99,7 +136,7 @@ code_change(_OldVersion, State, _Extra) -> {ok, State}.
 load_ini_files(IniFiles) ->
     % store the name of the last ini file for storing changes made at runtime
     [LastIniFile|_] = lists:reverse(IniFiles),
-    couch_config:init_value({"_CouchDB", "ConfigurationStorageFile"}, LastIniFile),
+    ?MODULE:init_value({"_CouchDB", "ConfigurationStorageFile"}, LastIniFile),
 
     % load all ini files in the order they come in.
     lists:foreach(fun(IniFile) -> load_ini_file(IniFile) end, IniFiles).
@@ -145,7 +182,7 @@ load_ini_file(IniFile) ->
         
         lists:foreach(
             fun({Key, Value}) ->
-                couch_config:init_value(Key, Value)
+                ?MODULE:init_value(Key, Value)
             end,
             lists:reverse(ParsedIniValues)
         ),
