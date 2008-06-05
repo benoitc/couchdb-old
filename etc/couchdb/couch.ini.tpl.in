@@ -3,6 +3,7 @@
 [CouchDB]
 RootDirectory=%pkgstatelibdir%
 UtilDriverDir=%couchprivlibdir%
+MaximumDocumentSize=4294967296 ; 4 GB
 
 [HTTPd]
 Port=5984
@@ -15,3 +16,6 @@ Level=info
 
 [CouchDB Query Servers]
 javascript=%bindir%/%couchjs_command_name% %pkgdatadir%/server/main.js
+
+[CouchDB Query Server Options]
+QueryTimeout=5000 ; 5 seconds

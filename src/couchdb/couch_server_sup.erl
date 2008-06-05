@@ -41,8 +41,19 @@ start_server() ->
     _ -> ok
     end,
 
+    % read config and register for configuration changes
+    
+    % just stop if one of the config settings change. couch_server_sup
+    % will restart us and then we will pick up the new settings.
+    ConfigChangeCallbackFunction =  fun() -> ?MODULE:stop() end,
     UpdateNotificationProcesses = couch_config:lookup({"CouchDB", "UpdateNotificationProcesses"}, []),
-    FtSearchQueryServer = couch_config:lookup({"Fulltext", "QueryServer"}, []),
+    FtSearchQueryServer = couch_config:lookup({"Search", "QueryServer"}, []),
+    
+    couch_config:register(
+        {"CouchDB", "UpdateNotificationProcesses"}, ConfigChangeCallbackFunction),
+    couch_config:register(
+        {"Search", "QueryServer"}, ConfigChangeCallbackFunction),
+
     ChildProcesses =
         [{couch_log,
             {couch_log, start_link, []},

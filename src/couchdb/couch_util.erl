@@ -23,7 +23,14 @@
 -define(FLUSH_MAX_MEM, 10000000).
 
 start_driver() ->
-    LibDir1 = couch_config:lookup({"CouchDB", "UtilDriverDir"}),
+    % read config and register for configuration changes
+    
+    % just stop if one of the config settings change. couch_server_sup
+    % will restart us and then we will pick up the new settings.
+    ConfigChangeCallbackFunction =  fun() -> couch_server:stop(couch_config_change) end,
+    
+    LibDir1 = couch_config:lookup_and_register(
+        {"CouchDB", "UtilDriverDir"}, ConfigChangeCallbackFunction),
     case LibDir1 of
         null ->
             LibDir = filename:join(code:priv_dir(couch), "lib");

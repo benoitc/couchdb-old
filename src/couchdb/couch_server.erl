@@ -62,8 +62,17 @@ get_version() ->
     end.
 
 sup_start_link() ->
-    RootDir = couch_config:lookup({"CouchDB", "RootDirectory"}), 
-    Options = couch_config:lookup({"CouchDB", "ServerOptions"}), 
+    % read config and register for configuration changes
+    
+    % just stop if one of the config settings change. couch_server_sup
+    % will restart us and then we will pick up the new settings.
+    ConfigChangeCallbackFunction =  fun() -> ?MODULE:stop() end,
+
+    RootDir = couch_config:lookup_and_register(
+        {"CouchDB", "RootDirectory"}, ConfigChangeCallbackFunction),
+    Options = couch_config:lookup_and_register(
+        {"CouchDB", "ServerOptions"}, ConfigChangeCallbackFunction),
+
     gen_server:start_link({local, couch_server}, couch_server, {RootDir, Options}, []).
 
 open(Filename) ->

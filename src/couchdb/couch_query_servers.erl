@@ -23,11 +23,22 @@
 -include("couch_db.hrl").
 
 timeout() ->
-    % hardcoded 5 sec timeout per document
-    5000.
+    list_to_integer(couch_config:lookup({"CouchDB Query Server Options", "QueryTimeout"})).
 
 start_link() ->
-    QueryServerList = couch_config:lookup_match({{"CouchDB Query Servers", '$1'}, '$2'}, []),
+    % read config and register for configuration changes
+    
+    % just stop if one of the config settings change. couch_server_sup
+    % will restart us and then we will pick up the new settings.
+    ConfigChangeCallbackFunction =  fun() -> ?MODULE:stop() end,
+    
+    QueryServerList = couch_config:lookup_match_and_register(
+        {{"CouchDB Query Servers", '$1'}, '$2'}, [],
+        ConfigChangeCallbackFunction),
+    couch_config:register(
+        {"CouchDB Query Server Options", "QueryTimeout"},
+        ConfigChangeCallbackFunction),
+
     gen_server:start_link({local, couch_query_servers}, couch_query_servers, QueryServerList, []).
 
 stop() ->

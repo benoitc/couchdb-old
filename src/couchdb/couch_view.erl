@@ -16,7 +16,7 @@
 -behaviour(gen_server).
 
 -export([start_link/0,fold/4,fold/5,less_json/2, start_update_loop/3, start_temp_update_loop/5]).
--export([init/1,terminate/2,handle_call/3,handle_cast/2,handle_info/2,code_change/3]).
+-export([init/1,terminate/1,terminate/2,handle_call/3,handle_cast/2,handle_info/2,code_change/3]).
 -export([get_reduce_view/1, get_map_view/1,get_row_count/1,reduce_to_count/1, fold_reduce/7]).
 
 -include("couch_db.hrl").
@@ -46,10 +46,12 @@
     }).
 
 start_link() ->
-    RootDir = couch_config:lookup({"CouchDB", "RootDirectory"}),
+    
+    % read configuration settings and register for configuration changes
+    RootDir = couch_config:lookup_and_register(
+        {"CouchDB", "RootDirectory"}, fun() -> terminate(config_change) end),
+    
     gen_server:start_link({local, couch_view}, couch_view, RootDir, []).
-
-
 
 get_temp_updater(DbName, Type, MapSrc, RedSrc) ->
     {ok, Pid} = gen_server:call(couch_view, {start_temp_updater, DbName, Type, MapSrc, RedSrc}),
@@ -217,7 +219,10 @@ init(RootDir) ->
     process_flag(trap_exit, true),
     {ok, #server{root_dir=RootDir}}.
 
-terminate(_Reason, _) ->
+terminate(Reason, _) ->
+    terminate(Reason).
+
+terminate(_Reason) ->
     catch ets:delete(couch_views_by_name),
     catch ets:delete(couch_views_by_updater),
     catch ets:delete(couch_views_by_db),

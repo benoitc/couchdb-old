@@ -19,9 +19,12 @@
 -export([start_link/0, init/1, stop/0,
     handle_call/3, handle_cast/2, handle_info/2, 
     terminate/2, code_change/3]).
--export([store/2, register/2, lookup_and_register/2,
-    lookup/1, lookup/2, lookup_match/1, lookup_match/2, dump/0,
-    init_value/2, unset/1, load_ini_file/1, 
+-export([store/2, register/2, 
+    lookup/1, lookup/2,
+    lookup_match/1, lookup_match/2, 
+    lookup_and_register/2, lookup_and_register/3,
+    lookup_match_and_register/2, lookup_match_and_register/3,
+    dump/0, init_value/2, unset/1, load_ini_file/1, 
     load_ini_files/1]).
 
 start_link() -> gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).    
@@ -31,11 +34,26 @@ stop() ->
 
 init_value(Key, Value) -> gen_server:call(?MODULE, {init_value, Key, Value}).
 store(Key, Value) -> gen_server:call(?MODULE, {store, [{Key, Value}]}).
+
 lookup(Key) -> gen_server:call(?MODULE, {lookup, Key}).
 lookup(Key, Default) -> gen_server:call(?MODULE, {lookup, Key, Default}).
-lookup_and_register(Key, CallbackFunction) -> gen_server:call(?MODULE, {lookup_and_register, Key, CallbackFunction}).
+
+lookup_and_register(Key, CallbackFunction) -> 
+    gen_server:call(?MODULE, {lookup_and_register, Key, CallbackFunction}).
+
+lookup_and_register(Key, Default, CallbackFunction) ->
+    gen_server:call(?MODULE, {lookup_and_register, Key, Default, CallbackFunction}).
+
 lookup_match(Key) -> gen_server:call(?MODULE, {lookup_match, Key}).
+
 lookup_match(Key, Default) -> gen_server:call(?MODULE, {lookup_match, Key, Default}).
+
+lookup_match_and_register(Key, CallbackFunction) ->
+    gen_server:call(?MODULE, {lookup_match_and_register, Key, CallbackFunction}).
+
+lookup_match_and_register(Key, Default, CallbackFunction) ->
+    gen_server:call(?MODULE, {lookup_match_and_register, Key, Default, CallbackFunction}).
+
 dump() -> gen_server:call(?MODULE, {dump, []}).
 register(Key, Fun) -> gen_server:call(?MODULE, {register, Key, Fun}).
 
@@ -66,6 +84,10 @@ handle_call({lookup, Key, Default}, _From, Tab) ->
 handle_call({lookup_and_register, Key, CallbackFunction}, _From, Tab) ->
     ?MODULE:handle_call({register, Key, CallbackFunction}, _From, Tab),
     lookup(Key, fun(Tab_, Key_) -> ets:lookup(Tab_, Key_) end, null, Tab);
+
+handle_call({lookup_and_register, Key, Default, CallbackFunction}, _From, Tab) ->
+    ?MODULE:handle_call({register, Key, CallbackFunction}, _From, Tab),
+    lookup(Key, fun(Tab_, Key_) -> ets:lookup(Tab_, Key_) end, Default, Tab);
     
 handle_call({lookup_match, Key}, _From, Tab) ->
     lookup(Key, fun(Tab_, Key_) -> ets:match(Tab_, Key_) end, null, Tab);
@@ -73,31 +95,46 @@ handle_call({lookup_match, Key}, _From, Tab) ->
 handle_call({lookup_match, Key, Default}, _From, Tab) ->
     lookup(Key, fun(Tab_, Key_) -> ets:match(Tab_, Key_) end, Default, Tab);
 
+handle_call({lookup_match_and_register, Key = {{Module, '$1'}, '$2'}, CallbackFunction}, _From, Tab) ->
+    ?MODULE:handle_call({register, {Module, ""}, CallbackFunction}, _From, Tab),
+    lookup(Key, fun(Tab_, Key_) -> ets:match(Tab_, Key_) end, null, Tab);
+
+handle_call({lookup_match_and_register, Key = {{Module, '$1'}, '$2'}, Default, CallbackFunction}, _From, Tab) ->
+    ?MODULE:handle_call({register, {Module, ""}, CallbackFunction}, _From, Tab),
+    lookup(Key, fun(Tab_, Key_) -> ets:match(Tab_, Key_) end, Default, Tab);
+
 handle_call({dump, []}, _From, Tab) ->
     io:format("~p~n", [ets:match(Tab, '$1')]),
     {reply, ok, Tab};
     
 handle_call({register, Key, Fun}, From, Tab) ->
-    io:format("registered for '~p' '", [Key]),
+    % io:format("registered for '~p' '", [Key]),
     ets:insert(Tab, {{"_CouchDB", Key}, {From, Fun}}),
     {reply, ok, Tab}.
 
 notify_registered_modules(Tab, {{Module, Variable}, _Value}) ->
-    % ModuleName = atom_to_list(Module),
-    % VariableName = atom_to_list(Variable),
-    Look = ets:lookup(Tab, {"_CouchDB", {Module, Variable}}),
-    io:format("looked for '~p' and got '~p'~n", [{Module, Variable}, Look]),
-    
-    case Look of
+    % look for processes that registered for notifications for
+    % specific configuration variables
+    case ets:lookup(Tab, {"_CouchDB", {Module, Variable}}) of
         % found
         [{{"_CouchDB", {Module, Variable}}, {_From, Fun}}] ->
-            io:format("got it '~p'~n", [ets:lookup(Tab, {Module, Variable})]),
+            % io:format("got it '~p'~n", [ets:lookup(Tab, {Module, Variable})]),
             Fun();
         _ -> % not found
-            io:format("not it~n", []),
+            % io:format("not it~n", []),
+            ok
+    end,
+    
+    % look for processes that registerd for notifications for
+    % entire modules. Their "Variable" value will be the empty string
+     case ets:lookup(Tab, {"_CouchDB", {Module, ""}}) of
+        % found
+        [{{"_CouchDB", {Module, _Variable}}, {_From2, Fun2}}] ->
+            Fun2();
+        _ -> % not found
             ok
     end.
-            
+    
 
 lookup(Key, Fun, Default, Tab) ->
     Reply = case Fun(Tab, Key) of
@@ -112,15 +149,15 @@ lookup(Key, Fun, Default, Tab) ->
 
 insert_and_commit(Tab, Config) ->
     ets:insert(Tab, Config),
-    {Key, _Value} = Config,
-    io:format("just inserted '~p' and now it is '~p~n", [Config, ets:lookup(Tab, Key)]),
+    % {Key, _Value} = Config,
+    % io:format("just inserted '~p' and now it is '~p~n", [Config, ets:lookup(Tab, Key)]),
     {reply, File, _Tab} = 
         lookup({"_CouchDB", "ConfigurationStorageFile"}, 
             fun(Tab_, Key_) -> ets:lookup(Tab_, Key_) end, 
             null, Tab
         ),
 
-    io:format("got it '~p' but stored '~p'~n", [ets:lookup(Tab, {"HTTPd", "Port"}), Config]),
+    % io:format("got it '~p' but stored '~p'~n", [ets:lookup(Tab, {"HTTPd", "Port"}), Config]),
 
     notify_registered_modules(Tab, Config),
     commit(Config, File).
