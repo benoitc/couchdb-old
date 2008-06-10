@@ -16,7 +16,7 @@ pkgdoc_DATA = AUTHORS.gz BUGS.gz CHANGES.gz NEWS.gz README.gz THANKS.gz
 
 DISTCLEANFILES = $(pkgdoc_DATA)
 
-EXTRA_DIST = AUTHORS BUGS CHANGES LICENCE NEWS README THANKS
+EXTRA_DIST = AUTHORS BUGS CHANGES LICENSE NEWS README THANKS
 
 AUTHORS.gz: $(top_srcdir)/AUTHORS
 	-gzip -9 < $< > $@
@@ -46,8 +46,8 @@ local-clean: maintainer-clean
 	rm -f config.h.in*
 	rm -f configure
 	rm -f configure~
-	rm -f couchdb-$(version).tar.gz
-	rm -f couchdb-$(version).zip
+	rm -f *.tar.gz
+	rm -f *.zip
 	rm -fr m4
 	find . -name Makefile.in | xargs rm
 
