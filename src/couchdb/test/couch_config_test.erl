@@ -17,19 +17,19 @@ couch_config_test() ->
 % test storing different types and see if they come back
 % the same way there put in.
 store_tuples() ->
-    basic_store(key, value).
+    store(key, value).
   
 store_strings() ->
-    basic_store("key", "value").
+    store("key", "value").
 
 store_numbers() ->
-    basic_store("number_key", 12345).
+    store("number_key", 12345).
 
 store_tuple_key() ->
-    basic_store({key, subkey}, value).
+    store({key, subkey}, value).
 
     
-basic_store(Key, Value) ->
+store(Key, Value) ->
     couch_config:start_link(),
 
     couch_config:init_value(Key, Value),

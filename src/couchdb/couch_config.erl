@@ -10,10 +10,15 @@
 % License for the specific language governing permissions and limitations under
 % the License.
 
+%% @doc Reads CouchDB's ini file and gets queried for configuration parameters.
+%%      This module is initialized with a list of ini files that it 
+%%      consecutively reads Key/Value pairs from and saves them in a ets table. 
+%%      If more an one ini file is specified, the last one is used to write 
+%%      changes that are made with store/2 back to that ini file.
+%% @author Jan Lehnardt <jan@apache.org>
+
 -module(couch_config).
 -include("couch_db.hrl").
-
--define(DEFAULT_INI, "couch.ini").
 
 -behaviour(gen_server).
 -export([start_link/0, init/1, stop/0,
@@ -27,25 +32,64 @@
     dump/0, init_value/2, unset/1, load_ini_file/1, 
     load_ini_files/1]).
 
+%% @spec start_link() -> {ok, Tab}
+%% @doc Start the configuration module
 start_link() -> gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).    
 
+%% @spec stop() -> ok
+%% @doc Stops the configuration module
 stop() ->
     ok.
 
+%% @spec init_value(Key::any(), Value::any()) -> {ok, Tab}
+%% @doc Public API function triggers initialization of a Key/Value pair. Used 
+%%      when setting values from the ini file. Works like store/2 but doesn't
+%%      write the Key/Value pair to the storage ini file.
 init_value(Key, Value) -> gen_server:call(?MODULE, {init_value, Key, Value}).
+
+%% @spec store(Key::any(), Value::any()) -> {ok, Tab}
+%% @doc Public API function that triggers storage of a Key/Value pair into the
+%%      local ets table and writes it to the storage ini file.
 store(Key, Value) -> gen_server:call(?MODULE, {store, [{Key, Value}]}).
 
+%% @spec lookup(Key::any()) -> Value::any() | null
+%% @doc Returns the value that is stored under key::any() or null::atom() if no
+%%      such Key exists.
 lookup(Key) -> gen_server:call(?MODULE, {lookup, Key}).
+
+%% @spec lookup(Key::any(), Default::any()) -> Value::any() | Default
+%% @doc Returns the value that is stored under key::any() or Default::any() if
+%%      no such Key exists.
 lookup(Key, Default) -> gen_server:call(?MODULE, {lookup, Key, Default}).
 
+%% @spec lookup_and_register(Key::any(), CallbackFunction::function()) ->
+%%         Value::any() | null
+%% @doc Returns the value that is stored under Key::any() or null::atom() if no
+%%      such Key exists. Additionally, this functions registers 
+%%      CallbackFunction::function() to be called if the value of Key::any()
+%%      is changed at a later point.
 lookup_and_register(Key, CallbackFunction) -> 
     gen_server:call(?MODULE, {lookup_and_register, Key, CallbackFunction}).
 
+%% @spec lookup_and_register(
+%%         Key::any(),
+%%         Default::any(),
+%%         CallbackFunction::function()) -> Value::any() | Default
+%% @doc Returns the value that is stored under Key::any() or Default::any() if
+%%      such Key exists. Additionally, this functions registers 
+%%      CallbackFunction::function() to be called if the value of Key::any()
+%%      is changed at a later point.
 lookup_and_register(Key, Default, CallbackFunction) ->
     gen_server:call(?MODULE, {lookup_and_register, Key, Default, CallbackFunction}).
 
+%% @spec lookup_match(Key::any()) -> Value::any() | null:atom()
+%% @doc Lets you look for a Key's Value specifying a pattern that gets passed 
+%%      to ets::match(). Returns null::atom() if no Key is found.
 lookup_match(Key) -> gen_server:call(?MODULE, {lookup_match, Key}).
 
+%% @spec lookup_match(Key::any(), Default::any()) -> Value::any() | Default
+%% @doc Lets you look for a Key's Value specifying a pattern that gets passed 
+%%      to ets::match(). Returns Default::any() if no Key is found
 lookup_match(Key, Default) -> gen_server:call(?MODULE, {lookup_match, Key, Default}).
 
 lookup_match_and_register(Key, CallbackFunction) ->
