@@ -190,6 +190,42 @@ var tests = {
     }
   },
 
+  bulk_docs: function(debug) {
+    var db = new CouchDB("test_suite_db");
+    db.deleteDb();
+    db.createDb();
+    if (debug) debugger;
+
+    var docs = makeDocs(5);
+
+    // Create the docs
+    var result = db.bulkSave(docs);
+    T(result.ok);
+    T(result.new_revs.length == 5);
+    for (var i = 0; i < 5; i++) {
+      T(result.new_revs[i].id == docs[i]._id);
+      T(result.new_revs[i].rev);
+      docs[i].string = docs[i].string + ".00";
+    }
+
+    // Update the docs
+    result = db.bulkSave(docs);
+    T(result.ok);
+    T(result.new_revs.length == 5);
+    for (i = 0; i < 5; i++) {
+      T(result.new_revs[i].id == i.toString());
+      docs[i]._deleted = true;
+    }
+
+    // Delete the docs
+    result = db.bulkSave(docs);
+    T(result.ok);
+    T(result.new_revs.length == 5);
+    for (i = 0; i < 5; i++) {
+      T(db.open(docs[i]._id) == null);
+    }
+  },
+
   // test saving a semi-large quanitity of documents and do some view queries.
   lots_of_docs: function(debug) {
     var db = new CouchDB("test_suite_db");
@@ -258,6 +294,9 @@ var tests = {
       result = db.query(map, reduce, {startkey: i, endkey: numDocs - i});
       T(result.rows[0].value == summate(numDocs-i) - summate(i-1));
     }
+    
+    db.deleteDb();
+    db.createDb();
 
     for(var i=1; i <= 5; i++) {
       
@@ -276,6 +315,7 @@ var tests = {
         docs.push({keys:["d", "b"]});
         docs.push({keys:["d", "c"]});
         T(db.bulkSave(docs).ok);
+        T(db.info().doc_count == ((i - 1) * 10 * 11) + ((j + 1) * 11));
       }
       
       map = function (doc) {emit(doc.keys, 1)};
@@ -304,6 +344,71 @@ var tests = {
       T(equals(results.rows[5], {key:["d","b"],value:10*i}));
       T(equals(results.rows[6], {key:["d","c"],value:10*i}));
     }
+    
+    // now test out more complex reductions that need to use the combine option.
+    
+    db.deleteDb();
+    db.createDb();
+
+      
+    var map = function (doc) {emit(null, doc.val)};
+    var reduceCombine = function (keys, values, rereduce) {
+        // This computes the standard deviation of the mapped results
+        var stdDeviation=0;
+        var count=0;
+        var total=0;
+        var sqrTotal=0;
+          
+        if (!rereduce) {
+          // This is the reduce phase, we are reducing over emitted values from
+          // the map functions.
+          for(var i in values) {
+            total = total + values[i]
+            sqrTotal = sqrTotal + (values[i] * values[i])
+          }
+          count = values.length;
+        }
+        else { 
+          // This is the rereduce phase, we are re-reducing previosuly
+          // reduced values.
+          for(var i in values) {
+            count = count + values[i].count;
+            total = total + values[i].total;
+            sqrTotal = sqrTotal + (values[i].sqrTotal * values[i].sqrTotal);
+          }
+        }
+        
+        var variance =  (sqrTotal - ((total * total)/count)) / count;
+        stdDeviation = Math.sqrt(variance);
+          
+        // the reduce result. It contains enough information to be rereduced
+        // with other reduce results.
+        return {"stdDeviation":stdDeviation,"count":count,
+            "total":total,"sqrTotal":sqrTotal};
+      };
+      
+      // Save a bunch a docs.
+      for(var j=0; j < 10; j++) {
+        var docs = [];
+        docs.push({val:10});
+        docs.push({val:20});
+        docs.push({val:30});
+        docs.push({val:40});
+        docs.push({val:50});
+        docs.push({val:60});
+        docs.push({val:70});
+        docs.push({val:80});
+        docs.push({val:90});
+        docs.push({val:100});
+        T(db.bulkSave(docs).ok);
+      }
+      
+      var results = db.query(map, reduceCombine);
+      
+      var difference = results.rows[0].value.stdDeviation - 28.722813232690143;
+      // account for floating point rounding error
+      T(Math.abs(difference) < 0.0000000001);
+      
   },
 
   multiple_rows: function(debug) {
@@ -478,6 +583,14 @@ var tests = {
     if (debug) debugger;
 
     var numDocs = 500;
+    
+    function makebigstring(power) {
+      var str = "a";
+      while(power-- > 0) {
+        str = str + str;
+      }
+      return str;
+    }
 
     var designDoc = {
       _id:"_design/test",
@@ -489,7 +602,9 @@ var tests = {
         summate: {map:"function (doc) {emit(doc.integer, doc.integer)};",
                   reduce:"function (keys, values) { return sum(values); };"},
         summate2: {map:"function (doc) {emit(doc.integer, doc.integer)};",
-                  reduce:"function (keys, values) { return sum(values); };"}
+                  reduce:"function (keys, values) { return sum(values); };"},
+        huge_src_and_results: {map: "function(doc) { if (doc._id == \"1\") { emit(\"" + makebigstring(16) + "\", null) }}",
+                  reduce:"function (keys, values) { return \"" + makebigstring(16) + "\"; };"}
       }
     }
     T(db.save(designDoc).ok);
@@ -1070,8 +1185,12 @@ var tests = {
 
 function makeDocs(start, end, templateDoc) {
   var templateDocSrc = templateDoc ? templateDoc.toSource() : "{}"
+  if (end === undefined) {
+    end = start;
+    start = 0;
+  }
   var docs = []
-  for(var i=start; i<end; i++) {
+  for (var i = start; i < end; i++) {
     var newDoc = eval("(" + templateDocSrc + ")");
     newDoc._id = (i).toString();
     newDoc.integer = i

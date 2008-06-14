@@ -440,13 +440,13 @@ btree_by_id_join(Id, {Seq, Deleted, Tree}) ->
 btree_by_id_reduce(reduce, FullDocInfos) ->
     % count the number of deleted documents
     length([1 || #full_doc_info{deleted=false} <- FullDocInfos]);
-btree_by_id_reduce(combine, Reds) ->
+btree_by_id_reduce(rereduce, Reds) ->
     lists:sum(Reds).
             
 btree_by_seq_reduce(reduce, DocInfos) ->
     % count the number of deleted documents
     length(DocInfos);
-btree_by_seq_reduce(combine, Reds) ->
+btree_by_seq_reduce(rereduce, Reds) ->
     lists:sum(Reds).
 
 init_db(DbName, Filepath, Fd, Header) ->
@@ -597,6 +597,7 @@ update_loop(#db{fd=Fd,name=Name,
                 [Db#db.update_seq, NewSeq]),
             Pid = spawn_link(couch_db, start_copy_compact_int, [Db, false]),
             Db2 = Db#db{compactor_pid=Pid},
+            couch_file:close(NewFd),
             update_loop(Db2)
         end;
     {OrigFrom, increment_update_seq} ->

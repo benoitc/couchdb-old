@@ -10,8 +10,6 @@
 ## License for the specific language governing permissions and limitations under
 ## the License.
 
-datarootdir = @prefix@/share
-
 mochiwebebindir = $(erlanglibdir)/mochiweb-r76/ebin
 
 mochiweb_file_collection = \
@@ -78,4 +76,4 @@ CLEANFILES = \
     $(mochiwebebin_make_generated_file_list)
 
 %.beam: %.erl
-	erlc $<
+	$(ERLC) $<

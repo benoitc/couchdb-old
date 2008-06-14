@@ -42,7 +42,7 @@ start_server() ->
     end,
 
     % read config and register for configuration changes
-    
+
     % just stop if one of the config settings change. couch_server_sup
     % will restart us and then we will pick up the new settings.
     ConfigChangeCallbackFunction =  fun() -> ?MODULE:stop() end,
@@ -119,7 +119,10 @@ start_server() ->
                 [couch_ft_query]}]
         end,
 
-    couch_util:start_driver(),
+    io:format("Apache CouchDB ~s (LogLevel=~s)~n", [couch_server:get_version(), LogLevel]),
+    io:format("~s~n~n", [ConsoleStartupMsg]),
+
+    couch_util:start_driver(UtilDriverDir),
 
     % ensure these applications are running
     application:start(inets),

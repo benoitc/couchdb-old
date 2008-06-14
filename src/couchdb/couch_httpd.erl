@@ -271,18 +271,6 @@ handle_db_request(Req, 'POST', {_DbName, Db, ["_compact"]}) ->
 handle_db_request(_Req, _Method, {_DbName, _Db, ["_compact"]}) ->
     throw({method_not_allowed, "POST"});
 
-handle_db_request(Req, 'GET', {DbName, _Db, ["_search"]}) ->
-    case Req:parse_qs() of
-        [{"q", Query}] when (length(Query) > 0) ->
-            {ok, Response} = couch_ft_query:execute(DbName, Query),
-            send_json(Req, {obj, [{ok, true} | Response]});
-        _Error ->
-            throw({no_fulltext_query, "Empty Query String"})
-    end;
-
-handle_db_request(_Req, _Method, {_DbName, _Db, ["_search"]}) ->
-    throw({method_not_allowed, "GET,HEAD"});
-
 % View request handlers
 
 handle_db_request(Req, 'GET', {_DbName, Db, ["_all_docs"]}) ->
@@ -501,7 +489,9 @@ output_reduce_view(Req, View) ->
             Resp:write_chunk(AccSeparator ++ Json),
             {ok, {",",0,AccCount-1}};
         (Key, Red, {AccSeparator,0,AccCount})
-                when is_tuple(Key) and is_integer(GroupLevel) ->
+                when is_integer(GroupLevel) 
+                andalso is_tuple(Key) 
+                andalso element(1, Key) /= obj  ->
             Json = lists:flatten(cjson:encode(
                 {obj, [{key, list_to_tuple(lists:sublist(tuple_to_list(Key), GroupLevel))},
                         {value, Red}]})),
@@ -589,8 +579,7 @@ handle_doc_request(Req, 'GET', _DbName, Db, DocId) ->
                     Json = lists:flatten(cjson:encode({obj, [{ok, JsonDoc}]})),
                     Resp:write_chunk(AccSeparator ++ Json);
                 {{not_found, missing}, RevId} ->
-                    Json = {obj, [{"missing", RevId}]},
-                    Json = lists:flatten(cjson:encode(Json)),
+                    Json = lists:flatten(cjson:encode({obj, [{"missing", RevId}]})),
                     Resp:write_chunk(AccSeparator ++ Json)
                 end,
                 "," % AccSeparator now has a comma
@@ -834,14 +823,14 @@ make_view_fold_fun(Req, QueryArgs, TotalViewCount, ReduceCountFun) ->
             Resp2 = start_json_response(Req, 200),
             Offset2 = TotalViewCount - Offset -
                 lists:min([TotalViewCount - Offset, - AccCount]),
-            JsonBegin = io_lib:format("{\"total_rows\":~w,\"offset\":~w,\"rows\":[",
+            JsonBegin = io_lib:format("{\"total_rows\":~w,\"offset\":~w,\"rows\":[\r\n",
                     [TotalViewCount, Offset2]),
             Resp2:write_chunk(lists:flatten(JsonBegin)),
             JsonObj = {obj, [{id, DocId}, {key, Key}, {value, Value}]},
             {ok, {AccCount + 1, 0, Resp2, [cjson:encode(JsonObj) | AccRevRows]}};
         {_, AccCount, _, Resp} ->
             JsonObj = {obj, [{id, DocId}, {key, Key}, {value, Value}]},
-            {ok, {AccCount + 1, 0, Resp, [cjson:encode(JsonObj), "," | AccRevRows]}}
+            {ok, {AccCount + 1, 0, Resp, [cjson:encode(JsonObj), ",\r\n" | AccRevRows]}}
         end
     end,
 

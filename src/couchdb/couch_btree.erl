@@ -64,7 +64,7 @@ final_reduce(Reduce, {[], []}) ->
 final_reduce(_Bt, {[], [Red]}) ->
     Red;
 final_reduce(Reduce, {[], Reductions}) ->
-    Reduce(combine, Reductions);
+    Reduce(rereduce, Reductions);
 final_reduce(Reduce, {KVs, Reductions}) ->
     Red = Reduce(reduce, KVs),
     final_reduce(Reduce, {[], [Red | Reductions]}).
@@ -255,7 +255,7 @@ chunkify(_Bt, [], _ChunkThreshold, OutList, _OutListSize, OutputChunks) ->
     lists:reverse([lists:reverse(OutList) | OutputChunks]);
 chunkify(Bt, [InElement | RestInList], ChunkThreshold, OutList, OutListSize, OutputChunks) ->
     case size(term_to_binary(InElement)) of
-    Size when (Size + OutListSize) > ChunkThreshold ->
+    Size when (Size + OutListSize) > ChunkThreshold andalso OutList /= [] ->
         chunkify(Bt, RestInList, ChunkThreshold, [], 0, [lists:reverse([InElement | OutList]) | OutputChunks]);
     Size ->
         chunkify(Bt, RestInList, ChunkThreshold, [InElement | OutList], OutListSize + Size, OutputChunks)
@@ -289,7 +289,7 @@ modify_node(Bt, RootPointerInfo, Actions, QueryOutput) ->
 reduce_node(#btree{reduce=nil}, _NodeType, _NodeList) ->
     [];
 reduce_node(#btree{reduce=R}, kp_node, NodeList) ->
-    R(combine, [Red || {_K, {_P, Red}} <- NodeList]);
+    R(rereduce, [Red || {_K, {_P, Red}} <- NodeList]);
 reduce_node(#btree{reduce=R}, kv_node, NodeList) ->
     R(reduce, NodeList).
 
@@ -398,6 +398,9 @@ modify_kvnode(Bt, [{Key, Value} | RestKVs], [{ActionType, ActionKey, ActionValue
     end.
 
 
+reduce_stream_node(_Bt, _Dir, nil, _KeyStart, _KeyEnd, GroupedKey, GroupedKVsAcc, 
+        GroupedRedsAcc, _KeyGroupFun, _Fun, Acc) ->
+    {ok, Acc, GroupedRedsAcc, GroupedKVsAcc, GroupedKey}; 
 reduce_stream_node(Bt, Dir, {P, _R}, KeyStart, KeyEnd, GroupedKey, GroupedKVsAcc, 
         GroupedRedsAcc, KeyGroupFun, Fun, Acc) ->
     case get_node(Bt, P) of
@@ -655,7 +658,7 @@ test_btree(KeyValues) ->
     ReduceFun =
         fun(reduce, KVs) ->
             length(KVs);
-        (combine, Reds) ->
+        (rereduce, Reds) ->
             lists:sum(Reds)
         end,
     Btree1 = set_options(Btree, [{reduce, ReduceFun}]),

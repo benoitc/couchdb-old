@@ -22,12 +22,12 @@
 -include("couch_db.hrl").
 
 -record(group,
-    {db,
-    fd,
+    {sig=nil,
+    db=nil,
+    fd=nil,
     name,
     def_lang,
     views,
-    reductions=[], % list of reduction names and id_num of view that contains it.
     id_btree=nil,
     current_seq=0,
     query_server=nil
@@ -118,9 +118,9 @@ fold_reduce({reduce, NthRed, Lang, #view{btree=Bt, reduce_funs=RedFuns}}, Dir, S
         fun(reduce, KVs) ->
             {ok, Reduced} = couch_query_servers:reduce(Lang, [FunSrc], KVs),
             {0, PreResultPadding ++ Reduced ++ PostResultPadding};
-        (combine, Reds) ->
+        (rereduce, Reds) ->
             UserReds = [[lists:nth(NthRed, UserRedsList)] || {_, UserRedsList} <- Reds],
-            {ok, Reduced} = couch_query_servers:combine(Lang, [FunSrc], UserReds),
+            {ok, Reduced} = couch_query_servers:rereduce(Lang, [FunSrc], UserReds),
             {0, PreResultPadding ++ Reduced ++ PostResultPadding}
         end,
     WrapperFun = fun({GroupedKey, _}, PartialReds, Acc0) ->
@@ -157,7 +157,7 @@ reduce_to_count(Reductions) ->
     couch_btree:final_reduce(
         fun(reduce, KVs) ->
             {length(KVs), []};
-        (combine, Reds) ->
+        (rereduce, Reds) ->
             {lists:sum([Count0 || {Count0, _} <- Reds]), []}
         end, Reductions),
     Count.
@@ -192,7 +192,8 @@ design_doc_to_view_group(#doc{id=Id,body={obj, Fields}}) ->
             {View#view{id_num=N},N+1}
         end, 0, dict:to_list(DictBySrc)),
     
-    reset_group(#group{name=Id, views=Views, def_lang=Language}).
+    Group = #group{name=Id, views=Views, def_lang=Language},
+    Group#group{sig=erlang:md5(term_to_binary(Group))}.
     
 
 
@@ -337,7 +338,7 @@ start_temp_update_loop(DbName, Fd, Lang, MapSrc, RedSrc) ->
             current_seq=0,
             def_lang=Lang,
             id_btree=nil},
-        Group2 = disk_group_to_mem(Db, Fd, Group),
+        Group2 = init_group(Db, Fd, Group,nil),
         temp_update_loop(Group2, NotifyPids);
     Else ->
         exit(Else)
@@ -361,7 +362,7 @@ start_update_loop(RootDir, DbName, GroupId) ->
     start_update_loop(RootDir, DbName, GroupId, get_notify_pids(1000)).
     
 start_update_loop(RootDir, DbName, GroupId, NotifyPids) ->
-    {Db, DbGroup} =
+    {Db, Group} =
     case (catch couch_server:open(DbName)) of
     {ok, Db0} ->
         case (catch couch_db:open_doc(Db0, GroupId)) of
@@ -376,38 +377,37 @@ start_update_loop(RootDir, DbName, GroupId, NotifyPids) ->
  	    exit(Else)
  	end,
  	FileName = RootDir ++ "/." ++ DbName ++ GroupId ++".view",
- 	Group =
+ 	Group2 =
     case couch_file:open(FileName) of
     {ok, Fd} ->
+        Sig = Group#group.sig,
         case (catch couch_file:read_header(Fd, <<$r, $c, $k, 0>>)) of
-        {ok, ExistingDiskGroup} ->
-            % validate all the view definitions in the index are correct.
-            case reset_group(ExistingDiskGroup) == reset_group(DbGroup) of
-            true  -> disk_group_to_mem(Db, Fd, ExistingDiskGroup);
-            false -> reset_file(Db, Fd, DbName, DbGroup)
-            end;
+        {ok, {Sig, HeaderInfo}} ->
+            % sigs match!
+            init_group(Db, Fd, Group, HeaderInfo);
         _ ->
-            reset_file(Db, Fd, DbName, DbGroup)
+            reset_file(Db, Fd, DbName, Group)
         end;
     {error, enoent} ->
         case couch_file:open(FileName, [create]) of
-        {ok, Fd} -> reset_file(Db, Fd, DbName, DbGroup);
+        {ok, Fd} -> reset_file(Db, Fd, DbName, Group);
         Error    -> throw(Error)
         end
     end,
     
-    update_loop(RootDir, DbName, GroupId, Group, NotifyPids).
+    update_loop(RootDir, DbName, GroupId, Group2, NotifyPids).
 
-reset_file(Db, Fd, DbName, #group{name=Name} = DiskReadyGroup) ->
+reset_file(Db, Fd, DbName, #group{sig=Sig,name=Name} = Group) ->
     ?LOG_DEBUG("Reseting group index \"~s\" in db ~s", [Name, DbName]),
     ok = couch_file:truncate(Fd, 0),
-    ok = couch_file:write_header(Fd, <<$r, $c, $k, 0>>, DiskReadyGroup),
-    disk_group_to_mem(Db, Fd, DiskReadyGroup).
+    ok = couch_file:write_header(Fd, <<$r, $c, $k, 0>>, {Sig, nil}),
+    init_group(Db, Fd, reset_group(Group), nil).
 
-update_loop(RootDir, DbName, GroupId, #group{fd=Fd}=Group, NotifyPids) ->
+update_loop(RootDir, DbName, GroupId, #group{sig=Sig,fd=Fd}=Group, NotifyPids) ->
     try update_group(Group) of
     {ok, Group2} ->    
-        ok = couch_file:write_header(Fd, <<$r, $c, $k, 0>>, mem_group_to_disk(Group2)),
+        HeaderData = {Sig, get_index_header_data(Group2)},
+        ok = couch_file:write_header(Fd, <<$r, $c, $k, 0>>, HeaderData),
         [Pid ! {self(), {ok, Group2}} || Pid <- NotifyPids],
         garbage_collect(),
         update_loop(RootDir, DbName, GroupId, Group2, get_notify_pids(100000))
@@ -481,38 +481,35 @@ nuke_dir(Dir) ->
 delete_index_file(RootDir, DbName, GroupId) ->
     file:delete(RootDir ++ "/." ++ DbName ++ GroupId ++ ".view").
 
-% Given a disk ready group structure, return an initialized, in-memory version.
-disk_group_to_mem(Db, Fd, #group{id_btree=IdState,def_lang=Lang,views=Views}=Group) ->
-    {ok, IdBtree} = couch_btree:open(IdState, Fd),
-    Views2 = lists:map(
-        fun(#view{btree=BtreeState,reduce_funs=RedFuns}=View) ->
+init_group(Db, Fd, #group{views=Views}=Group, nil = _IndexHeaderData) ->
+    init_group(Db, Fd, Group, {0, nil, [nil || _ <- Views]});
+init_group(Db, Fd, #group{def_lang=Lang,views=Views}=Group,
+        {Seq, IdBtreeState, ViewStates} = _IndexHeaderData) ->
+    {ok, IdBtree} = couch_btree:open(IdBtreeState, Fd),
+    Views2 = lists:zipwith(
+        fun(BtreeState, #view{reduce_funs=RedFuns}=View) ->
             FunSrcs = [FunSrc || {_Name, FunSrc} <- RedFuns],
             ReduceFun = 
                 fun(reduce, KVs) ->
                     {ok, Reduced} = couch_query_servers:reduce(Lang, FunSrcs, KVs),
                     {length(KVs), Reduced};
-                (combine, Reds) ->
+                (rereduce, Reds) ->
                     Count = lists:sum([Count0 || {Count0, _} <- Reds]),
                     UserReds = [UserRedsList || {_, UserRedsList} <- Reds],
-                    {ok, Reduced} = couch_query_servers:combine(Lang, FunSrcs, UserReds),
+                    {ok, Reduced} = couch_query_servers:rereduce(Lang, FunSrcs, UserReds),
                     {Count, Reduced}
                 end,
             {ok, Btree} = couch_btree:open(BtreeState, Fd,
                         [{less, fun less_json/2},{reduce, ReduceFun}]),
             View#view{btree=Btree}
         end,
-        Views),
-    Group#group{db=Db, fd=Fd, id_btree=IdBtree, views=Views2}.
-    
-% Given an initialized, in-memory group structure, return a disk ready version.
-mem_group_to_disk(#group{id_btree=IdBtree,views=Views}=Group) ->
-    Views2 = lists:map(
-        fun(#view{btree=Btree}=View) ->
-            State = couch_btree:get_state(Btree),
-            View#view{btree=State}
-        end,
-        Views),
-    Group#group{db=nil, fd=nil, id_btree=couch_btree:get_state(IdBtree), views=Views2}.
+        ViewStates, Views),
+    Group#group{db=Db, fd=Fd, current_seq=Seq, id_btree=IdBtree, views=Views2}.
+
+
+get_index_header_data(#group{current_seq=Seq,id_btree=IdBtree,views=Views}) ->
+    ViewStates = [couch_btree:get_state(Btree) || #view{btree=Btree} <- Views],
+    {Seq, couch_btree:get_state(IdBtree), ViewStates}.
 
 
 
@@ -588,7 +585,7 @@ less_list([A|RestA], [B|RestB]) ->
         end
     end.
 
-process_doc(Db, DocInfo, {Docs, #group{name=GroupId}=Group, ViewKVs, DocIdViewIdKeys, _LastSeq}) ->
+process_doc(Db, DocInfo, {Docs, #group{sig=Sig,name=GroupId}=Group, ViewKVs, DocIdViewIdKeys, _LastSeq}) ->
     % This fun computes once for each document
     #doc_info{id=DocId, update_seq=Seq, deleted=Deleted} = DocInfo,
     case DocId of
@@ -597,11 +594,11 @@ process_doc(Db, DocInfo, {Docs, #group{name=GroupId}=Group, ViewKVs, DocIdViewId
         % anything in the definition changed.
         case couch_db:open_doc(Db, DocInfo) of
         {ok, Doc} ->
-            case design_doc_to_view_group(Doc) == reset_group(Group) of
-            true ->
-                % nothing changed, keeping on computing
+            case design_doc_to_view_group(Doc) of
+            #group{sig=Sig} ->
+                % The same md5 signature, keep on computing
                 {ok, {Docs, Group, ViewKVs, DocIdViewIdKeys, Seq}};
-            false ->
+            _ ->
                 throw(restart)
             end;
         {not_found, deleted} ->
