@@ -10,9 +10,22 @@
 % License for the specific language governing permissions and limitations under
 % the License.
 
+%% @doc Saves a Key/Value pair to a ini file. The Key consists of a Module
+%%      and Variable combination. If that combination is found in the ini file
+%%      the new value replaces the old value. If only the Module is found the
+%%      Variable and value combination is appended to the Module. If the Module
+%%      does not yet exist in the ini file, it is added and the Variable/Value
+%%      pair is appended.
+%% @author Jan Lehnardt <jan@apache.org>
+%% @see couch_config
+
 -module(couch_config_writer).
 -export([save_config/2]).
 
+%% @spec save_config(
+%%           Config::{{Module::string(), Variable::string()}, Value::string()}, 
+%%           File::filename()) -> ok
+%% @doc Saves a Module/Key/Value triple to the ini file File::filename()
 save_config({{Module, Variable}, Value}, File) ->
     % open file and create a list of lines
     {ok, Stream} = file:read_file(File),
@@ -29,7 +42,9 @@ save_config({{Module, Variable}, Value}, File) ->
     save_file(File, NewFileContents),
     file:close(Stream),
     ok.
-    
+
+%% @doc Iterates over the lines of an ini file and replaces or adds a new
+%%      coofiguration directive.
 save_loop({{Module, Variable}, Value}, [Line|Rest], OldCurrentModule, Contents, DoneVariables) ->
 
     % if we find a new [ini section] (Module), save that for reference
@@ -78,7 +93,10 @@ save_loop({{Module, Variable}, Value}, [Line|Rest], OldCurrentModule, Contents, 
 save_loop(_Config, [], _OldModule, NewFileContents, _DoneVariable) ->
     % we're out of new lines, just return the new file's contents
     NewFileContents.
-        
+
+%% @spec parse_module(Lins::string(), OldModule::string()) -> string()
+%% @doc Tries to match a line against a pattern specifying a ini module or 
+%%      section ("[Module]"). Returns OldModule if no match is found.
 parse_module(Line, OldModule) ->
     case regexp:match(Line, "^\\[([a-zA-Z0-9_-]*)\\]$") of
         nomatch ->
@@ -90,6 +108,11 @@ parse_module(Line, OldModule) ->
             string:substr(Line, Start, Length)
     end.
 
+%% @spec parse_variable(Line::string(), Variable::string(), Value::string()) ->
+%%         string() | nomatch
+%% @doc Tries to match a variable assignment in Line. Returns nomatch if the
+%%      Variable is not found. Returns a new line composed of the Variable and
+%%      Value otherwise.
 parse_variable(Line, Variable, Value) ->
     case regexp:match(Line, "^" ++ Variable ++ "=") of
         nomatch ->
@@ -101,5 +124,8 @@ parse_variable(Line, Variable, Value) ->
             Variable ++ "=" ++ Value
     end.
 
+%% @spec save_file(File::filename(), Contents::string()) -> 
+%%           ok | {error, Reason::string()}
+%% @doc Writes Contents to File
 save_file(File, Contents) ->
     file:write_file(File, list_to_binary(Contents)).
