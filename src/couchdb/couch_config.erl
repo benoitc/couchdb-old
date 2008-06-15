@@ -32,6 +32,7 @@
     dump/0, init_value/2, unset/1, load_ini_file/1, 
     load_ini_files/1]).
 
+-define(COUCH_CONFIG_CALLBACK, "_CouchDBConfigChangeCallback").
 %% Public API %%
 
 %% @type etstable() = integer().
@@ -192,12 +193,20 @@ handle_call({lookup_match_and_register, Key = {{Module, '$1'}, '$2'}, Default, C
 
 %% @doc See dump/0
 handle_call({dump, []}, _From, Tab) ->
-    io:format("~p~n", [ets:match(Tab, '$1')]),
+    Config = lists:sort(ets:match(Tab, '$1')),
+    lists:foreach(fun([{{Module, Variable}, Value}]) ->
+        case Module of
+            ?COUCH_CONFIG_CALLBACK ->
+                ok; % ignore
+            _ ->
+                io:format("[~s] ~s=~p~n", [Module, Variable, Value])
+        end
+    end, Config),
     {reply, ok, Tab};
 
 %% @doc See register/2
 handle_call({register, Key, Fun}, From, Tab) ->
-    ets:insert(Tab, {{"_CouchDB", Key}, {From, Fun}}),
+    ets:insert(Tab, {{?COUCH_CONFIG_CALLBACK, Key}, {From, Fun}}),
     {reply, ok, Tab}.
 
 %% @spec notify_registered_modules(
@@ -208,9 +217,9 @@ handle_call({register, Key, Fun}, From, Tab) ->
 notify_registered_modules(Tab, {{Module, Variable}, _Value}) ->
     % look for processes that registered for notifications for
     % specific configuration variables
-    case ets:lookup(Tab, {"_CouchDB", {Module, Variable}}) of
+    case ets:lookup(Tab, {?COUCH_CONFIG_CALLBACK, {Module, Variable}}) of
         % found
-        [{{"_CouchDB", {Module, Variable}}, {_From, Fun}}] ->
+        [{{?COUCH_CONFIG_CALLBACK, {Module, Variable}}, {_From, Fun}}] ->
             Fun();
         _ -> % not found
             ok
@@ -218,9 +227,9 @@ notify_registered_modules(Tab, {{Module, Variable}, _Value}) ->
     
     % look for processes that registerd for notifications for
     % entire modules. Their "Variable" value will be the empty string
-     case ets:lookup(Tab, {"_CouchDB", {Module, ""}}) of
+     case ets:lookup(Tab, {?COUCH_CONFIG_CALLBACK, {Module, ""}}) of
         % found
-        [{{"_CouchDB", {Module, _Variable}}, {_From2, Fun2}}] ->
+        [{{?COUCH_CONFIG_CALLBACK, {Module, _Variable}}, {_From2, Fun2}}] ->
             Fun2();
         _ -> % not found
             ok
