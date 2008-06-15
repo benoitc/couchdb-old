@@ -119,10 +119,13 @@ start_server() ->
                 [couch_ft_query]}]
         end,
 
-    io:format("Apache CouchDB ~s (LogLevel=~s)~n", [couch_server:get_version(), LogLevel]),
-    io:format("~s~n~n", [ConsoleStartupMsg]),
+    io:format("Apache CouchDB ~s (LogLevel=~s)~n", [
+        couch_server:get_version(), 
+        couch_config:lookup({"Log", "Level"})
+    ]),
+    io:format("~s~n~n", [couch_config:lookup({"CouchDB", "StartupMessage"})]),
 
-    couch_util:start_driver(UtilDriverDir),
+    couch_util:start_driver(couch_config:lookup({"CouchDB", "UtilDriverDir"})),
 
     % ensure these applications are running
     application:start(inets),
