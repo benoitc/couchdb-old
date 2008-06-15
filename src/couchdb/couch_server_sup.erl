@@ -123,9 +123,10 @@ start_server() ->
         couch_server:get_version(), 
         couch_config:lookup({"Log", "Level"})
     ]),
+    
     io:format("~s~n~n", [couch_config:lookup({"CouchDB", "StartupMessage"})]),
 
-    couch_util:start_driver(couch_config:lookup({"CouchDB", "UtilDriverDir"})),
+    ok = couch_util:start_driver(),
 
     % ensure these applications are running
     application:start(inets),
@@ -134,8 +135,6 @@ start_server() ->
     process_flag(trap_exit, true),
     StartResult = (catch supervisor:start_link(
         {local, couch_server_sup}, couch_server_sup, ChildProcesses)),
-
-    io:format("start result: '~p'", [StartResult]),
 
     case StartResult of
     {ok,_} ->

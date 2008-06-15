@@ -539,11 +539,11 @@ var tests = {
     if (debug) debugger;
 
     var binAttDoc = {
-      _id:"bin_doc",
+      _id: "bin_doc",
       _attachments:{
         "foo.txt": {
-          "content-type":"text/plain",
-          "data": "VGhpcyBpcyBhIGJhc2U2NCBlbmNvZGVkIHRleHQ="
+          content_type:"text/plain",
+          data: "VGhpcyBpcyBhIGJhc2U2NCBlbmNvZGVkIHRleHQ="
         }
       }
     }
@@ -552,7 +552,7 @@ var tests = {
 
     var xhr = CouchDB.request("GET", "/test_suite_db/bin_doc/foo.txt");
     T(xhr.responseText == "This is a base64 encoded text")
-    T(xhr.getResponseHeader("content-type") == "text/plain")
+    T(xhr.getResponseHeader("Content-Type") == "text/plain")
   },
 
   content_negotiation: function(debug) {
@@ -652,7 +652,6 @@ var tests = {
     restartServer();
     T(db.open(designDoc._id) == null);
     T(db.view("test/no_docs") == null);
-
   },
 
   view_collation: function(debug) {
@@ -931,15 +930,16 @@ var tests = {
 
   replication: function(debug) {
     if (debug) debugger;
+    var host = window.location.host;
     var dbPairs = [
       {source:"test_suite_db_a",
         target:"test_suite_db_b"},
       {source:"test_suite_db_a",
-        target:"http://localhost:5984/test_suite_db_b"},
-      {source:"http://localhost:5984/test_suite_db_a",
+        target:"http://" + host + "/test_suite_db_b"},
+      {source:"http://" + host + "/test_suite_db_a",
         target:"test_suite_db_b"},
-      {source:"http://localhost:5984/test_suite_db_a",
-        target:"http://localhost:5984/test_suite_db_b"}
+      {source:"http://" + host + "/test_suite_db_a",
+        target:"http://" + host + "/test_suite_db_b"}
     ]
     var dbA = new CouchDB("test_suite_db_a");
     var dbB = new CouchDB("test_suite_db_b");
@@ -1100,7 +1100,7 @@ var tests = {
     xhr = CouchDB.request("DELETE", "/test_suite_db/1", {
       headers: {"if-match": etag}
     });
-    T(xhr.status == 202)
+    T(xhr.status == 200)
   },
 
   compact: function(debug) {
@@ -1112,13 +1112,12 @@ var tests = {
     var saveResult = db.bulkSave(docs);
     T(saveResult.ok);
 
-
     var binAttDoc = {
-      _id:"bin_doc",
+      _id: "bin_doc",
       _attachments:{
         "foo.txt": {
-          "content-type":"text/plain",
-          "data": "VGhpcyBpcyBhIGJhc2U2NCBlbmNvZGVkIHRleHQ="
+          content_type:"text/plain",
+          data: "VGhpcyBpcyBhIGJhc2U2NCBlbmNvZGVkIHRleHQ="
         }
       }
     }
@@ -1135,20 +1134,18 @@ var tests = {
 
     var xhr = CouchDB.request("POST", "/test_suite_db/_compact");
     T(xhr.status == 202);
-    //compaction isn't instantaneous, loop until done
-    while(db.info().compact_running) {};
-
-
+    // compaction isn't instantaneous, loop until done
+    while (db.info().compact_running) {};
 
     var xhr = CouchDB.request("GET", "/test_suite_db/bin_doc/foo.txt");
     T(xhr.responseText == "This is a base64 encoded text")
-    T(xhr.getResponseHeader("content-type") == "text/plain")
+    T(xhr.getResponseHeader("Content-Type") == "text/plain")
 
     var compactedsize = db.info().disk_size;
 
-    T(deletesize > originalsize);
-    },
-    
+    T(compactedsize < deletesize);
+  },
+
   runtime_config: function(debug) {
     if(debug) debugger;
     var xhr;
