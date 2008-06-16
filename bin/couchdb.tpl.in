@@ -25,10 +25,10 @@ RECURSED_BOOLEAN=false
 
 RESPAWN_TIMEOUT=0
 
-LIB_DIRECTORY=%pkgstatelibdir%
-LOG_DIRECTORY=%pkgstatelogdir%
+LIB_DIRECTORY=%localstatelibdir%
+LOG_DIRECTORY=%localstatelogdir%
 
-INI_FILE=%pkgconfdir%/couch.ini
+INI_FILE=%localconfdir%/couch.ini
 PID_FILE=%localstatedir%/run/couchdb.pid
 
 STDOUT_FILE=couchdb.stdout
@@ -37,11 +37,9 @@ STDERR_FILE=couchdb.stderr
 HEART_COMMAND="%bindir%/%couchdb_command_name% -k"
 HEART_BEAT_TIMEOUT=11
 
-basename=$(basename $0)
+basename=`basename $0`
 
 display_version () {
-    # Display version and copyright information.
-
     cat << EOF
 $basename - %package_name% %version%
 
@@ -59,8 +57,6 @@ EOF
  }
 
 display_help () {
-    # Display a short description of the script's behaviour.
-
     cat << EOF
 Usage: $basename [OPTION]
 
@@ -92,8 +88,6 @@ EOF
 }
 
 display_error () {
-    # Display a short instruction referring users to further documentation.
-
     if test -n "$1"; then
         echo $1 >&2
     fi
@@ -103,29 +97,25 @@ display_error () {
 }
 
 _load_configuration () {
-    # Load ini configuration and overwrite default variables.
-
-    dbrootdir_ini_value=$(awk -F = "/^DbRootDir=/{print \$2}" < $INI_FILE)
+    dbrootdir_ini_value=`%AWK% -F = "/^DbRootDir=/{print \\$2}" < $INI_FILE`
     if test -n "$dbrootdir_ini_value"; then
         LIB_DIRECTORY=$dbrootdir_ini_value
     fi
-    logfile_ini_value=$(awk -F = "/^LogFile=/{print \$2}" < $INI_FILE)
+    logfile_ini_value=`%AWK% -F = "/^LogFile=/{print \\$2}" < $INI_FILE`
     if test -n "$logfile_ini_value"; then
-        LOG_DIRECTORY=$(dirname $logfile_ini_value)
+        LOG_DIRECTORY=`dirname $logfile_ini_value`
     fi
 }
 
 _get_pid () {
     if test -f $PID_FILE; then
-        PID=$(cat $PID_FILE)
+        PID=`cat $PID_FILE`
     fi
     echo $PID
 }
 
 check_status () {
-    # Check the status of the running Apache CouchDB process.
-
-    PID=$(_get_pid)
+    PID=`_get_pid`
     if test -n "$PID"; then
         if kill -0 $PID 2> /dev/null; then
             echo "Apache CouchDB is running as process $PID. Time to relax."
@@ -142,8 +132,6 @@ EOF
 }
 
 check_environment () {
-    # Check the environment for common problems to prevent nasty backtraces.
-
     message_prefix="Apache CouchDB needs write permission on the"
     if test ! -w $LIB_DIRECTORY; then
         echo "$message_prefix data directory: $LIB_DIRECTORY" >&2
@@ -154,14 +142,14 @@ check_environment () {
         exit $SCRIPT_ERROR
     fi
     message_prefix="Apache CouchDB needs write permission on data file"
-    for file in $(find $LIB_DIRECTORY -type f); do
+    for file in `find $LIB_DIRECTORY -type f`; do
         if test ! -w $file; then
             echo "$message_prefix: $file" >&2
             exit $SCRIPT_ERROR
         fi
     done
     message_prefix="Apache CouchDB needs write permission on log file"
-    for file in $(find $LOG_DIRECTORY -type f); do
+    for file in `find $LOG_DIRECTORY -type f`; do
         if test ! -w $file; then
             echo "$message_prefix: $file" >&2
             exit $SCRIPT_ERROR
@@ -201,8 +189,6 @@ check_environment () {
 }
 
 start_couchdb () {
-    # Start Apache CouchDB with the Erlang interpreter.
-
     if test ! "$RECURSED_BOOLEAN" = "true"; then
         if check_status 2> /dev/null; then
             exit $SCRIPT_OK
@@ -219,8 +205,8 @@ start_couchdb () {
     fi
     command="`%ICU_CONFIG% --invoke` \
         %ERL% $interactive_option -smp auto -sasl errlog_type error \
-        -pa %erlanglibdir%/couch-%version%/ebin \
-            %erlanglibdir%/mochiweb-r76/ebin \
+        -pa %localerlanglibdir%/couch-%version%/ebin \
+            %localerlanglibdir%/mochiweb-r76/ebin \
         -eval \"application:load(inets)\" \
         -eval \"application:load(crypto)\" \
         -eval \"application:load(couch)\" \
@@ -230,7 +216,6 @@ start_couchdb () {
         -couchini $INI_FILE"
     if test "$BACKGROUND_BOOLEAN" = "true" \
         -a "$RECURSED_BOOLEAN" = "false"; then
-        # Recursively call and detach a duplicate couchdb command.
         $0 -c $INI_FILE -b -r $RESPAWN_TIMEOUT -p $PID_FILE \
             -o $STDOUT_FILE -e $STDERR_FILE -R &
         echo "Apache CouchDB has started. Time to relax."
@@ -239,21 +224,17 @@ start_couchdb () {
             while true; do
                 export HEART_COMMAND
                 export HEART_BEAT_TIMEOUT
-                $(eval $command -pidfile $PID_FILE -heart \
-                    > $STDOUT_FILE 2> $STDERR_FILE) || true
-                PID=$(_get_pid)
+                `eval $command -pidfile $PID_FILE -heart \
+                    > $STDOUT_FILE 2> $STDERR_FILE` || true
+                PID=`_get_pid`
                 if test -n "$PID"; then
                     if kill -0 $PID 2> /dev/null; then
-                        # Found an existing process, do not respawn.
                         return $SCRIPT_ERROR
                     fi
-                    # Stale PID file, we should respawn.
                 else
-                    # No PID file, do not respawn.
                     return $SCRIPT_OK
                 fi
                 if test "$RESPAWN_TIMEOUT" = "0"; then
-                    # RESPAWN_TIMEOUT is zero, do not respawn.
                     return $SCRIPT_OK
                 fi
                 if test "$RESPAWN_TIMEOUT" != "1"; then
@@ -271,11 +252,8 @@ EOF
 }
 
 stop_couchdb () {
-    # Send SIGHUP to the running Apache CouchDB process.
-
-    PID=$(_get_pid)
+    PID=`_get_pid`
     if test -n "$PID"; then
-        # Clean up PID file or leave stale for respawn.
         if test "$1" = "false"; then
             echo > $PID_FILE
         fi
@@ -303,12 +281,13 @@ stop_couchdb () {
 }
 
 parse_script_option_list () {
-    # Parse the script option list and take the appropriate action.
-
-    if ! argument_list=$(getopt hVc:ibp:r:Ro:e:skd $@); then
+    set +e
+    options=`getopt hVc:ibp:r:Ro:e:skd $@`
+    if test ! $? -eq 0; then
         display_error
     fi
-    eval set -- "$argument_list"
+    set -e
+    eval set -- $options
     while [ $# -gt 0 ]; do
         case "$1" in
             -h) shift; display_help; exit $SCRIPT_OK;;

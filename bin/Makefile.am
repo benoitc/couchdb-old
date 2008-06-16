@@ -25,12 +25,13 @@ couchjs_command_name = `echo couchjs | sed '$(transform)'`
 couchdb: couchdb.tpl
 	sed -e "s|%ERL%|$(ERL)|g" \
 	    -e "s|%ICU_CONFIG%|$(ICU_CONFIG)|g" \
+	    -e "s|%AWK%|$(AWK)|g" \
 	    -e "s|%bindir%|@bindir@|g" \
-	    -e "s|%erlangbindir%|@erlangbindir@|g" \
-	    -e "s|%erlanglibdir%|@erlanglibdir@|g" \
-	    -e "s|%pkgconfdir%|@pkgconfdir@|g" \
-	    -e "s|%pkgstatelogdir%|@pkgstatelogdir@|g" \
-	    -e "s|%pkgstatelibdir%|@pkgstatelibdir@|g" \
+	    -e "s|%localerlangbindir%|@localerlangbindir@|g" \
+	    -e "s|%localerlanglibdir%|@localerlanglibdir@|g" \
+	    -e "s|%localconfdir%|@localconfdir@|g" \
+	    -e "s|%localstatelogdir%|@localstatelogdir@|g" \
+	    -e "s|%localstatelibdir%|@localstatelibdir@|g" \
 	    -e "s|%localstatedir%|@localstatedir@|g" \
 	    -e "s|%bug_uri%|@bug_uri@|g" \
 	    -e "s|%package_author_address%|@package_author_address@|g" \
@@ -42,7 +43,7 @@ couchdb: couchdb.tpl
 	chmod +x $@
 
 couchjs: couchjs.tpl
-	sed -e "s|%libbindir%|@libbindir@|g" \
+	sed -e "s|%locallibbindir%|@locallibbindir@|g" \
 	    -e "s|%bug_uri%|@bug_uri@|g" \
 	    -e "s|%package_author_address%|@package_author_address@|g" \
 	    -e "s|%package_author_name%|@package_author_name@|g" \

@@ -19,11 +19,9 @@ SCRIPT_ERROR=1
 
 DEFAULT_VERSION=170
 
-basename=$(basename $0)
+basename=`basename $0`
 
 display_version () {
-    # Display version and copyright information.
-
     cat << EOF
 $basename - %package_name% %version%
 
@@ -41,8 +39,6 @@ EOF
 }
 
 display_help () {
-    # Display a short description of the script's behaviour.
-
     cat << EOF
 Usage: $basename [FILE]
 
@@ -60,8 +56,6 @@ EOF
 }
 
 display_error () {
-    # Display a short instruction referring users to further documentation.
-
     if test -n "$1"; then
         echo $1 >&2
     fi
@@ -71,18 +65,17 @@ display_error () {
 }
 
 run_couchjs () {
-    # Run the JavaScript interpreter shell with options.
-
-    exec %libbindir%/%couchjs_command_name% $@
+    exec %locallibbindir%/%couchjs_command_name% $@
 }
 
 parse_script_option_list () {
-    # Parse the script option list and take the appropriate action.
-
-    if ! argument_list=$(getopt hV $@); then
+    set +e
+    options=`getopt hV $@`
+    if test ! $? -eq 0; then
         display_error
     fi
-    eval set -- "$argument_list"
+    set -e
+    eval set -- $options
     while [ $# -gt 0 ]; do
         case "$1" in
             -h) shift; display_help; exit $SCRIPT_OK;;
@@ -91,7 +84,7 @@ parse_script_option_list () {
             *) break;;
         esac
     done
-    option_list=$(echo $@ | sed 's/--//')
+    option_list=`echo $@ | sed 's/--//'`
     if test -z "$option_list"; then
         display_error "You must specify a FILE."
     fi
