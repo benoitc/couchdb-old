@@ -83,6 +83,19 @@ couch.app: couch.app.tpl
 	$@ < $<
 	chmod +x $@
 
+nobase_dist_localdata_DATA = doc
+
+doc: $(couch_file_collection)
+	mkdir -p doc
+	cd doc && \
+	for file in $(couch_file_collection); do \
+	    if test -n "$$edoc_files"; then \
+	        edoc_files="$$edoc_files, "; \
+	    fi; \
+	    edoc_files="$$edoc_files \"../$$file\""; \
+	done; \
+	erl -noshell -run edoc_run files ["$$edoc_files"]
+
 %.beam: %.erl
 	$(ERLC) $<
 
@@ -97,3 +110,4 @@ uninstall-local:
 	if test -f "$(DESTDIR)/$(couchprivlibdir)/couch_erl_driver"; then \
 	    rm -f "$(DESTDIR)/$(couchprivlibdir)/couch_erl_driver.so"; \
 	fi
+
