@@ -1,9 +1,8 @@
--module(test_runner).
+-module(runner).
 
 -export([run/0]).
--include("../src/couchdb/test/couch_config_test.erl").
--include("../src/couchdb/test/couch_config_writer_test.erl").
-
+-include("couch_config_test.erl").
+-include("couch_config_writer_test.erl").
 
 %% Test Runner
 run() ->
@@ -17,14 +16,14 @@ run() ->
 
     % CouchDB tests
     Tests = lists:flatten([
-        couch_config_test(), 
+        couch_config_test(),
         couch_config_writer_test()
     ]),
     run_tests(Tests),
-    
+
     % we're done, get out of here
     halt().
-    
+
 run_test(TestFun) ->
     io:format("  ~s        ", [proplists:get_value(
                                  name,

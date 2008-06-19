@@ -10,4 +10,11 @@
 ## License for the specific language governing permissions and limitations
 ## under the License.
 
-SUBDIRS = couchdb mochiweb
+TESTS = runner.sh
+
+check_PROGRAMS = runner.beam
+
+CLEANFILES = test.ini
+
+runner.beam: runner.erl
+	$(ERLC) $<
