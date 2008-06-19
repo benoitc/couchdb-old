@@ -1,7 +1,7 @@
 ; @configure_input@
 
 [CouchDB]
-RootDirectory=%pkgstatelibdir%
+RootDirectory=%localstatelibdir%
 UtilDriverDir=%couchprivlibdir%
 MaximumDocumentSize=4294967296 ; 4 GB
 StartupMessage=Apache CouchDB is starting.
@@ -9,14 +9,14 @@ StartupMessage=Apache CouchDB is starting.
 [HTTPd]
 Port=5984
 BindAddress=127.0.0.1
-DocumentRoot=%pkgdatadir%/www
+DocumentRoot=%localdatadir%/www
 
 [Log]
-File=%pkgstatelogdir%/couch.log
+File=%localstatelogdir%/couch.log
 Level=info
 
 [CouchDB Query Servers]
-javascript=%bindir%/%couchjs_command_name% %pkgdatadir%/server/main.js
+javascript=%bindir%/%couchjs_command_name% %localdatadir%/server/main.js
 
 [CouchDB Query Server Options]
 QueryTimeout=5000 ; 5 seconds

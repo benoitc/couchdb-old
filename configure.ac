@@ -21,7 +21,7 @@ AC_CONFIG_AUX_DIR([build-aux])
 
 AM_CONFIG_HEADER([config.h])
 
-AM_INIT_AUTOMAKE([1.6.3 foreign check-news -Wno-portability])
+AM_INIT_AUTOMAKE([1.6.3 foreign check-news])
 
 AC_GNU_SOURCE
 AC_ENABLE_SHARED
@@ -106,13 +106,13 @@ fi
 
 erlang_version_error="The installed Erlang version is less than 5.5.0 (R11B)."
 
-version=`${ERL} -version 2>&1 | ${SED} "s/[[^0-9]]/ /g"`
+version="`${ERL} -version 2>&1 | ${SED} "s/[[^0-9]]/ /g"`"
 
-if test `echo $version | ${AWK} "{print \$1}"` -lt 5; then
+if test `echo $version | ${AWK} "{print \\$1}"` -lt 5; then
     AC_MSG_ERROR([$erlang_version_error])
 fi
 
-if test `echo $version | ${AWK} "{print \$2}"` -lt 5; then
+if test `echo $version | ${AWK} "{print \\$2}"` -lt 5; then
     AC_MSG_ERROR([$erlang_version_error])
 fi
 
@@ -211,15 +211,15 @@ AC_SUBST([version_release], ["LOCAL_VERSION_RELEASE"])
 
 AC_SUBST([bug_uri], ["LOCAL_BUG_URI"])
 
-AC_SUBST([pkgconfdir], [${sysconfdir}/${package_identifier}])
-AC_SUBST([pkgdatadir], [${datadir}/${package_identifier}])
-AC_SUBST([pkgdocdir], [${datadir}/doc/${package_identifier}])
-AC_SUBST([pkglibdir], [${libdir}/${package_identifier}])
-AC_SUBST([pkgstatelibdir], [${localstatedir}/lib/${package_identifier}])
-AC_SUBST([pkgstatelogdir], [${localstatedir}/log/${package_identifier}])
-AC_SUBST([libbindir], [${pkglibdir}/bin])
-AC_SUBST([erlangbindir], [${pkglibdir}/erlang/bin])
-AC_SUBST([erlanglibdir], [${pkglibdir}/erlang/lib])
+AC_SUBST([localconfdir], [${sysconfdir}/${package_identifier}])
+AC_SUBST([localdatadir], [${datadir}/${package_identifier}])
+AC_SUBST([localdocdir], [${datadir}/doc/${package_identifier}])
+AC_SUBST([locallibdir], [${libdir}/${package_identifier}])
+AC_SUBST([localstatelibdir], [${localstatedir}/lib/${package_identifier}])
+AC_SUBST([localstatelogdir], [${localstatedir}/log/${package_identifier}])
+AC_SUBST([locallibbindir], [${locallibdir}/bin])
+AC_SUBST([localerlangbindir], [${locallibdir}/erlang/bin])
+AC_SUBST([localerlanglibdir], [${locallibdir}/erlang/lib])
 
 AC_REVISION([LOCAL_VERSION])
 
