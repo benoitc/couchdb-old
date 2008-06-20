@@ -36,7 +36,7 @@ terminate(_Reason, _Server) ->
     ok.
 
 handle_call({ft_query, Database, QueryText}, _From, Port) ->
-    %% send the database name
+    % send the database name
     true = port_command(Port, Database ++ "\n"),
     true = port_command(Port, QueryText ++ "\n"),
     case get_line(Port) of
@@ -63,7 +63,9 @@ get_line(Port) ->
     receive
     {Port, {data, {eol, Line}}} ->
         Line;
-    ?ERR_HANDLE
+    % would love to use ?ERR_HANDLE here, but edoc doesn't like it.
+    % TODO: find a way to skip that.
+    {Port, {exit_status, Status}} -> {stop, {unknown_error, Status}, {unknown_error, Status}, Port}
     end.
 
 handle_cast(_Whatever, State) ->

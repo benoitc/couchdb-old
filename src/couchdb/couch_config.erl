@@ -269,7 +269,7 @@ insert_and_commit(Tab, Config) ->
 commit(Config, File) ->
     couch_config_writer:save_config(Config, File).
 
-%% @spec load_ini_files([File::filenames()]) -> ok
+%% @spec load_ini_files([File::filename()]) -> ok
 %% @doc Stores the last ini file in Files to be the storage ini file and
 %%      iterates over all ini files and calls load_ini_file/1 with each.
 load_ini_files(IniFiles) ->
