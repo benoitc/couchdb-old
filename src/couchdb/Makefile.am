@@ -140,4 +140,3 @@ uninstall-local:
 	if test -f "$(DESTDIR)/$(couchprivlibdir)/couch_erl_driver"; then \
 	    rm -f "$(DESTDIR)/$(couchprivlibdir)/couch_erl_driver.so"; \
 	fi
-

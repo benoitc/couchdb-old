@@ -74,10 +74,10 @@ Options:
 
   -h          display a short help message and exit
   -V          display version information and exit
-  -c FILE     add a configuration FILE (defaults to $DEFAULT_INI_FILE and $LOCAL_INI_FILE)
+  -c FILE     use configuration FILE (chainable, resets system default)
   -i          use the interactive Erlang shell
   -b          spawn as a background process
-  -p FILE     set the background PID FILE (defaults to $PID_FILE)
+  -p FILE     set the background PID FILE (overrides system default)
   -r SECONDS  respawn background process after SECONDS (defaults to no respawn)
   -o FILE     redirect background stdout to FILE (defaults to $STDOUT_FILE)
   -e FILE     redirect background stderr to FILE (defaults to $STDERR_FILE)
@@ -181,9 +181,8 @@ start_couchdb () {
         if test -n "$start_arguments"; then
             start_arguments="$start_arguments, ";
         fi
-        start_arguments="$start_arguments \"../$file\""
+        start_arguments="$start_arguments \\\"$file\\\""
     done
-    echo $start_arguments
     command="`%ICU_CONFIG% --invoke` \
         %ERL% $interactive_option -smp auto -sasl errlog_type error \
         -pa %localerlanglibdir%/couch-%version%/ebin \
@@ -193,7 +192,7 @@ start_couchdb () {
         -eval \"application:load(couch)\" \
         -eval \"crypto:start()\" \
         -eval \"inets:start()\" \
-        -eval \"couch_server:start([\\\"$start_arguments\\\"]), receive done -> done end.\" "
+        -eval \"couch_server:start([$start_arguments]), receive done -> done end.\" "
     if test "$BACKGROUND_BOOLEAN" = "true" \
         -a "$RECURSED_BOOLEAN" = "false"; then
         $0 -c $INI_FILE -b -r $RESPAWN_TIMEOUT -p $PID_FILE \
