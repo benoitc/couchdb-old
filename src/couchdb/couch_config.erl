@@ -15,7 +15,6 @@
 %%      consecutively reads Key/Value pairs from and saves them in an ets 
 %%      table. If more an one ini file is specified, the last one is used to 
 %%      write changes that are made with store/2 back to that ini file.
-%% @author Jan Lehnardt <jan@apache.org>
 
 -module(couch_config).
 -include("couch_db.hrl").

@@ -16,7 +16,6 @@
 %%      Variable and value combination is appended to the Module. If the Module
 %%      does not yet exist in the ini file, it is added and the Variable/Value
 %%      pair is appended.
-%% @author Jan Lehnardt <jan@apache.org>
 %% @see couch_config
 
 -module(couch_config_writer).
