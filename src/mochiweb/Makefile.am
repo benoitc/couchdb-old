@@ -10,9 +10,21 @@
 ## License for the specific language governing permissions and limitations under
 ## the License.
 
+devdocdir = $(localdocdir)/developer/mochiweb
+
 mochiwebebindir = $(localerlanglibdir)/mochiweb-r76/ebin
 
-mochiweb_file_collection = \
+mochiwebebin_DATA = $(static_files) $(compiled_files)
+
+dist_devdoc_DATA = $(doc_base) $(doc_modules)
+
+EXTRA_DIST = $(static_files) $(source_files)
+
+CLEANFILES = $(compiled_files) $(doc_base) $(doc_modules) edoc-info
+
+static_files = mochiweb.app
+
+source_files = \
     mochifmt.erl \
     mochifmt_records.erl \
     mochifmt_std.erl \
@@ -37,9 +49,7 @@ mochiweb_file_collection = \
     mochiweb_util.erl \
     reloader.erl
 
-mochiwebebin_static_file = mochiweb.app
-
-mochiwebebin_make_generated_file_list = \
+compiled_files = \
     mochifmt.beam \
     mochifmt_records.beam \
     mochifmt_std.beam \
@@ -64,16 +74,47 @@ mochiwebebin_make_generated_file_list = \
     mochiweb_util.beam \
     reloader.beam
 
-mochiwebebin_DATA = \
-    $(mochiwebebin_static_file) \
-    $(mochiwebebin_make_generated_file_list)
+doc_base = \
+    erlang.png \
+    index.html \
+    modules-frame.html \
+    overview-summary.html \
+    packages-frame.html \
+    stylesheet.css
 
-EXTRA_DIST =  \
-    $(mochiweb_file_collection) \
-    $(mochiwebebin_static_file)
+doc_modules = \
+    mochifmt.html \
+    mochifmt_records.html \
+    mochifmt_std.html \
+    mochihex.html \
+    mochijson.html \
+    mochijson2.html \
+    mochinum.html \
+    mochiweb.html \
+    mochiweb_app.html \
+    mochiweb_charref.html \
+    mochiweb_cookies.html \
+    mochiweb_echo.html \
+    mochiweb_headers.html \
+    mochiweb_html.html \
+    mochiweb_http.html \
+    mochiweb_multipart.html \
+    mochiweb_request.html \
+    mochiweb_response.html \
+    mochiweb_skel.html \
+    mochiweb_socket_server.html \
+    mochiweb_sup.html \
+    mochiweb_util.html \
+    reloader.html
 
-CLEANFILES = \
-    $(mochiwebebin_make_generated_file_list)
+$(dist_devdoc_DATA): $(source_files)
+	for file in $(source_files); do \
+	    if test -n "$$edoc_files"; then \
+	        edoc_files="$$edoc_files, "; \
+	    fi; \
+	    edoc_files="$$edoc_files \"$$file\""; \
+	done; \
+	erl -noshell -run edoc_run files ["$$edoc_files"]
 
 %.beam: %.erl
 	$(ERLC) $<
