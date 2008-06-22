@@ -47,7 +47,6 @@ local-clean: maintainer-clean
 	rm -f configure
 	rm -f configure~
 	rm -f *.tar.gz
-	rm -f *.zip
 	rm -fr m4
 	find . -name Makefile.in | xargs rm
 
