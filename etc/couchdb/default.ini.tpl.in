@@ -6,7 +6,6 @@
 RootDirectory=%localstatelibdir%
 UtilDriverDir=%couchprivlibdir%
 MaximumDocumentSize=4294967296 ; 4 GB
-StartupMessage=Apache CouchDB is starting.
 
 [HTTPd]
 Port=5984

@@ -294,12 +294,12 @@ var tests = {
       result = db.query(map, reduce, {startkey: i, endkey: numDocs - i});
       T(result.rows[0].value == summate(numDocs-i) - summate(i-1));
     }
-    
+
     db.deleteDb();
     db.createDb();
 
     for(var i=1; i <= 5; i++) {
-      
+
       for(var j=0; j < 10; j++) {
         // these docs are in the order of the keys collation, for clarity
         var docs = [];
@@ -317,23 +317,23 @@ var tests = {
         T(db.bulkSave(docs).ok);
         T(db.info().doc_count == ((i - 1) * 10 * 11) + ((j + 1) * 11));
       }
-      
+
       map = function (doc) {emit(doc.keys, 1)};
       reduce = function (keys, values) { return sum(values); };
-    
+
       var results = db.query(map, reduce, {group:true});
-      
+
       //group by exact key match
       T(equals(results.rows[0], {key:["a"],value:20*i}));
       T(equals(results.rows[1], {key:["a","b"],value:20*i}));
       T(equals(results.rows[2], {key:["a", "b", "c"],value:10*i}));
       T(equals(results.rows[3], {key:["a", "b", "d"],value:10*i}));
-      
+
       //group by the first element in the key array
       var results = db.query(map, reduce, {group_level:1});
       T(equals(results.rows[0], {key:["a"],value:70*i}));
       T(equals(results.rows[1], {key:["d"],value:40*i}));
-      
+
       //group by the first 2 elements in the key array
       var results = db.query(map, reduce, {group_level:2});
       T(equals(results.rows[0], {key:["a"],value:20*i}));
@@ -344,13 +344,13 @@ var tests = {
       T(equals(results.rows[5], {key:["d","b"],value:10*i}));
       T(equals(results.rows[6], {key:["d","c"],value:10*i}));
     }
-    
+
     // now test out more complex reductions that need to use the combine option.
-    
+
     db.deleteDb();
     db.createDb();
 
-      
+
     var map = function (doc) {emit(null, doc.val)};
     var reduceCombine = function (keys, values, rereduce) {
         // This computes the standard deviation of the mapped results
@@ -358,7 +358,7 @@ var tests = {
         var count=0;
         var total=0;
         var sqrTotal=0;
-          
+
         if (!rereduce) {
           // This is the reduce phase, we are reducing over emitted values from
           // the map functions.
@@ -368,7 +368,7 @@ var tests = {
           }
           count = values.length;
         }
-        else { 
+        else {
           // This is the rereduce phase, we are re-reducing previosuly
           // reduced values.
           for(var i in values) {
@@ -377,16 +377,16 @@ var tests = {
             sqrTotal = sqrTotal + (values[i].sqrTotal * values[i].sqrTotal);
           }
         }
-        
+
         var variance =  (sqrTotal - ((total * total)/count)) / count;
         stdDeviation = Math.sqrt(variance);
-          
+
         // the reduce result. It contains enough information to be rereduced
         // with other reduce results.
         return {"stdDeviation":stdDeviation,"count":count,
             "total":total,"sqrTotal":sqrTotal};
       };
-      
+
       // Save a bunch a docs.
       for(var j=0; j < 10; j++) {
         var docs = [];
@@ -402,13 +402,13 @@ var tests = {
         docs.push({val:100});
         T(db.bulkSave(docs).ok);
       }
-      
+
       var results = db.query(map, reduceCombine);
-      
+
       var difference = results.rows[0].value.stdDeviation - 28.722813232690143;
       // account for floating point rounding error
       T(Math.abs(difference) < 0.0000000001);
-      
+
   },
 
   multiple_rows: function(debug) {
@@ -583,7 +583,7 @@ var tests = {
     if (debug) debugger;
 
     var numDocs = 500;
-    
+
     function makebigstring(power) {
       var str = "a";
       while(power-- > 0) {
@@ -1150,33 +1150,35 @@ var tests = {
     if(debug) debugger;
     var xhr;
 
-    xhr = CouchDB.request("GET", "/_config/CouchDB/ConsoleStartupMsg");
-    T(xhr.status == 200);
-    T(JSON.parse(xhr.responseText).ok);
-
-    xhr = CouchDB.request("POST", "/_config/CouchDB/ConsoleStartupMsg", {"body":"CouchDB is awesome."});
+    xhr = CouchDB.request("GET", "/_config/CouchDB/MaximumDocumentSize");
     T(xhr.status == 200);
     var res = JSON.parse(xhr.responseText);
     T(res.ok);
-    T(res.value == "CouchDB is awesome.");
+    var original_value = res.value
 
-    xhr = CouchDB.request("GET", "/_config/CouchDB/ConsoleStartupMsg");
+    xhr = CouchDB.request("POST", "/_config/CouchDB/MaximumDocumentSize", {"body":"1024"});
     T(xhr.status == 200);
     var res = JSON.parse(xhr.responseText);
     T(res.ok);
-    T(res.value == "CouchDB is awesome.");
+    T(res.value == "1024");
 
-    xhr = CouchDB.request("DELETE", "/_config/CouchDB/ConsoleStartupMsg");
+    xhr = CouchDB.request("GET", "/_config/MaximumDocumentSize");
     T(xhr.status == 200);
     var res = JSON.parse(xhr.responseText);
     T(res.ok);
-    T(res.old_value == "CouchDB is awesome.");
+    T(res.value == "1024");
 
-    xhr = CouchDB.request("PUT", "/_config/CouchDB/ConsoleStartupMsg", {"body":"Apache CouchDB is starting."});
+    xhr = CouchDB.request("DELETE", "/_config/CouchDB/MaximumDocumentSize");
     T(xhr.status == 200);
     var res = JSON.parse(xhr.responseText);
     T(res.ok);
-    T(res.value == "Apache CouchDB is starting.");
+    T(res.old_value == "1024");
+
+    xhr = CouchDB.request("PUT", "/_config/CouchDB/MaximumDocumentSize", {"body": original_value});
+    T(xhr.status == 200);
+    var res = JSON.parse(xhr.responseText);
+    T(res.ok);
+    T(res.value == original_value);
   }
 };
 
