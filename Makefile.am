@@ -36,7 +36,7 @@ README.gz: $(top_srcdir)/README
 THANKS.gz: $(top_srcdir)/THANKS
 	-gzip -9 < $< > $@
 
-local-clean: maintainer-clean
+maintainer-clean-local: maintainer-clean
 	@echo "This command is intended for maintainers to use;"
 	@echo "it deletes files that may need special tools to rebuild."
 	rm -f INSTALL
