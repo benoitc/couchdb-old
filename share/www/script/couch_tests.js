@@ -58,7 +58,7 @@ var tests = {
     // create a map function that selects all documents whose "a" member
     // has a value of 4, and then returns the document's b value.
     var mapFunction = function(doc){
-      if(doc.a==4)
+      if (doc.a==4)
         emit(null, doc.b);
     };
 
@@ -328,6 +328,11 @@ var tests = {
       T(equals(results.rows[1], {key:["a","b"],value:20*i}));
       T(equals(results.rows[2], {key:["a", "b", "c"],value:10*i}));
       T(equals(results.rows[3], {key:["a", "b", "d"],value:10*i}));
+
+      // test to make sure group reduce and count params provide valid json
+      var results = db.query(map, reduce, {group: true, count: 2});
+      T(equals(results.rows[0], {key: ["a"], value: 20*i}));
+      T(equals(results.rows.length, 2));
 
       //group by the first element in the key array
       var results = db.query(map, reduce, {group_level:1});
@@ -769,6 +774,38 @@ var tests = {
     T(results.rows[0].value[0] == conflictRev);
   },
 
+  view_errors: function(debug) {
+    var db = new CouchDB("test_suite_db");
+    db.deleteDb();
+    db.createDb();
+    if (debug) debugger;
+
+    var doc = {integer: 1, string: "1", array: [1, 2, 3]};
+    T(db.save(doc).ok);
+
+    // emitting a key value that is undefined should result in that row not
+    // being included in the view results
+    var results = db.query(function(doc) {
+      emit(doc.undef, null);
+    });
+    T(results.total_rows == 0);
+
+    // if a view function throws an exception, its results are not included in
+    // the view index, but the view does not itself raise an error
+    var results = db.query(function(doc) {
+      doc.undef(); // throws an error
+    });
+    T(results.total_rows == 0);
+
+    // if a view function includes an undefined value in the emitted key or
+    // value, an error is logged and the result is not included in the view
+    // index, and the view itself does not raise an error
+    var results = db.query(function(doc) {
+      emit([doc._id, doc.undef], null);
+    });
+    T(results.total_rows == 0);
+  },
+
   view_pagination: function(debug) {
     var db = new CouchDB("test_suite_db");
     db.deleteDb();
@@ -863,6 +900,54 @@ var tests = {
         T(queryResults.rows[j].key == i + j);
       }
     }
+    
+    // test endkey_docid
+    var queryResults = db.query(function(doc) { emit(null, null);}, null, {
+      startkey: null,
+      startkey_docid: 1,
+      endkey: null,
+      endkey_docid: 40
+    });
+    
+    T(queryResults.rows.length == 35)
+    T(queryResults.total_rows == docs.length)
+    T(queryResults.offset == 1)
+    T(queryResults.rows[0].id == "1");
+    T(queryResults.rows[1].id == "10");
+    T(queryResults.rows[2].id == "11");
+    T(queryResults.rows[3].id == "12");
+    T(queryResults.rows[4].id == "13");
+    T(queryResults.rows[5].id == "14");
+    T(queryResults.rows[6].id == "15");
+    T(queryResults.rows[7].id == "16");
+    T(queryResults.rows[8].id == "17");
+    T(queryResults.rows[9].id == "18");
+    T(queryResults.rows[10].id == "19");
+    T(queryResults.rows[11].id == "2");
+    T(queryResults.rows[12].id == "20");
+    T(queryResults.rows[13].id == "21");
+    T(queryResults.rows[14].id == "22");
+    T(queryResults.rows[15].id == "23");
+    T(queryResults.rows[16].id == "24");
+    T(queryResults.rows[17].id == "25");
+    T(queryResults.rows[18].id == "26");
+    T(queryResults.rows[19].id == "27");
+    T(queryResults.rows[20].id == "28");
+    T(queryResults.rows[21].id == "29");
+    T(queryResults.rows[22].id == "3");
+    T(queryResults.rows[23].id == "30");
+    T(queryResults.rows[24].id == "31");
+    T(queryResults.rows[25].id == "32");
+    T(queryResults.rows[26].id == "33");
+    T(queryResults.rows[27].id == "34");
+    T(queryResults.rows[28].id == "35");
+    T(queryResults.rows[29].id == "36");
+    T(queryResults.rows[30].id == "37");
+    T(queryResults.rows[31].id == "38");
+    T(queryResults.rows[32].id == "39");
+    T(queryResults.rows[33].id == "4");
+    T(queryResults.rows[34].id == "40");
+
   },
 
   view_sandboxing: function(debug) {
@@ -871,12 +956,18 @@ var tests = {
     db.createDb();
     if (debug) debugger;
 
-    var docs = makeDocs(1, 2);
-    T(db.bulkSave(docs).ok);
+    var doc = {integer: 1, string: "1", array: [1, 2, 3]};
+    T(db.save(doc).ok);
 
     // make sure that attempting to change the document throws an error
     var results = db.query(function(doc) {
-      doc._id = "foo";
+      doc.integer = 2;
+      emit(null, doc);
+    });
+    T(results.total_rows == 0);
+
+    var results = db.query(function(doc) {
+      doc.array[0] = 0;
       emit(null, doc);
     });
     T(results.total_rows == 0);
