@@ -10,9 +10,7 @@
 ## License for the specific language governing permissions and limitations under
 ## the License.
 
-devdocdir = $(localdocdir)/developer/mochiweb
-
-mochiwebebindir = $(localerlanglibdir)/mochiweb-r76/ebin
+mochiwebebindir = $(localerlanglibdir)/mochiweb-r82/ebin
 
 mochiwebebin_DATA = $(static_files) $(compiled_files)
 
