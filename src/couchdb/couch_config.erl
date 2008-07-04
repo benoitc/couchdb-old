@@ -274,7 +274,7 @@ commit(Config, File) ->
     case File of
         {ok, FileName} ->
             couch_config_writer:save_config(Config, FileName);
-        _ ->
+        _ -> % silently ignore writing if we have only a single ini file
             ok
     end.
 
