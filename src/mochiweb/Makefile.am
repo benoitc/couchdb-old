@@ -12,17 +12,7 @@
 
 mochiwebebindir = $(localerlanglibdir)/mochiweb-r82/ebin
 
-mochiwebebin_DATA = $(static_files) $(compiled_files)
-
-dist_devdoc_DATA = $(doc_base) $(doc_modules)
-
-EXTRA_DIST = $(static_files) $(source_files)
-
-CLEANFILES = $(compiled_files) $(doc_base) $(doc_modules) edoc-info
-
-static_files = mochiweb.app
-
-source_files = \
+mochiweb_file_collection = \
     mochifmt.erl \
     mochifmt_records.erl \
     mochifmt_std.erl \
@@ -47,7 +37,9 @@ source_files = \
     mochiweb_util.erl \
     reloader.erl
 
-compiled_files = \
+mochiwebebin_static_file = mochiweb.app
+
+mochiwebebin_make_generated_file_list = \
     mochifmt.beam \
     mochifmt_records.beam \
     mochifmt_std.beam \
@@ -72,47 +64,16 @@ compiled_files = \
     mochiweb_util.beam \
     reloader.beam
 
-doc_base = \
-    erlang.png \
-    index.html \
-    modules-frame.html \
-    overview-summary.html \
-    packages-frame.html \
-    stylesheet.css
+mochiwebebin_DATA = \
+    $(mochiwebebin_static_file) \
+    $(mochiwebebin_make_generated_file_list)
 
-doc_modules = \
-    mochifmt.html \
-    mochifmt_records.html \
-    mochifmt_std.html \
-    mochihex.html \
-    mochijson.html \
-    mochijson2.html \
-    mochinum.html \
-    mochiweb.html \
-    mochiweb_app.html \
-    mochiweb_charref.html \
-    mochiweb_cookies.html \
-    mochiweb_echo.html \
-    mochiweb_headers.html \
-    mochiweb_html.html \
-    mochiweb_http.html \
-    mochiweb_multipart.html \
-    mochiweb_request.html \
-    mochiweb_response.html \
-    mochiweb_skel.html \
-    mochiweb_socket_server.html \
-    mochiweb_sup.html \
-    mochiweb_util.html \
-    reloader.html
+EXTRA_DIST =  \
+    $(mochiweb_file_collection) \
+    $(mochiwebebin_static_file)
 
-$(dist_devdoc_DATA): $(source_files)
-	for file in $(source_files); do \
-	    if test -n "$$edoc_files"; then \
-	        edoc_files="$$edoc_files, "; \
-	    fi; \
-	    edoc_files="$$edoc_files \"$$file\""; \
-	done; \
-	erl -noshell -run edoc_run files ["$$edoc_files"]
+CLEANFILES = \
+    $(mochiwebebin_make_generated_file_list)
 
 %.beam: %.erl
 	$(ERLC) $<

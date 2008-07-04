@@ -33,7 +33,7 @@ store(Key, Value) ->
     couch_config:start_link(),
 
     couch_config:init_value(Key, Value),
-    Result = couch_config:lookup(Key),
+    {ok, Result} = couch_config:lookup(Key),
     couch_config:unset(Key),
 
     couch_config:stop(),

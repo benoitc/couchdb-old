@@ -68,10 +68,10 @@ sup_start_link() ->
     % will restart us and then we will pick up the new settings.
     ConfigChangeCallbackFunction =  fun() -> ?MODULE:stop() end,
 
-    RootDir = couch_config:lookup_and_register(
+    {ok, RootDir} = couch_config:lookup_and_register(
         {"CouchDB", "RootDirectory"}, ConfigChangeCallbackFunction),
-    Options = couch_config:lookup_and_register(
-        {"CouchDB", "ServerOptions"}, ConfigChangeCallbackFunction),
+    {ok, Options} = couch_config:lookup_and_register(
+        {"CouchDB", "ServerOptions"}, [], ConfigChangeCallbackFunction),
 
     gen_server:start_link({local, couch_server}, couch_server, {RootDir, Options}, []).
 

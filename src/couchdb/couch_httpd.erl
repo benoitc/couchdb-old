@@ -46,11 +46,11 @@ start_link() ->
     % will restart us and then we will pick up the new settings.
     ConfigChangeCallbackFunction =  fun() -> couch_httpd:stop() end,
     
-    BindAddress = couch_config:lookup_and_register(
+    {ok, BindAddress} = couch_config:lookup_and_register(
         {"HTTPd", "BindAddress"}, ConfigChangeCallbackFunction),
-    Port = couch_config:lookup_and_register(
+    {ok, Port} = couch_config:lookup_and_register(
         {"HTTPd", "Port"}, ConfigChangeCallbackFunction),
-    DocumentRoot = couch_config:lookup_and_register(
+    {ok, DocumentRoot} = couch_config:lookup_and_register(
         {"HTTPd", "DocumentRoot"}, ConfigChangeCallbackFunction),
     
     % and off we go
@@ -683,23 +683,34 @@ handle_config_request(Req, 'POST', {[Module, Key]}) ->
     
 % GET /_config/Module/Key
 handle_config_request(Req, 'GET', {[Module, Key]}) ->
-    send_json(Req, 200, {obj, [
-        {ok, true},
-        {module, Module},
-        {key, Key},
-        {value, couch_config:lookup({Module, Key})}
-     ]});
+    case couch_config:lookup({Module, Key}) of
+        {ok, Value} ->
+            send_json(Req, 200, {obj, [
+                {ok, true},
+                {module, Module},
+                {key, Key},
+                {value, Value}
+             ]});
+        undefined ->
+            throw({not_found, unkown_config_value})
+    end;
+
     
 % DELETE /_config/Key
 handle_config_request(Req, 'DELETE', {[Module, Key]}) ->
-    OldValue = couch_config:lookup({Module, Key}),
-    couch_config:unset({Module, Key}),
-    send_json(Req, 200, {obj, [
-        {ok, true},
-        {module, Module},
-        {key, Key},
-        {old_value, OldValue}
-     ]}).
+    case couch_config:lookup({Module, Key}) of
+        {ok, OldValue} ->
+            couch_config:unset({Module, Key}),
+            send_json(Req, 200, {obj, [
+                {ok, true},
+                {module, Module},
+                {key, Key},
+                {old_value, OldValue}
+             ]});
+        undefined ->
+            throw({not_found, unkown_config_value})
+    end.
+
 
 % TODO:
 % POST,PUT /_config/

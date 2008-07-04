@@ -48,7 +48,7 @@
 start_link() ->
     
     % read configuration settings and register for configuration changes
-    RootDir = couch_config:lookup_and_register(
+    {ok, RootDir} = couch_config:lookup_and_register(
         {"CouchDB", "RootDirectory"}, fun() -> terminate(config_change) end),
     
     gen_server:start_link({local, couch_view}, couch_view, RootDir, []).

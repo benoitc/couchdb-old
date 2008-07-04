@@ -1253,7 +1253,7 @@ var tests = {
     T(res.ok);
     T(res.value == "1024");
 
-    xhr = CouchDB.request("GET", "/_config/MaximumDocumentSize");
+    xhr = CouchDB.request("GET", "/_config/CouchDB/MaximumDocumentSize");
     T(xhr.status == 200);
     var res = JSON.parse(xhr.responseText);
     T(res.ok);

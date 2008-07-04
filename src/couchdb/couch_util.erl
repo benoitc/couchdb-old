@@ -29,10 +29,10 @@ start_driver() ->
     % will restart us and then we will pick up the new settings.
     ConfigChangeCallbackFunction =  fun() -> couch_server:stop(couch_config_change) end,
     
-    LibDir1 = couch_config:lookup_and_register(
-        {"CouchDB", "UtilDriverDir"}, ConfigChangeCallbackFunction),
+    {ok, LibDir1} = couch_config:lookup_and_register(
+        {"CouchDB", "UtilDriverDir"}, ConfigChangeCallbackFunction, none),
     case LibDir1 of
-        null ->
+        none ->
             LibDir = filename:join(code:priv_dir(couch), "lib");
         _ ->
             LibDir = LibDir1

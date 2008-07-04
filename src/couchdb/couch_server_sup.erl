@@ -42,18 +42,19 @@ start_server() ->
     end,
 
     % annoucne startup
+    {ok, LogLevel} = couch_config:lookup({"Log", "Level"}),
     io:format("Apache CouchDB ~s (LogLevel=~s) is starting.~n", [
         couch_server:get_version(),
-        couch_config:lookup({"Log", "Level"})
+        LogLevel
     ]),
 
     % read config and register for configuration changes
 
     % just stop if one of the config settings change. couch_server_sup
     % will restart us and then we will pick up the new settings.
-    ConfigChangeCallbackFunction =  fun() -> ?MODULE:stop() end,
-    UpdateNotificationProcesses = couch_config:lookup({"CouchDB", "UpdateNotificationProcesses"}, []),
-    FtSearchQueryServer = couch_config:lookup({"Search", "QueryServer"}, []),
+    ConfigChangeCallbackFunction = fun() -> ?MODULE:stop() end,
+    {ok, UpdateNotificationProcesses} = couch_config:lookup({"CouchDB", "UpdateNotificationProcesses"}, []),
+    {ok, FtSearchQueryServer} = couch_config:lookup({"Search", "QueryServer"}, []),
 
     couch_config:register(
         {"CouchDB", "UpdateNotificationProcesses"}, ConfigChangeCallbackFunction),
@@ -130,11 +131,16 @@ start_server() ->
     StartResult = (catch supervisor:start_link(
         {local, couch_server_sup}, couch_server_sup, ChildProcesses)),
 
+    {ok, BindAddress} = couch_config:lookup_and_register(
+        {"HTTPd", "BindAddress"}, ConfigChangeCallbackFunction),
+    {ok, Port} = couch_config:lookup_and_register(
+        {"HTTPd", "Port"}, ConfigChangeCallbackFunction),
+
     case StartResult of
     {ok,_} ->
         % only output when startup was successful
         io:format("Apache CouchDB has started, see http://~s:~s/_utils/index.html~n",
-            [couch_config:lookup({"HTTPd", "BindAddress"}), couch_config:lookup({"HTTPd", "Port"})]);
+            [BindAddress, Port]);
     _ ->
         % Since we failed startup, unconditionally dump configuration data to console
         ok = couch_config:dump()

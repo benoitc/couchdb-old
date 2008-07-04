@@ -40,10 +40,10 @@ start_link() ->
     % just stop if one of the config settings change. couch_server_sup
     % will restart us and then we will pick up the new settings.
     ConfigChangeCallbackFunction =  fun() -> ?MODULE:stop() end,
-    Filename = couch_config:lookup_and_register(
+    {ok, Filename} = couch_config:lookup_and_register(
         {"Log", "File"}, ConfigChangeCallbackFunction),
-    Level = couch_config:lookup_and_register(
-        {"Log", "Level"}, ConfigChangeCallbackFunction),
+    {ok, Level} = couch_config:lookup_and_register(
+        {"Log", "Level"}, info, ConfigChangeCallbackFunction),
 
     couch_event_sup:start_link({local, couch_log}, error_logger, couch_log, {Filename, Level}).
 

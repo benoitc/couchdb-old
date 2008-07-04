@@ -56,8 +56,8 @@ init_value(Key, Value) -> gen_server:call(?MODULE, {init_value, Key, Value}).
 %%      local ets table and writes it to the storage ini file.
 store(Key, Value) -> gen_server:call(?MODULE, {store, [{Key, Value}]}).
 
-%% @spec lookup(Key::any()) -> Value::any() | null
-%% @doc Returns the value that is stored under key::any() or null::atom() if no
+%% @spec lookup(Key::any()) -> Value::any() | undefined
+%% @doc Returns the value that is stored under key::any() or undefined::atom() if no
 %%      such Key exists.
 lookup(Key) -> gen_server:call(?MODULE, {lookup, Key}).
 
@@ -67,8 +67,8 @@ lookup(Key) -> gen_server:call(?MODULE, {lookup, Key}).
 lookup(Key, Default) -> gen_server:call(?MODULE, {lookup, Key, Default}).
 
 %% @spec lookup_and_register(Key::any(), CallbackFunction::function()) ->
-%%         Value::any() | null
-%% @doc Returns the value that is stored under Key::any() or null::atom() if no
+%%         Value::any() | undefined
+%% @doc Returns the value that is stored under Key::any() or undefined::atom() if no
 %%      such Key exists. Additionally, this functions registers 
 %%      CallbackFunction::function() to be called if the value of Key::any()
 %%      is changed at a later point.
@@ -86,9 +86,9 @@ lookup_and_register(Key, CallbackFunction) ->
 lookup_and_register(Key, Default, CallbackFunction) ->
     gen_server:call(?MODULE, {lookup_and_register, Key, Default, CallbackFunction}).
 
-%% @spec lookup_match(Key::any()) -> Value::any() | null:atom()
+%% @spec lookup_match(Key::any()) -> Value::any() | undefined:atom()
 %% @doc Lets you look for a Key's Value specifying a pattern that gets passed 
-%%      to ets::match(). Returns null::atom() if no Key is found.
+%%      to ets::match(). Returns undefined::atom() if no Key is found.
 lookup_match(Key) -> gen_server:call(?MODULE, {lookup_match, Key}).
 
 %% @spec lookup_match(Key::any(), Default::any()) -> Value::any() | Default
@@ -97,9 +97,9 @@ lookup_match(Key) -> gen_server:call(?MODULE, {lookup_match, Key}).
 lookup_match(Key, Default) -> gen_server:call(?MODULE, {lookup_match, Key, Default}).
 
 %% @spec lookup_match_and_register(Key::any(), CallbackFunction::function()) ->
-%%           Value::any() | null:atom()
+%%           Value::any() | undefined:atom()
 %% @doc Lets you look for a Key's Value specifying a pattern that gets passed 
-%%      to ets::match(). Returns null::atom() if no Key is found. Additionally,
+%%      to ets::match(). Returns undefined::atom() if no Key is found. Additionally,
 %%      this functions registers CallbackFunction::function() to be called if 
 %%      the value of Key::any() is changed at a later point.
 lookup_match_and_register(Key, CallbackFunction) ->
@@ -109,7 +109,7 @@ lookup_match_and_register(Key, CallbackFunction) ->
 %%           Key::any(), Default::any(), CallbackFunction::function()) ->
 %%               Value::any() | Default
 %% @doc Lets you look for a Key's Value specifying a pattern that gets passed 
-%%      to ets::match(). Returns null::atom() if no Key is found. Additionally,
+%%      to ets::match(). Returns undefined::atom() if no Key is found. Additionally,
 %%      this functions registers CallbackFunction::function() to be called if 
 %%      the value of Key::any() is changed at a later point.
 lookup_match_and_register(Key, Default, CallbackFunction) ->
@@ -156,7 +156,7 @@ handle_call({unset, Key}, _From, Tab) ->
 
 %% @doc See lookup/1
 handle_call({lookup, Key}, _From, Tab) ->
-    lookup(Key, fun(Tab_, Key_) -> ets:lookup(Tab_, Key_) end, null, Tab);
+    lookup(Key, fun(Tab_, Key_) -> ets:lookup(Tab_, Key_) end, undefined, Tab);
 
 %% @doc See lookup/2
 handle_call({lookup, Key, Default}, _From, Tab) ->
@@ -165,7 +165,7 @@ handle_call({lookup, Key, Default}, _From, Tab) ->
 %% @doc See lookup_and_register/2
 handle_call({lookup_and_register, Key, CallbackFunction}, _From, Tab) ->
     ?MODULE:handle_call({register, Key, CallbackFunction}, _From, Tab),
-    lookup(Key, fun(Tab_, Key_) -> ets:lookup(Tab_, Key_) end, null, Tab);
+    lookup(Key, fun(Tab_, Key_) -> ets:lookup(Tab_, Key_) end, undefined, Tab);
 
 %% @doc See lookup_and_register/3
 handle_call({lookup_and_register, Key, Default, CallbackFunction}, _From, Tab) ->
@@ -174,7 +174,7 @@ handle_call({lookup_and_register, Key, Default, CallbackFunction}, _From, Tab) -
 
 %% @doc See lookup_match/1
 handle_call({lookup_match, Key}, _From, Tab) ->
-    lookup(Key, fun(Tab_, Key_) -> ets:match(Tab_, Key_) end, null, Tab);
+    lookup(Key, fun(Tab_, Key_) -> ets:match(Tab_, Key_) end, undefined, Tab);
 
 %% @doc See lookup_match/2
 handle_call({lookup_match, Key, Default}, _From, Tab) ->
@@ -183,7 +183,7 @@ handle_call({lookup_match, Key, Default}, _From, Tab) ->
 %% @doc See lookup_match_and_register/2
 handle_call({lookup_match_and_register, Key = {{Module, '$1'}, '$2'}, CallbackFunction}, _From, Tab) ->
     ?MODULE:handle_call({register, {Module, ""}, CallbackFunction}, _From, Tab),
-    lookup(Key, fun(Tab_, Key_) -> ets:match(Tab_, Key_) end, null, Tab);
+    lookup(Key, fun(Tab_, Key_) -> ets:match(Tab_, Key_) end, undefined, Tab);
 
 %% @doc See lookup_match_and_register/3
 handle_call({lookup_match_and_register, Key = {{Module, '$1'}, '$2'}, Default, CallbackFunction}, _From, Tab) ->
@@ -241,11 +241,16 @@ notify_registered_modules(Tab, {{Module, Variable}, _Value}) ->
 lookup(Key, Fun, Default, Tab) ->
     Reply = case Fun(Tab, Key) of
         [{Key, Value}] ->
-            Value;
+            {ok, Value};
         [List] ->
-            lists:map(fun([Key2, Value2]) -> {Key2, Value2} end, [List]);
+            {ok, lists:map(fun([Key2, Value2]) -> {Key2, Value2} end, [List])};
         [] ->
-            Default
+            case Default of
+                undefined ->
+                    {error, undefined};
+                _ ->
+                    {ok, Default}
+            end
     end,
     {reply, Reply, Tab}.
 
@@ -257,16 +262,21 @@ insert_and_commit(Tab, Config) ->
     {reply, File, _Tab} = 
         lookup({"_CouchDB", "ConfigurationStorageFile"}, 
             fun(Tab_, Key_) -> ets:lookup(Tab_, Key_) end, 
-            null, Tab
+            undefined, Tab
         ),
-
+        
     notify_registered_modules(Tab, Config),
     commit(Config, File).
 
 %% @spec commit(Config::any(), File::filename()) -> ok
 %% @doc Writes a Key/Value pair to the ini storage file.
 commit(Config, File) ->
-    couch_config_writer:save_config(Config, File).
+    case File of
+        {ok, FileName} ->
+            couch_config_writer:save_config(Config, FileName);
+        _ ->
+            ok
+    end.
 
 %% @spec load_ini_files([File::filename()]) -> ok
 %% @doc Stores the last ini file in Files to be the storage ini file and

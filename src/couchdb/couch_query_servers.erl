@@ -23,7 +23,9 @@
 -include("couch_db.hrl").
 
 timeout() ->
-    list_to_integer(couch_config:lookup({"CouchDB Query Server Options", "QueryTimeout"})).
+    {ok, QueryTimeout} = couch_config:lookup(
+            {"CouchDB Query Server Options", "QueryTimeout"}, "5000"), % 5 secs
+    list_to_integer(QueryTimeout).
 
 start_link() ->
     % read config and register for configuration changes
@@ -32,7 +34,7 @@ start_link() ->
     % will restart us and then we will pick up the new settings.
     ConfigChangeCallbackFunction =  fun() -> ?MODULE:stop() end,
     
-    QueryServerList = couch_config:lookup_match_and_register(
+    {ok, QueryServerList} = couch_config:lookup_match_and_register(
         {{"CouchDB Query Servers", '$1'}, '$2'}, [],
         ConfigChangeCallbackFunction),
     couch_config:register(
