@@ -653,8 +653,59 @@ handle_attachment_request(Req, 'GET', _DbName, Db, DocId, FileName) ->
         throw(Error)
     end;
 
+handle_attachment_request(Req, Method, _DbName, Db, DocId, FileName)
+    when (Method == 'PUT') or (Method == 'DELETE') ->
+
+    Rev = extract_header_rev(Req),
+    
+    NewAttachment = case Method of
+        'DELETE' ->
+            [];
+        _ ->
+            [{FileName, {
+                Req:get_header_value("Content-Type"),
+                Req:recv_body()
+            }}]
+    end,
+
+    Doc =
+    case Rev of
+    missing_rev -> % make the new doc
+        #doc{id=DocId};
+    _ ->
+        case couch_db:open_doc_revs(Db, DocId, [Rev], []) of
+        {ok, [{ok, Doc0}]}   -> Doc0#doc{revs=[Rev]};
+        {ok, [Error]}       -> throw(Error)
+        end
+    end,
+    
+    #doc{attachments=Attachments} = Doc,
+    DocEdited = Doc#doc{
+        attachments = NewAttachment ++ proplists:delete(FileName, Attachments)},
+    {ok, UpdatedRev} = couch_db:update_doc(Db, DocEdited, []),
+    send_json(Req, case Method of 'DELETE' -> 200; _ -> 201 end, {obj, [
+        {ok, true},
+        {id, DocId},
+        {rev, UpdatedRev}
+    ]});
+
 handle_attachment_request(_Req, _Method, _DbName, _Db, _DocId, _FileName) ->
-    throw({method_not_allowed, "GET,HEAD"}).
+    throw({method_not_allowed, "GET,HEAD,DELETE,PUT"}).
+
+extract_header_rev(Req) ->
+    QueryRev = proplists:get_value("rev", Req:parse_qs()),
+    Etag = case Req:get_header_value("If-Match") of
+        undefined -> undefined;
+        Tag -> string:strip(Tag, both, $")
+    end,
+    case {QueryRev, Etag} of
+    {undefined, undefined} -> missing_rev;
+    {_, undefined} -> QueryRev;
+    {undefined, _} -> Etag;
+    _ when QueryRev == Etag -> Etag;
+    _ ->
+        throw({bad_request, "Document rev and etag have different values"})
+    end.
 
 % Config request handlers
 
