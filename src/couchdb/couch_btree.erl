@@ -16,7 +16,7 @@
 -export([foldr/3, foldr/4, fold/4, fold/5, full_reduce/1, final_reduce/2]).
 -export([fold_reduce/7, lookup/2, get_state/1, set_options/2, test/1, test/0]).
 
--define(CHUNK_THRESHOLD, 16#fff).
+-define(CHUNK_THRESHOLD, 16#4ff).
 
 -record(btree,
     {fd,
@@ -78,17 +78,20 @@ fold_reduce(#btree{root=Root}=Bt, Dir, StartKey, EndKey, KeyGroupFun, Fun, Acc) 
         rev -> {EndKey, StartKey};
         fwd -> {StartKey, EndKey}
     end,
-    {ok, Acc2, GroupedRedsAcc2, GroupedKVsAcc2, GroupedKey2} =
-        reduce_stream_node(Bt, Dir, Root, StartKey2, EndKey2, nil, [], [],
-        KeyGroupFun, Fun, Acc),
-    if GroupedKey2 == nil ->
-        {ok, Acc2};
-    true ->
-        case (catch Fun(GroupedKey2, {GroupedKVsAcc2, GroupedRedsAcc2}, Acc2)) of
+    try
+        {ok, Acc2, GroupedRedsAcc2, GroupedKVsAcc2, GroupedKey2} =
+            reduce_stream_node(Bt, Dir, Root, StartKey2, EndKey2, nil, [], [],
+            KeyGroupFun, Fun, Acc),
+        if GroupedKey2 == nil ->
+            {ok, Acc2};
+        true ->
+            case Fun(GroupedKey2, {GroupedKVsAcc2, GroupedRedsAcc2}, Acc2) of
             {ok, Acc3} -> {ok, Acc3};
-            {stop, Acc3} -> {ok, Acc3};
-            Else -> throw(Else)
+            {stop, Acc3} -> {ok, Acc3}
+            end
         end
+    catch
+        throw:{stop, AccDone} -> {ok, AccDone}
     end.
 
 full_reduce(#btree{root=nil,reduce=Reduce}) ->

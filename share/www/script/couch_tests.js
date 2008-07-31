@@ -290,6 +290,12 @@ var tests = {
     result = db.query(map, reduce, {startkey: 4, endkey: 6});
     T(result.rows[0].value == 15);
 
+    result = db.query(map, reduce, {group:true, count:3});
+    T(result.rows.length == 3);
+    T(result.rows[0].value == 1);
+    T(result.rows[1].value == 2);
+    T(result.rows[2].value == 3);
+
     for(var i=1; i<numDocs/2; i+=30) {
       result = db.query(map, reduce, {startkey: i, endkey: numDocs - i});
       T(result.rows[0].value == summate(numDocs-i) - summate(i-1));
@@ -356,13 +362,13 @@ var tests = {
     db.createDb();
 
 
-    var map = function (doc) {emit(null, doc.val)};
+    var map = function (doc) {emit(doc.val, doc.val)};
     var reduceCombine = function (keys, values, rereduce) {
         // This computes the standard deviation of the mapped results
-        var stdDeviation=0;
+        var stdDeviation=0.0;
         var count=0;
-        var total=0;
-        var sqrTotal=0;
+        var total=0.0;
+        var sqrTotal=0.0;
 
         if (!rereduce) {
           // This is the reduce phase, we are reducing over emitted values from
@@ -379,7 +385,7 @@ var tests = {
           for(var i in values) {
             count = count + values[i].count;
             total = total + values[i].total;
-            sqrTotal = sqrTotal + (values[i].sqrTotal * values[i].sqrTotal);
+            sqrTotal = sqrTotal + values[i].sqrTotal;
           }
         }
 
@@ -393,27 +399,28 @@ var tests = {
       };
 
       // Save a bunch a docs.
-      for(var j=0; j < 10; j++) {
-        var docs = [];
-        docs.push({val:10});
-        docs.push({val:20});
-        docs.push({val:30});
-        docs.push({val:40});
-        docs.push({val:50});
-        docs.push({val:60});
-        docs.push({val:70});
-        docs.push({val:80});
-        docs.push({val:90});
-        docs.push({val:100});
-        T(db.bulkSave(docs).ok);
-      }
 
-      var results = db.query(map, reduceCombine);
-
-      var difference = results.rows[0].value.stdDeviation - 28.722813232690143;
-      // account for floating point rounding error
-      T(Math.abs(difference) < 0.0000000001);
-
+    for(var i=0; i < 10; i++) {
+      var docs = [];
+      docs.push({val:10});
+      docs.push({val:20});
+      docs.push({val:30});
+      docs.push({val:40});
+      docs.push({val:50});
+      docs.push({val:60});
+      docs.push({val:70});
+      docs.push({val:80});
+      docs.push({val:90});
+      docs.push({val:100});
+      T(db.bulkSave(docs).ok);
+    }
+    
+    var results = db.query(map, reduceCombine);
+    
+    var difference = results.rows[0].value.stdDeviation - 28.722813232690143;
+    // account for floating point rounding error
+    T(Math.abs(difference) < 0.0000000001);
+    
   },
 
   multiple_rows: function(debug) {
@@ -558,7 +565,25 @@ var tests = {
     var xhr = CouchDB.request("GET", "/test_suite_db/bin_doc/foo.txt");
     T(xhr.responseText == "This is a base64 encoded text");
     T(xhr.getResponseHeader("Content-Type") == "text/plain");
-    
+
+
+    // empty attachment
+    var binAttDoc2 = {
+      _id: "bin_doc5",
+      _attachments:{
+        "foo.txt": {
+          content_type:"text/plain",
+          data: ""
+        }
+      }
+    }
+
+    T(db.save(binAttDoc2).ok);
+
+    var xhr = CouchDB.request("GET", "/test_suite_db/bin_doc5/foo.txt");
+    T(xhr.responseText.length == 0);
+    T(xhr.getResponseHeader("Content-Type") == "text/plain");
+       
     // test RESTful doc API
     
     var xhr = CouchDB.request("PUT", "/test_suite_db/bin_doc2/foo2.txt", {
@@ -620,6 +645,30 @@ var tests = {
     
     var xhr = CouchDB.request("GET", "/test_suite_db/bin_doc3/attachment.txt?rev=" + rev);
     T(xhr.status == 404);
+
+    // empty attachments
+    var xhr = CouchDB.request("PUT", "/test_suite_db/bin_doc4/attachment.txt", {
+      headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body:""
+    });
+    T(xhr.status == 201);
+    var rev = JSON.parse(xhr.responseText).rev;
+
+    var xhr = CouchDB.request("GET", "/test_suite_db/bin_doc4/attachment.txt");
+    T(xhr.status == 200);
+    T(xhr.responseText.length == 0);
+    
+    // overwrite previsously empty attachment
+    var xhr = CouchDB.request("PUT", "/test_suite_db/bin_doc4/attachment.txt?rev=" + rev, {
+      headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body:"This is a string"
+    });
+    T(xhr.status == 201);
+
+    var xhr = CouchDB.request("GET", "/test_suite_db/bin_doc4/attachment.txt");
+    T(xhr.status == 200);
+    T(xhr.responseText == "This is a string");
+    
   },
 
   content_negotiation: function(debug) {
@@ -1289,14 +1338,13 @@ var tests = {
     T(xhr.status == 202);
     // compaction isn't instantaneous, loop until done
     while (db.info().compact_running) {};
-
+    
+    restartServer();
     var xhr = CouchDB.request("GET", "/test_suite_db/bin_doc/foo.txt");
     T(xhr.responseText == "This is a base64 encoded text")
     T(xhr.getResponseHeader("Content-Type") == "text/plain")
-
-    var compactedsize = db.info().disk_size;
-
-    T(compactedsize < deletesize);
+    T(db.info().doc_count == 1);
+    T(db.info().disk_size < deletesize);
   },
 
   runtime_config: function(debug) {
