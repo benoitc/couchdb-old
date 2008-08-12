@@ -16,6 +16,10 @@ var tests = {
   basics: function(debug) {
     var db = new CouchDB("test_suite_db");
     db.deleteDb();
+
+    // bug COUCHDB-100: DELETE on non-existent DB returns 500 instead of 404
+    db.deleteDb();
+    
     db.createDb();
     if (debug) debugger;
 
@@ -111,6 +115,53 @@ var tests = {
     // 1 less document should now be in the results.
     T(results.total_rows == 2);
     T(db.info().doc_count == 5);
+    
+    // copy a doc
+    T(db.save({_id:"doc_to_be_copied",v:1}).ok);
+    var xhr = CouchDB.request("COPY", "/test_suite_db/doc_to_be_copied", {
+      headers: {"Destination":"doc_that_was_copied"}
+    });
+
+    T(xhr.status == 201);
+    T(db.open("doc_that_was_copied").v == 1);
+
+    // move a doc
+
+    // test error condition
+    var xhr = CouchDB.request("MOVE", "/test_suite_db/doc_to_be_copied", {
+      headers: {"Destination":"doc_that_was_moved"}
+    });
+    T(xhr.status == 400); // bad request, MOVE requires source rev.
+
+    var rev = db.open("doc_to_be_copied")._rev;
+    var xhr = CouchDB.request("MOVE", "/test_suite_db/doc_to_be_copied?rev=" + rev, {
+      headers: {"Destination":"doc_that_was_moved"}
+    });
+
+    T(xhr.status == 201);
+    T(db.open("doc_that_was_moved").v == 1);
+    T(db.open("doc_to_be_copied") == null);
+
+    // COPY with existing target
+    T(db.save({_id:"doc_to_be_copied",v:1}).ok);
+    var doc = db.save({_id:"doc_to_be_overwritten",v:1});
+    T(doc.ok);
+
+    // error condition
+    var xhr = CouchDB.request("COPY", "/test_suite_db/doc_to_be_copied", {
+	    headers: {"Destination":"doc_to_be_overwritten"}
+	});
+    T(xhr.status == 412); // conflict
+
+    var rev = db.open("doc_to_be_overwritten")._rev;
+    var xhr = CouchDB.request("COPY", "/test_suite_db/doc_to_be_copied", {
+      headers: {"Destination":"doc_to_be_overwritten?rev=" + rev}
+    });
+    T(xhr.status == 201);
+
+    var newRev = db.open("doc_to_be_overwritten")._rev;
+    T(rev != newRev);
+
   },
 
   // Do some edit conflict detection tests
@@ -190,6 +241,42 @@ var tests = {
     }
   },
 
+  uuids: function(debug) {
+    var db = new CouchDB("test_suite_db");
+    db.deleteDb();
+    db.createDb();
+    if (debug) debugger;
+    
+    // a single UUID without an explicit count
+    var xhr = CouchDB.request("POST", "/_uuids");
+    T(xhr.status == 200);
+    var result = JSON.parse(xhr.responseText);
+    T(result.uuids.length == 1);
+    var first = result.uuids[0];
+
+    // a single UUID with an explicit count
+    xhr = CouchDB.request("POST", "/_uuids?count=1");
+    T(xhr.status == 200);
+    result = JSON.parse(xhr.responseText);
+    T(result.uuids.length == 1);
+    var second = result.uuids[0];
+    T(first != second);
+
+    // no collisions with 1,000 UUIDs
+    xhr = CouchDB.request("POST", "/_uuids?count=1000");
+    T(xhr.status == 200);
+    result = JSON.parse(xhr.responseText);
+    T( result.uuids.length == 1000 );
+    var seen = {};
+    for(var i in result.uuids) {
+      var id = result.uuids[i];
+      T(seen[id] === undefined);
+      seen[id] = 1;
+    }
+    
+    // check our library
+  },
+  
   bulk_docs: function(debug) {
     var db = new CouchDB("test_suite_db");
     db.deleteDb();
@@ -374,8 +461,8 @@ var tests = {
           // This is the reduce phase, we are reducing over emitted values from
           // the map functions.
           for(var i in values) {
-            total = total + values[i]
-            sqrTotal = sqrTotal + (values[i] * values[i])
+            total = total + values[i];
+            sqrTotal = sqrTotal + (values[i] * values[i]);
           }
           count = values.length;
         }
@@ -1069,7 +1156,7 @@ var tests = {
 
     var doc = {integer: 1, string: "1", array: [1, 2, 3]};
     T(db.save(doc).ok);
-
+/*
     // make sure that attempting to change the document throws an error
     var results = db.query(function(doc) {
       doc.integer = 2;
@@ -1082,7 +1169,7 @@ var tests = {
       emit(null, doc);
     });
     T(results.total_rows == 0);
-
+*/
     // make sure that a view cannot invoke interpreter internals such as the
     // garbage collector
     var results = db.query(function(doc) {

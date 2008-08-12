@@ -56,7 +56,8 @@ source_files = \
     couch_server_sup.erl \
     couch_stream.erl \
     couch_util.erl \
-    couch_view.erl
+    couch_view.erl \
+    couch_db_updater.erl
 
 compiled_files = \
     cjson.beam \
@@ -79,7 +80,8 @@ compiled_files = \
     couch_server_sup.beam \
     couch_stream.beam \
     couch_util.beam \
-    couch_view.beam
+    couch_view.beam \
+    couch_db_updater.beam
 
 doc_base = \
     erlang.png \
