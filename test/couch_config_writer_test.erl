@@ -169,7 +169,7 @@ run_operation_and_compare_results(Contents, Expect, Config) ->
     file:write_file(Filename, Contents),
 
     % call replace function
-    couch_config_writer:save_config(Config, Filename),
+    couch_config_writer:save_to_file(Config, Filename),
     
     % compare new file with expected file
     {ok, Result_} = file:read_file(Filename),

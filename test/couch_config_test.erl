@@ -30,11 +30,12 @@ store_tuple_key() ->
 
     
 store(Key, Value) ->
-    couch_config:start_link(),
 
-    couch_config:init_value(Key, Value),
-    Result = couch_config:get(Key),
+    couch_config:start_link(["couch.ini"]),
+
+    couch_config:store({"test_module", Key}, Value),
+    Result = couch_config:get({"test_module", Key}),
     couch_config:unset(Key),
 
-    couch_config:stop(),
+    couch_config:terminate(end_of_test, ok),
     Value = Result.
