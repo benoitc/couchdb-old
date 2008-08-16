@@ -12,7 +12,7 @@
 
 -module(couch_util).
 
--export([start_driver/0]).
+-export([start_driver/1]).
 -export([should_flush/0, should_flush/1]).
 -export([new_uuid/0, rand32/0, implode/2, collate/2, collate/3]).
 -export([abs_pathname/1,abs_pathname/2, trim/1, ascii_lower/1]).
@@ -22,22 +22,9 @@
 % arbitrarily chosen amount of memory to use before flushing to disk
 -define(FLUSH_MAX_MEM, 10000000).
 
-start_driver() ->
+start_driver(LibDir) ->
     % read config and register for configuration changes
     
-    % just stop if one of the config settings change. couch_server_sup
-    % will restart us and then we will pick up the new settings.
-    ConfigChangeCallbackFunction =  fun() -> couch_server:stop(couch_config_change) end,
-    
-    {ok, LibDir1} = couch_config:lookup_and_register(
-        {"CouchDB", "UtilDriverDir"}, ConfigChangeCallbackFunction, none),
-    case LibDir1 of
-        none ->
-            LibDir = filename:join(code:priv_dir(couch), "lib");
-        _ ->
-            LibDir = LibDir1
-    end,
-
     case erl_ddll:load_driver(LibDir, "couch_erl_driver") of
     ok -> ok;
     {error, already_loaded} -> ok;

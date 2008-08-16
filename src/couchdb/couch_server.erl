@@ -31,7 +31,7 @@
     }).
 
 start() ->
-    start([]).
+    start(["couch.ini"]).
 
 start(IniFiles) ->
     couch_server_sup:start_link(IniFiles).
@@ -64,18 +64,7 @@ get_version() ->
     end.
 
 sup_start_link() ->
-    % read config and register for configuration changes
-    
-    % just stop if one of the config settings change. couch_server_sup
-    % will restart us and then we will pick up the new settings.
-    ConfigChangeCallbackFunction =  fun() -> ?MODULE:stop() end,
-
-    {ok, RootDir} = couch_config:lookup_and_register(
-        {"CouchDB", "RootDirectory"}, ConfigChangeCallbackFunction),
-    {ok, Options} = couch_config:lookup_and_register(
-        {"CouchDB", "ServerOptions"}, [], ConfigChangeCallbackFunction),
-
-    gen_server:start_link({local, couch_server}, couch_server, {RootDir, Options}, []).
+    gen_server:start_link({local, couch_server}, couch_server, [], []).
 
 open(DbName, Options) ->
     gen_server:call(couch_server, {open, DbName, Options}).
@@ -100,7 +89,21 @@ check_dbname(#server{dbname_regexp=RegExp}, DbName) ->
 get_full_filename(Server, DbName) ->
     filename:join([Server#server.root_dir, "./" ++ DbName ++ ".couch"]).
 
-init({RootDir, Options}) ->
+init([]) ->
+    % read config and register for configuration changes
+    
+    % just stop if one of the config settings change. couch_server_sup
+    % will restart us and then we will pick up the new settings.
+
+    RootDir = couch_config:get({"CouchDB", "RootDirectory"}, "."),
+    Options = couch_config:get({"CouchDB", "ServerOptions"}, []),
+    Self = self(),
+    ok = couch_config:register(
+        fun({"CouchDB", "RootDirectory"}) ->
+            exit(Self, config_change);
+        ({"CouchDB", "ServerOptions"}) ->
+            exit(Self, config_change)
+        end),
     {ok, RegExp} = regexp:parse("^[a-z][a-z0-9\\_\\$()\\+\\-\\/]*$"),
     ets:new(couch_dbs_by_name, [set, private, named_table]),
     ets:new(couch_dbs_by_pid, [set, private, named_table]),

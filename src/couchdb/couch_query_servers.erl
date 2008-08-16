@@ -22,26 +22,8 @@
 
 -include("couch_db.hrl").
 
-timeout() ->
-    {ok, QueryTimeout} = couch_config:lookup(
-            {"CouchDB Query Server Options", "QueryTimeout"}, "5000"), % 5 secs
-    list_to_integer(QueryTimeout).
-
 start_link() ->
-    % read config and register for configuration changes
-    
-    % just stop if one of the config settings change. couch_server_sup
-    % will restart us and then we will pick up the new settings.
-    ConfigChangeCallbackFunction =  fun() -> ?MODULE:stop() end,
-    
-    {ok, QueryServerList} = couch_config:lookup_match_and_register(
-        {{"CouchDB Query Servers", '$1'}, '$2'}, [],
-        ConfigChangeCallbackFunction),
-    couch_config:register(
-        {"CouchDB Query Server Options", "QueryTimeout"},
-        ConfigChangeCallbackFunction),
-
-    gen_server:start_link({local, couch_query_servers}, couch_query_servers, QueryServerList, []).
+    gen_server:start_link({local, couch_query_servers}, couch_query_servers, [], []).
 
 stop() ->
     exit(whereis(couch_query_servers), close).
@@ -50,6 +32,14 @@ readline(Port) ->
     readline(Port, []).
 
 readline(Port, Acc) ->
+    
+    case get(query_server_timeout) of
+    undefined ->
+        Timeout = list_to_integer(couch_config:get(
+            {"CouchDB Query Server Options", "QueryTimeout"}, "5000")),
+        put(timeout, Timeout);
+    Timeout -> ok
+    end,
     receive
     {Port, {data, {noeol, Data}}} ->
         readline(Port, [Data|Acc]);
@@ -58,7 +48,7 @@ readline(Port, Acc) ->
     {Port, Err} ->
         catch port_close(Port),
         throw({map_process_error, Err})
-    after timeout() ->
+    after Timeout ->
         catch port_close(Port),
         throw({map_process_error, "map function timed out"})
     end.
@@ -180,7 +170,19 @@ reduce(Lang, RedSrcs, KVs) ->
     {ok, tuple_to_list(Results)}.
 
 
-init(QueryServerList) ->
+init([]) ->
+    
+    % read config and register for configuration changes
+    
+    % just stop if one of the config settings change. couch_server_sup
+    % will restart us and then we will pick up the new settings.
+    QueryServerList = couch_config:lookup_match(
+            {{"CouchDB Query Servers", '$1'}, '$2'}, []),
+    ok = couch_config:register(
+        fun({"CouchDB Query Server" ++ _, _}) ->
+            ?MODULE:stop()
+        end),
+        
     {ok, {QueryServerList, []}}.
 
 terminate(_Reason, _Server) ->

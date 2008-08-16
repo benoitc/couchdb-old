@@ -20,71 +20,41 @@
 -include("couch_db.hrl").
 
 -behaviour(gen_server).
--export([start_link/0, init/1, stop/0,
+-export([start_link/1, init/1,
     handle_call/3, handle_cast/2, handle_info/2, 
     terminate/2, code_change/3]).
--export([store/2, register/2, 
-    lookup/1, lookup/2,
-    lookup_match/1, lookup_match/2, 
-    lookup_and_register/2, lookup_and_register/3,
-    lookup_match_and_register/2, lookup_match_and_register/3,
-    dump/0, init_value/2, unset/1, load_ini_file/1, 
-    load_ini_files/1]).
+-export([store/2, register/1, register/2, 
+    get/1, get/2,
+    lookup_match/1, lookup_match/2,
+    dump/0, unset/1, load_ini_file/1]).
+    
+-record(config,
+    {notify_funs=[],
+    writeback_filename=""
+    }).
 
--define(COUCH_CONFIG_CALLBACK, "_CouchDBConfigChangeCallback").
 %% Public API %%
 
 %% @type etstable() = integer().
 
-%% @spec start_link() -> {ok, Tab::etsatable()}
-%% @doc Start the configuration module
-start_link() -> gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).    
-
-%% @spec stop() -> ok
-%% @doc Stops the configuration module
-stop() ->
-    ok.
-
-%% @spec init_value(Key::any(), Value::any()) -> {ok, Tab::etsatable()}
-%% @doc Public API function triggers initialization of a Key/Value pair. Used 
-%%      when setting values from the ini file. Works like store/2 but doesn't
-%%      write the Key/Value pair to the storage ini file.
-init_value(Key, Value) -> gen_server:call(?MODULE, {init_value, Key, Value}).
+start_link(IniFiles) -> gen_server:start_link({local, ?MODULE}, ?MODULE, IniFiles, []).  
 
 %% @spec store(Key::any(), Value::any()) -> {ok, Tab::etsatable()}
 %% @doc Public API function that triggers storage of a Key/Value pair into the
 %%      local ets table and writes it to the storage ini file.
 store(Key, Value) -> gen_server:call(?MODULE, {store, [{Key, Value}]}).
 
-%% @spec lookup(Key::any()) -> Value::any() | undefined
+%% @spec get(Key::any()) -> Value::any() | undefined
 %% @doc Returns the value that is stored under key::any() or undefined::atom() if no
 %%      such Key exists.
-lookup(Key) -> gen_server:call(?MODULE, {lookup, Key}).
+get(Key) ->
+    ?MODULE:get(Key, undefined).
 
-%% @spec lookup(Key::any(), Default::any()) -> Value::any() | Default
+%% @spec get(Key::any(), Default::any()) -> Value::any() | Default
 %% @doc Returns the value that is stored under key::any() or Default::any() if
 %%      no such Key exists.
-lookup(Key, Default) -> gen_server:call(?MODULE, {lookup, Key, Default}).
-
-%% @spec lookup_and_register(Key::any(), CallbackFunction::function()) ->
-%%         Value::any() | undefined
-%% @doc Returns the value that is stored under Key::any() or undefined::atom() if no
-%%      such Key exists. Additionally, this functions registers 
-%%      CallbackFunction::function() to be called if the value of Key::any()
-%%      is changed at a later point.
-lookup_and_register(Key, CallbackFunction) -> 
-    gen_server:call(?MODULE, {lookup_and_register, Key, CallbackFunction}).
-
-%% @spec lookup_and_register(
-%%         Key::any(),
-%%         Default::any(),
-%%         CallbackFunction::function()) -> Value::any() | Default
-%% @doc Returns the value that is stored under Key::any() or Default::any() if
-%%      such Key exists. Additionally, this functions registers 
-%%      CallbackFunction::function() to be called if the value of Key::any()
-%%      is changed at a later point.
-lookup_and_register(Key, Default, CallbackFunction) ->
-    gen_server:call(?MODULE, {lookup_and_register, Key, Default, CallbackFunction}).
+get(Key, Default) ->
+    fix_lookup_result(ets:lookup(?MODULE, Key), Default).
 
 %% @spec lookup_match(Key::any()) -> Value::any() | undefined:atom()
 %% @doc Lets you look for a Key's Value specifying a pattern that gets passed 
@@ -96,33 +66,15 @@ lookup_match(Key) -> gen_server:call(?MODULE, {lookup_match, Key}).
 %%      to ets::match(). Returns Default::any() if no Key is found
 lookup_match(Key, Default) -> gen_server:call(?MODULE, {lookup_match, Key, Default}).
 
-%% @spec lookup_match_and_register(Key::any(), CallbackFunction::function()) ->
-%%           Value::any() | undefined:atom()
-%% @doc Lets you look for a Key's Value specifying a pattern that gets passed 
-%%      to ets::match(). Returns undefined::atom() if no Key is found. Additionally,
-%%      this functions registers CallbackFunction::function() to be called if 
-%%      the value of Key::any() is changed at a later point.
-lookup_match_and_register(Key, CallbackFunction) ->
-    gen_server:call(?MODULE, {lookup_match_and_register, Key, CallbackFunction}).
-
-%% @spec lookup_match_and_register(
-%%           Key::any(), Default::any(), CallbackFunction::function()) ->
-%%               Value::any() | Default
-%% @doc Lets you look for a Key's Value specifying a pattern that gets passed 
-%%      to ets::match(). Returns undefined::atom() if no Key is found. Additionally,
-%%      this functions registers CallbackFunction::function() to be called if 
-%%      the value of Key::any() is changed at a later point.
-lookup_match_and_register(Key, Default, CallbackFunction) ->
-    gen_server:call(?MODULE, {lookup_match_and_register, Key, Default, CallbackFunction}).
-
 %% @spec dump() -> ok:atom()
 %% @doc Dumps the current ets table with all configuration data.
 dump() -> gen_server:call(?MODULE, {dump, []}).
 
-%% @spec register(Key::any(), Fun::function()) -> ok
-%% @doc Public API function that registers a function to be called when the
-%%      Value of Key::any() is changed.
-register(Key, Fun) -> gen_server:call(?MODULE, {register, Key, Fun}).
+
+register(Fun) -> gen_server:call(?MODULE, {register, Fun, self()}).
+
+
+register(Fun, Pid) -> gen_server:call(?MODULE, {register, Fun, Pid}).
 
 %% @spec unset(Key::any) -> ok
 %% @doc Public API call to remove the configuration entry from the internal 
@@ -133,161 +85,67 @@ unset(Key) -> gen_server:call(?MODULE, {unset, Key}).
 
 %% @spec init(List::list([])) -> {ok, Tab::etsatable()}
 %% @doc Creates a new ets table of the type "set".
-init([]) ->     
-    Tab = ets:new(?MODULE, [set]),
-    {ok, Tab}.
+init(IniFiles) ->
+    ets:new(?MODULE, [named_table, set, protected]),
+    [ok = load_ini_file(IniFile) || IniFile <- IniFiles],
+    
+    % announce startup
+    io:format("Apache CouchDB ~s (LogLevel=~s) is starting.~n", [
+        couch_server:get_version(),
+        ?MODULE:get({"Log", "Level"}, "info")
+    ]),
+    
+    {ok, #config{writeback_filename=lists:last(IniFiles)}}.
 
 %% @doc see store/2
-handle_call({store, Config}, _From, Tab) ->
-    [insert_and_commit(Tab, Config2) || Config2 <- Config],
-    {reply, ok, Tab};
+handle_call({store, KVs}, _From, Config) ->
+    [ok = insert_and_commit(Config, KV) || KV <- KVs],
+    {reply, ok, Config};
 
 
 %% @doc See init_value/2
-handle_call({init_value, Key, Value}, _From, Tab) ->
-    Reply = ets:insert(Tab, {Key, Value}),
-    {reply, Reply, Tab};
+handle_call({init_value, Key, Value}, _From, Config) ->
+    Reply = ets:insert(?MODULE, {Key, Value}),
+    {reply, Reply, Config};
 
 %% @doc See unset/1
-handle_call({unset, Key}, _From, Tab) ->
-    ets:delete(Tab, Key),
-    {reply, ok, Tab};
+handle_call({unset, Key}, _From, Config) ->
+    ets:delete(?MODULE, Key),
+    {reply, ok, Config};
 
-
-%% @doc See lookup/1
-handle_call({lookup, Key}, _From, Tab) ->
-    lookup(Key, fun(Tab_, Key_) -> ets:lookup(Tab_, Key_) end, undefined, Tab);
-
-%% @doc See lookup/2
-handle_call({lookup, Key, Default}, _From, Tab) ->
-    lookup(Key, fun(Tab_, Key_) -> ets:lookup(Tab_, Key_) end, Default, Tab);
-
-%% @doc See lookup_and_register/2
-handle_call({lookup_and_register, Key, CallbackFunction}, _From, Tab) ->
-    ?MODULE:handle_call({register, Key, CallbackFunction}, _From, Tab),
-    lookup(Key, fun(Tab_, Key_) -> ets:lookup(Tab_, Key_) end, undefined, Tab);
-
-%% @doc See lookup_and_register/3
-handle_call({lookup_and_register, Key, Default, CallbackFunction}, _From, Tab) ->
-    ?MODULE:handle_call({register, Key, CallbackFunction}, _From, Tab),
-    lookup(Key, fun(Tab_, Key_) -> ets:lookup(Tab_, Key_) end, Default, Tab);
-
-%% @doc See lookup_match/1
-handle_call({lookup_match, Key}, _From, Tab) ->
-    lookup(Key, fun(Tab_, Key_) -> ets:match(Tab_, Key_) end, undefined, Tab);
 
 %% @doc See lookup_match/2
-handle_call({lookup_match, Key, Default}, _From, Tab) ->
-    lookup(Key, fun(Tab_, Key_) -> ets:match(Tab_, Key_) end, Default, Tab);
-
-%% @doc See lookup_match_and_register/2
-handle_call({lookup_match_and_register, Key = {{Module, '$1'}, '$2'}, CallbackFunction}, _From, Tab) ->
-    ?MODULE:handle_call({register, {Module, ""}, CallbackFunction}, _From, Tab),
-    lookup(Key, fun(Tab_, Key_) -> ets:match(Tab_, Key_) end, undefined, Tab);
-
-%% @doc See lookup_match_and_register/3
-handle_call({lookup_match_and_register, Key = {{Module, '$1'}, '$2'}, Default, CallbackFunction}, _From, Tab) ->
-    ?MODULE:handle_call({register, {Module, ""}, CallbackFunction}, _From, Tab),
-    lookup(Key, fun(Tab_, Key_) -> ets:match(Tab_, Key_) end, Default, Tab);
+handle_call({lookup_match, Key, Default}, _From, Config) ->
+    {reply, fix_lookup_result(ets:match(?MODULE, Key), Default), Config};
 
 %% @doc See dump/0
-handle_call({dump, []}, _From, Tab) ->
-    Config = lists:sort(ets:match(Tab, '$1')),
-    lists:foreach(fun([{{Module, Variable}, Value}]) ->
-        case Module of
-            ?COUCH_CONFIG_CALLBACK ->
-                ok; % ignore
-            _ ->
-                io:format("[~s] ~s=~p~n", [Module, Variable, Value])
-        end
-    end, Config),
-    {reply, ok, Tab};
+handle_call({dump, []}, _From, Config) ->
+    KVs = lists:sort(ets:tab2list(?MODULE)),
+    [io:format("[~s] ~s=~p~n", [Module, Variable, Value])
+            || {{Module, Variable}, Value} <- KVs],
+    {reply, ok, Config};
 
 %% @doc See register/2
-handle_call({register, Key, Fun}, From, Tab) ->
-    ets:insert(Tab, {{?COUCH_CONFIG_CALLBACK, Key}, {From, Fun}}),
-    {reply, ok, Tab}.
-
-%% @spec notify_registered_modules(
-%%           Tab::etstable(),
-%%           {{Module::string(), Variable::string()}, _Value::any()}) -> ok
-%% @doc Looks if a callback function exsists for the specified Module/Variable
-%%      combination and calls it.
-notify_registered_modules(Tab, {{Module, Variable}, _Value}) ->
-    % look for processes that registered for notifications for
-    % specific configuration variables
-    case ets:lookup(Tab, {?COUCH_CONFIG_CALLBACK, {Module, Variable}}) of
-        % found
-        [{{?COUCH_CONFIG_CALLBACK, {Module, Variable}}, {_From, Fun}}] ->
-            Fun();
-        _ -> % not found
-            ok
-    end,
+handle_call({register, Fun, Pid}, _From, #config{notify_funs=PidFuns}=Config) ->
+    erlang:monitor(process, Pid),
+    {reply, ok, Config#config{notify_funs=[{Pid, Fun}|PidFuns]}}.
     
-    % look for processes that registerd for notifications for
-    % entire modules. Their "Variable" value will be the empty string
-     case ets:lookup(Tab, {?COUCH_CONFIG_CALLBACK, {Module, ""}}) of
-        % found
-        [{{?COUCH_CONFIG_CALLBACK, {Module, _Variable}}, {_From2, Fun2}}] ->
-            Fun2();
-        _ -> % not found
-            ok
-    end.
 
-%% @spec lookup(Key::any(), Fun::function(), Default::any(), Tab::etstable()) ->
-%%           {reply, Reply::any(), Tab::etstable()}
-%% @doc Uses Fun to find the Value for Key. Returns Default if no Value can
-%%      be found. Fun is one of ets:lookup/2 and ets:match/2
-lookup(Key, Fun, Default, Tab) ->
-    Reply = case Fun(Tab, Key) of
-        [{Key, Value}] ->
-            {ok, Value};
-        [List] ->
-            {ok, lists:map(fun([Key2, Value2]) -> {Key2, Value2} end, [List])};
-        [] ->
-            case Default of
-                undefined ->
-                    {error, undefined};
-                _ ->
-                    {ok, Default}
-            end
-    end,
-    {reply, Reply, Tab}.
+fix_lookup_result([{_Key, Value}], _Default) ->
+    Value;
+fix_lookup_result([], Default) ->
+    Default;
+fix_lookup_result(Values, _Default) ->
+    [list_to_tuple(Value) || Value <- Values].
 
 %% @spec insert_and_commit(Tab::etstable(), Config::any()) -> ok
 %% @doc Inserts a Key/Value pair into the ets table, writes it to the storage 
 %%      ini file and calls all registered callback functions for Key.
-insert_and_commit(Tab, Config) ->
-    ets:insert(Tab, Config),
-    {reply, File, _Tab} = 
-        lookup({"_CouchDB", "ConfigurationStorageFile"}, 
-            fun(Tab_, Key_) -> ets:lookup(Tab_, Key_) end, 
-            undefined, Tab
-        ),
-        
-    notify_registered_modules(Tab, Config),
-    commit(Config, File).
-
-%% @spec commit(Config::any(), File::filename()) -> ok
-%% @doc Writes a Key/Value pair to the ini storage file.
-commit(Config, File) ->
-    case File of
-        {ok, FileName} ->
-            couch_config_writer:save_config(Config, FileName);
-        _ -> % silently ignore writing if we have only a single ini file
-            ok
-    end.
-
-%% @spec load_ini_files([File::filename()]) -> ok
-%% @doc Stores the last ini file in Files to be the storage ini file and
-%%      iterates over all ini files and calls load_ini_file/1 with each.
-load_ini_files(IniFiles) ->
-    % store the name of the last ini file for storing changes made at runtime
-    [LastIniFile|_] = lists:reverse(IniFiles),
-    ?MODULE:init_value({"_CouchDB", "ConfigurationStorageFile"}, LastIniFile),
-
-    % load all ini files in the order they come in.
-    lists:foreach(fun(IniFile) -> load_ini_file(IniFile) end, IniFiles).
+insert_and_commit(Config, KV) ->
+    true = ets:insert(?MODULE, KV),
+    % notify funs
+    %[catch Fun(KV) || {_Pid, Fun} <- Config#config.notify_funs],
+    couch_config_writer:save_to_file(KV, Config#config.writeback_filename).
 
 %% @spec load_ini_file(IniFile::filename()) -> ok
 %% @doc Parses an ini file and stores Key/Value Pairs into the ets table.
@@ -330,21 +188,19 @@ load_ini_file(IniFile) ->
             end
         end, {"", []}, Lines),
         
-        lists:foreach(
-            fun({Key, Value}) ->
-                ?MODULE:init_value(Key, Value)
-            end,
-            lists:reverse(ParsedIniValues)
-        ),
+        [ets:insert(?MODULE, {Key, Value}) || {Key, Value} <- ParsedIniValues],
     ok.
 
 % Unused gen_server behaviour API functions that we need to declare.
 
 %% @doc Unused
-handle_cast(_Msg, State) -> {noreply, State}.
+handle_cast(foo, State) -> {noreply, State}.
 
-%% @doc Unused
-handle_info(_Msg, State) -> {noreply, State}.
+
+handle_info({'DOWN', _, _, DownPid, _}, #config{notify_funs=PidFuns}=Config) ->
+    % remove any funs registered by the downed process
+    FilteredPidFuns = [{Pid,Fun} || {Pid,Fun} <- PidFuns, Pid /= DownPid],
+    {noreply, Config#config{notify_funs=FilteredPidFuns}}.
 
 %% @doc Unused
 terminate(_Reason, _State) -> ok.

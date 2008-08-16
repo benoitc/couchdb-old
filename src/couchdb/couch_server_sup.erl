@@ -14,7 +14,7 @@
 -behaviour(supervisor).
 
 
--export([start_link/1,stop/0]).
+-export([start_link/1,stop/0,couch_config_start_link_wrapper/2]).
 
 -include("couch_db.hrl").
 
@@ -24,14 +24,20 @@
 start_link(IniFiles) ->
     case whereis(couch_server_sup) of
     undefined ->
-        couch_config:start_link(),
-        couch_config:load_ini_files(IniFiles),
-        start_server();
+        start_server(IniFiles);
     _Else ->
         {error, already_started}
     end.
 
-start_server() ->
+couch_config_start_link_wrapper(IniFiles, FirstConfigPid) ->
+    case is_process_alive(FirstConfigPid) of
+        true ->
+            link(FirstConfigPid),
+            {ok, FirstConfigPid};
+        false -> couch_config:start_link(IniFiles)
+    end.
+
+start_server(IniFiles) ->
     case init:get_argument(pidfile) of
     {ok, [PidFile]} ->
         case file:write_file(PidFile, os:getpid()) of
@@ -40,29 +46,26 @@ start_server() ->
         end;
     _ -> ok
     end,
+    {ok, ConfigPid} = couch_config:start_link(IniFiles),
+    
+    LibDir =
+    case couch_config:get({"CouchDB", "UtilDriverDir"}, null) of
+    null ->
+        filename:join(code:priv_dir(couch), "lib");
+    LibDir0 -> LibDir0
+    end,
+    
+    ok = couch_util:start_driver(LibDir),
 
-    % annoucne startup
-    {ok, LogLevel} = couch_config:lookup({"Log", "Level"}),
-    io:format("Apache CouchDB ~s (LogLevel=~s) is starting.~n", [
-        couch_server:get_version(),
-        LogLevel
-    ]),
-
-    % read config and register for configuration changes
-
-    % just stop if one of the config settings change. couch_server_sup
-    % will restart us and then we will pick up the new settings.
-    ConfigChangeCallbackFunction = fun() -> ?MODULE:stop() end,
-    {ok, UpdateNotificationProcesses} = couch_config:lookup({"CouchDB", "UpdateNotificationProcesses"}, []),
-    {ok, FtSearchQueryServer} = couch_config:lookup({"Search", "QueryServer"}, []),
-
-    couch_config:register(
-        {"CouchDB", "UpdateNotificationProcesses"}, ConfigChangeCallbackFunction),
-    couch_config:register(
-        {"Search", "QueryServer"}, ConfigChangeCallbackFunction),
-
+    
     ChildProcesses =
-        [{couch_log,
+        [{couch_config,
+            {couch_server_sup, couch_config_start_link_wrapper, [IniFiles, ConfigPid]},
+            permanent,
+            brutal_kill,
+            worker,
+            [couch_config]},
+        {couch_log,
             {couch_log, start_link, []},
             permanent,
             brutal_kill,
@@ -98,60 +101,34 @@ start_server() ->
             1000,
             supervisor,
             [couch_httpd]}
-        ] ++
-        lists:map(fun(UpdateNotificationProcess) when is_list(UpdateNotificationProcesses) ->
-            {UpdateNotificationProcess,
-                {couch_db_update_notifier, start_link, [UpdateNotificationProcess]},
-                permanent,
-                1000,
-                supervisor,
-                [couch_db_update_notifier]}
-            end, UpdateNotificationProcesses)
-        ++
-        case FtSearchQueryServer of
-        "" ->
-            [];
-        _ ->
-            [{couch_ft_query,
-                {couch_ft_query, start_link, [FtSearchQueryServer]},
-                permanent,
-                1000,
-                supervisor,
-                [couch_ft_query]}]
-        end,
-
-    % launch the icu bridge
-    couch_util:start_driver(),
+        ],
+   
 
     % ensure these applications are running
     application:start(inets),
     application:start(crypto),
 
-    process_flag(trap_exit, true),
-    StartResult = (catch supervisor:start_link(
-        {local, couch_server_sup}, couch_server_sup, ChildProcesses)),
+    {ok, Pid} = supervisor:start_link(
+        {local, couch_server_sup}, couch_server_sup, ChildProcesses),
+    io:format("started"),
+    % launch the icu bridge
+    % just restart if one of the config settings change.
 
-    {ok, BindAddress} = couch_config:lookup_and_register(
-        {"HTTPd", "BindAddress"}, ConfigChangeCallbackFunction),
-    {ok, Port} = couch_config:lookup_and_register(
-        {"HTTPd", "Port"}, ConfigChangeCallbackFunction),
+    couch_config:register(
+        fun({"CouchDB", "UtilDriverDir"}) ->
+            ?MODULE:stop()
+        end, Pid),
+    
+    % we only get where when startup was successful
+    BindAddress = couch_config:get({"HTTPd", "BindAddress"}),
+    Port = couch_config:get({"HTTPd", "Port"}),
+    io:format("Apache CouchDB has started, see http://~s:~s/_utils/index.html~n",
+            [BindAddress, Port]),
+    {ok, Pid}.
 
-    case StartResult of
-    {ok,_} ->
-        % only output when startup was successful
-        io:format("Apache CouchDB has started, see http://~s:~s/_utils/index.html~n",
-            [BindAddress, Port]);
-    _ ->
-        % Since we failed startup, unconditionally dump configuration data to console
-        ok = couch_config:dump()
-    end,
-    process_flag(trap_exit, false),
-    StartResult.
 
 stop() ->
-    catch exit(whereis(couch_server_sup), normal),
-    couch_config:stop(),
-    couch_log:stop().
+    catch exit(whereis(couch_server_sup), normal).
 
 init(ChildProcesses) ->
     {ok, {{one_for_one, 10, 3600}, ChildProcesses}}.

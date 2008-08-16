@@ -35,22 +35,26 @@ level_atom(?LEVEL_TMI) -> tmi.
 
 
 start_link() ->
-    % read config and register for configuration changes
-    
-    % just stop if one of the config settings change. couch_server_sup
-    % will restart us and then we will pick up the new settings.
-    ConfigChangeCallbackFunction =  fun() -> ?MODULE:stop() end,
-    {ok, Filename} = couch_config:lookup_and_register(
-        {"Log", "File"}, ConfigChangeCallbackFunction),
-    {ok, Level} = couch_config:lookup_and_register(
-        {"Log", "Level"}, info, ConfigChangeCallbackFunction),
-
-    couch_event_sup:start_link({local, couch_log}, error_logger, couch_log, {Filename, Level}).
+    couch_event_sup:start_link({local, couch_log}, error_logger, couch_log, []).
 
 stop() ->
     couch_event_sup:stop(couch_log).
 
-init({Filename, Level}) ->
+init([]) ->
+    % read config and register for configuration changes
+    
+    % just stop if one of the config settings change. couch_server_sup
+    % will restart us and then we will pick up the new settings.
+    ok = couch_config:register(
+        fun({"Log", "File"}) ->
+            ?MODULE:stop();
+        ({"Log", "Level"}) ->
+            ?MODULE:stop()
+        end),
+    
+    Filename = couch_config:get({"Log", "File"}, "log.txt"),
+    Level = couch_config:get({"Log", "Level"},"info"),
+
     {ok, Fd} = file:open(Filename, [append]),
     {ok, {Fd, level_integer(list_to_atom(Level))}}.
 

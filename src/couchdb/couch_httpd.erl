@@ -44,25 +44,31 @@ start_link() ->
     
     % just stop if one of the config settings change. couch_server_sup
     % will restart us and then we will pick up the new settings.
-    ConfigChangeCallbackFunction =  fun() -> couch_httpd:stop() end,
     
-    {ok, BindAddress} = couch_config:lookup_and_register(
-        {"HTTPd", "BindAddress"}, ConfigChangeCallbackFunction),
-    {ok, Port} = couch_config:lookup_and_register(
-        {"HTTPd", "Port"}, ConfigChangeCallbackFunction),
-    {ok, DocumentRoot} = couch_config:lookup_and_register(
-        {"HTTPd", "DocumentRoot"}, ConfigChangeCallbackFunction),
+    BindAddress = couch_config:get({"HTTPd", "BindAddress"}, "127.0.0.1"),
+    Port = couch_config:get({"HTTPd", "Port"}, "5984"),
+    DocumentRoot = couch_config:get({"HTTPd", "DocumentRoot"}, "../../share/www"),
     
     % and off we go
     Loop = fun (Req) -> apply(couch_httpd, handle_request, [Req, DocumentRoot]) end,
-    mochiweb_http:start([
+    {ok, Pid} = mochiweb_http:start([
         {loop, Loop},
         {name, ?MODULE},
         {ip, BindAddress},
         {port, Port}
-    ]).
+    ]),
+    ok = couch_config:register(
+        fun({"HTTPd", "BindAddress"}) ->
+            ?MODULE:stop();
+        ({"HTTPd", "Port"}) ->
+            ?MODULE:stop();
+        ({"HTTPd", "DocumentRoot"}) ->
+            ?MODULE:stop()
+        end, Pid),
+    {ok, Pid}.
 
 stop() ->
+    io:format("asfasfSZfasdfasdfasfasdf"),
     mochiweb_http:stop(?MODULE).
 
 handle_request(config_change) ->
@@ -833,32 +839,32 @@ handle_config_request(Req, 'POST', {[Module, Key]}) ->
     
 % GET /_config/Module/Key
 handle_config_request(Req, 'GET', {[Module, Key]}) ->
-    case couch_config:lookup({Module, Key}) of
-        {ok, Value} ->
-            send_json(Req, 200, {obj, [
-                {ok, true},
-                {module, Module},
-                {key, Key},
-                {value, Value}
-             ]});
-        undefined ->
-            throw({not_found, unkown_config_value})
+    case couch_config:get({Module, Key},null) of
+    null ->
+        throw({not_found, unknown_config_value});
+    Value ->
+        send_json(Req, 200, {obj, [
+            {ok, true},
+            {module, Module},
+            {key, Key},
+            {value, Value}
+         ]})
     end;
 
     
 % DELETE /_config/Key
 handle_config_request(Req, 'DELETE', {[Module, Key]}) ->
-    case couch_config:lookup({Module, Key}) of
-        {ok, OldValue} ->
-            couch_config:unset({Module, Key}),
-            send_json(Req, 200, {obj, [
-                {ok, true},
-                {module, Module},
-                {key, Key},
-                {old_value, OldValue}
-             ]});
-        undefined ->
-            throw({not_found, unkown_config_value})
+    case couch_config:get({Module, Key}, null) of
+    null ->
+        throw({not_found, unknown_config_value});
+    OldValue ->
+        couch_config:unset({Module, Key}),
+        send_json(Req, 200, {obj, [
+            {ok, true},
+            {module, Module},
+            {key, Key},
+            {old_value, OldValue}
+         ]})
     end.
 
 

@@ -14,7 +14,7 @@
 -behaviour(gen_server).
 
 -export([start_link/0,fold/4,fold/5,less_json/2, start_update_loop/3, start_temp_update_loop/5]).
--export([init/1,terminate/1,terminate/2,handle_call/3,handle_cast/2,handle_info/2,code_change/3]).
+-export([init/1,terminate/2,handle_call/3,handle_cast/2,handle_info/2,code_change/3]).
 -export([get_reduce_view/1, get_map_view/1,get_row_count/1,reduce_to_count/1, fold_reduce/7]).
 
 -include("couch_db.hrl").
@@ -44,12 +44,7 @@
     }).
 
 start_link() ->
-    
-    % read configuration settings and register for configuration changes
-    {ok, RootDir} = couch_config:lookup_and_register(
-        {"CouchDB", "RootDirectory"}, fun() -> terminate(config_change) end),
-    
-    gen_server:start_link({local, couch_view}, couch_view, RootDir, []).
+    gen_server:start_link({local, couch_view}, couch_view, [], []).
 
 get_temp_updater(DbName, Type, MapSrc, RedSrc) ->
     {ok, Pid} = gen_server:call(couch_view, {start_temp_updater, DbName, Type, MapSrc, RedSrc}),
@@ -202,7 +197,15 @@ fold(#view{btree=Btree}, StartKey, Dir, Fun, Acc) ->
     {ok, _AccResult} = couch_btree:fold(Btree, StartKey, Dir, Fun, Acc).
 
 
-init(RootDir) ->
+init([]) ->
+    % read configuration settings and register for configuration changes
+    RootDir = couch_config:get({"CouchDB", "RootDirectory"}),
+    Self = self(),
+    ok = couch_config:register(
+        fun({"CouchDB", "RootDirectory"})->
+            exit(Self, config_change)
+        end),
+        
     couch_db_update_notifier:start_link(
         fun({deleted, DbName}) ->
             gen_server:cast(couch_view, {reset_indexes, DbName});
@@ -218,10 +221,7 @@ init(RootDir) ->
     process_flag(trap_exit, true),
     {ok, #server{root_dir=RootDir}}.
 
-terminate(Reason, _) ->
-    terminate(Reason).
-
-terminate(_Reason) ->
+terminate(_Reason,_State) ->
     ok.
 
 

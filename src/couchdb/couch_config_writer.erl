@@ -19,13 +19,13 @@
 %% @see couch_config
 
 -module(couch_config_writer).
--export([save_config/2]).
+-export([save_to_file/2]).
 
-%% @spec save_config(
+%% @spec save_to_file(
 %%           Config::{{Module::string(), Variable::string()}, Value::string()}, 
 %%           File::filename()) -> ok
 %% @doc Saves a Module/Key/Value triple to the ini file File::filename()
-save_config({{Module, Variable}, Value}, File) ->
+save_to_file({{Module, Variable}, Value}, File) ->
     % open file and create a list of lines
     {ok, Stream} = file:read_file(File),
     {ok, Lines} = regexp:split(binary_to_list(Stream), "\r\n|\n|\r|\032"),
