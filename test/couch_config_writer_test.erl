@@ -6,8 +6,8 @@
 couch_config_writer_test() ->
     [
         fun() -> replace_existing_variable() end,
-        fun() -> append_new_variable() end
-%%        fun() -> append_new_module() end %not yet implemented
+        fun() -> append_new_variable() end,
+        fun() -> append_new_module() end
     ].
 
 
@@ -135,8 +135,7 @@ Level=info
 javascript=/Users/jan/Work/runcouch/conf9/bin/couchjs /Users/jan/Work/runcouch/conf9/share/couchdb/server/main.js
 
 [CouchDB Query Server Options]
-QueryTimeout=5000 ; 5 seconds
-",
+QueryTimeout=5000 ; 5 seconds",
 
     Expect = "; etc/couchdb/couch.ini.tpl.  Generated from couch.ini.tpl.in by configure.
 
@@ -161,11 +160,12 @@ javascript=/Users/jan/Work/runcouch/conf9/bin/couchjs /Users/jan/Work/runcouch/c
 QueryTimeout=5000 ; 5 seconds
 
 [Erlang]
-Option=Value",
+Option=Value
+",
     run_operation_and_compare_results(Contents, Expect, {{"Erlang", "Option"}, "Value"}).
   
 run_operation_and_compare_results(Contents, Expect, Config) ->
-    Filename = "test.ini",
+    Filename = "couch.ini",
     file:write_file(Filename, Contents),
 
     % call replace function
