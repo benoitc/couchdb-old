@@ -19,6 +19,8 @@
 %% @see couch_config
 
 -module(couch_config_writer).
+-include("couch_db.hrl").
+
 -export([save_to_file/2]).
 
 %% @spec save_to_file(
@@ -26,16 +28,28 @@
 %%           File::filename()) -> ok
 %% @doc Saves a Module/Key/Value triple to the ini file File::filename()
 save_to_file({{Module, Variable}, Value}, File) ->
+    
+    ?LOG_DEBUG("saving to file '~s', Congif: '~p'", [File, {{Module, Variable}, Value}]),
+    
     % open file and create a list of lines
     {ok, Stream} = file:read_file(File),
-    {ok, Lines} = regexp:split(binary_to_list(Stream), "\r\n|\n|\r|\032"),
+    OldFileContents = binary_to_list(Stream),
+    {ok, Lines} = regexp:split(OldFileContents, "\r\n|\n|\r|\032"),
     
     % prepare input variables
     ModuleName = "[" ++ Module ++ "]",
     VariableList = Variable,
     
     % produce the contents for the config file
-    NewFileContents = save_loop({{ModuleName, VariableList}, Value}, Lines, "", "", []),
+    NewFileContents = 
+    case NewFileContents2 = save_loop({{ModuleName, VariableList}, Value}, Lines, "", "", []) of
+        % we didn't change anything, that means we couldn't find a matching
+        % [ini section] in which case we just append a new one.
+        OldFileContents ->
+            append_new_ini_section({{ModuleName, VariableList}, Value}, OldFileContents);
+        _ ->
+            NewFileContents2
+    end,
     
     % do the save, close the config file and get out
     save_file(File, NewFileContents),
@@ -43,7 +57,7 @@ save_to_file({{Module, Variable}, Value}, File) ->
     ok.
 
 %% @doc Iterates over the lines of an ini file and replaces or adds a new
-%%      coofiguration directive.
+%%      configuration directive.
 save_loop({{Module, Variable}, Value}, [Line|Rest], OldCurrentModule, Contents, DoneVariables) ->
 
     % if we find a new [ini section] (Module), save that for reference
@@ -92,6 +106,9 @@ save_loop({{Module, Variable}, Value}, [Line|Rest], OldCurrentModule, Contents, 
 save_loop(_Config, [], _OldModule, NewFileContents, _DoneVariable) ->
     % we're out of new lines, just return the new file's contents
     NewFileContents.
+
+append_new_ini_section({{ModuleName, Variable}, Value}, OldFileContents) ->
+    OldFileContents ++ "\n\n" ++ ModuleName ++ "\n" ++  Variable ++ "=" ++ Value ++ "\n".
 
 %% @spec parse_module(Lins::string(), OldModule::string()) -> string()
 %% @doc Tries to match a line against a pattern specifying a ini module or 
