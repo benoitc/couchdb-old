@@ -36,25 +36,22 @@ README.gz: $(top_srcdir)/README
 THANKS.gz: $(top_srcdir)/THANKS
 	-gzip -9 < $< > $@
 
-<<<<<<< .working
-bootstrap-clean: maintainer-clean
-=======
 .PHONY: local-clean
 local-clean: maintainer-clean
-        @echo "This command is intended for maintainers to use;"
-        @echo "it deletes files that may need special tools to rebuild."
-        -rm -f INSTALL
-        -rm -f acinclude.m4
-        -rm -f aclocal.m4
-        -rm -f config.h.in
-        -rm -f configure
-        -rm -f *.tar.gz
-        -rm -f *.tar.gz.asc
-        -rm -f *.tar.gz.md5
-        -rm -f *.tar.gz.sha
-        -rm -fr build-aux
-        -rm -fr m4
-        -find $(top_srcdir) -name Makefile.in | xargs rm
+	@echo "This command is intended for maintainers to use;"
+	@echo "it deletes files that may need special tools to rebuild."
+	-rm -f INSTALL
+	-rm -f acinclude.m4
+	-rm -f aclocal.m4
+	-rm -f config.h.in
+	-rm -f configure
+	-rm -f *.tar.gz
+	-rm -f *.tar.gz.asc
+	-rm -f *.tar.gz.md5
+	-rm -f *.tar.gz.sha
+	-rm -fr build-aux
+	-rm -fr m4
+	-find $(top_srcdir) -name Makefile.in | xargs rm
 
 .PHONY: distsign
 distsign: distcheck
