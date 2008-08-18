@@ -26,9 +26,12 @@ start_driver(LibDir) ->
     % read config and register for configuration changes
     
     case erl_ddll:load_driver(LibDir, "couch_erl_driver") of
-    ok -> ok;
-    {error, already_loaded} -> ok;
-    {error, Error} -> exit(erl_ddll:format_error(Error))
+    ok ->
+        ok;
+    {error, already_loaded} ->
+        ok = erl_ddll:reload_driver(LibDir, "couch_erl_driver");
+    {error, Error} ->
+        exit(erl_ddll:format_error(Error))
     end.
 
 new_uuid() ->

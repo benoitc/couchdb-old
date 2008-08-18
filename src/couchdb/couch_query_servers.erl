@@ -176,12 +176,14 @@ init([]) ->
     
     % just stop if one of the config settings change. couch_server_sup
     % will restart us and then we will pick up the new settings.
-    QueryServerList = couch_config:lookup_match(
-            {{"CouchDB Query Servers", '$1'}, '$2'}, []),
+    
     ok = couch_config:register(
         fun({"CouchDB Query Server" ++ _, _}) ->
             ?MODULE:stop()
         end),
+        
+    QueryServerList = couch_config:lookup_match(
+            {{"CouchDB Query Servers", '$1'}, '$2'}, []),
         
     {ok, {QueryServerList, []}}.
 
@@ -232,9 +234,7 @@ handle_info({Port, {exit_status, Status}}, {QueryServerList, LangPorts}) ->
         {noreply, {QueryServerList,  lists:keydelete(Port, 2, LangPorts)}};
     _ ->
         ?LOG_ERROR("Unknown linked port/process crash: ~p", [Port])
-    end;
-handle_info(_Whatever, {Cmd, Ports}) ->
-    {noreply, {Cmd, Ports}}.
+    end.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.

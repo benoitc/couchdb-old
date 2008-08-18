@@ -52,7 +52,7 @@ init([]) ->
             ?MODULE:stop()
         end),
     
-    Filename = couch_config:get({"Log", "File"}, "log.txt"),
+    Filename = couch_config:get({"Log", "File"}, "couchdb.log"),
     Level = couch_config:get({"Log", "Level"},"info"),
 
     {ok, Fd} = file:open(Filename, [append]),

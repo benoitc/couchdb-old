@@ -39,13 +39,12 @@
 }).
 
 start_link() ->
-
     % read config and register for configuration changes
     
     % just stop if one of the config settings change. couch_server_sup
     % will restart us and then we will pick up the new settings.
     
-    BindAddress = couch_config:get({"HTTPd", "BindAddress"}, "127.0.0.1"),
+    BindAddress = couch_config:get({"HTTPd", "BindAddress"}, any),
     Port = couch_config:get({"HTTPd", "Port"}, "5984"),
     DocumentRoot = couch_config:get({"HTTPd", "DocumentRoot"}, "../../share/www"),
     
@@ -65,10 +64,10 @@ start_link() ->
         ({"HTTPd", "DocumentRoot"}) ->
             ?MODULE:stop()
         end, Pid),
+    
     {ok, Pid}.
 
 stop() ->
-    io:format("asfasfSZfasdfasdfasfasdf"),
     mochiweb_http:stop(?MODULE).
 
 handle_request(config_change) ->

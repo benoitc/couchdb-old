@@ -13,14 +13,12 @@
 -module(couch_ft_query).
 -behaviour(gen_server).
 
--export([start_link/1, execute/2]).
+-export([start_link/0, execute/2]).
 
 -export([init/1, terminate/2, handle_call/3, handle_cast/2, handle_info/2,code_change/3, stop/0]).
 
--define(ERR_HANDLE, {Port, {exit_status, Status}} -> {stop, {unknown_error, Status}, {unknown_error, Status}, Port}).
-
-start_link(QueryExec) ->
-    gen_server:start_link({local, couch_ft_query}, couch_ft_query, QueryExec, []).
+start_link() ->
+    gen_server:start_link({local, couch_ft_query}, couch_ft_query, [], []).
 
 stop() ->
     exit(whereis(couch_ft_query), close).
@@ -28,13 +26,25 @@ stop() ->
 execute(DatabaseName, QueryString) ->
     gen_server:call(couch_ft_query, {ft_query, DatabaseName, QueryString}).
 
-init(QueryExec) ->
-    Port = open_port({spawn, QueryExec}, [{line, 1000}, exit_status, hide]),
-    {ok, Port}.
+init([]) ->
+    ok = couch_config:register(
+        fun({"Search", "QueryServer"}) ->
+            ?MODULE:stop()
+        end),
+    
+    case couch_config:get({"Search", "QueryServer"}, none) of
+    none ->
+        {ok, none};
+    QueryExec ->
+        Port = open_port({spawn, QueryExec}, [{line, 1000}, exit_status, hide]),
+        {ok, Port}
+    end.
 
 terminate(_Reason, _Server) ->
     ok.
 
+handle_call({ft_query, _Database, _QueryText}, _From, none) ->
+    {reply, {error, no_full_test_query_specified_in_config}, none};
 handle_call({ft_query, Database, QueryText}, _From, Port) ->
     % send the database name
     true = port_command(Port, Database ++ "\n"),

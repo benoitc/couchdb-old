@@ -1441,35 +1441,31 @@ var tests = {
     if(debug) debugger;
     var xhr;
 
-    xhr = CouchDB.request("GET", "/_config/CouchDB/MaximumDocumentSize");
+    xhr = CouchDB.request("POST", "/_config/CouchDBTest/Test", {"body":"1024"});
     T(xhr.status == 200);
     var res = JSON.parse(xhr.responseText);
     T(res.ok);
-    var original_value = res.value
+    T(res.value == "1024");
+    
+    restartServer();
 
-    xhr = CouchDB.request("POST", "/_config/CouchDB/MaximumDocumentSize", {"body":"1024"});
+    xhr = CouchDB.request("GET", "/_config/CouchDBTest/Test");
     T(xhr.status == 200);
     var res = JSON.parse(xhr.responseText);
     T(res.ok);
     T(res.value == "1024");
 
-    xhr = CouchDB.request("GET", "/_config/CouchDB/MaximumDocumentSize");
-    T(xhr.status == 200);
-    var res = JSON.parse(xhr.responseText);
-    T(res.ok);
-    T(res.value == "1024");
-
-    xhr = CouchDB.request("DELETE", "/_config/CouchDB/MaximumDocumentSize");
+    xhr = CouchDB.request("DELETE", "/_config/CouchDBTest/Test");
     T(xhr.status == 200);
     var res = JSON.parse(xhr.responseText);
     T(res.ok);
     T(res.old_value == "1024");
 
-    xhr = CouchDB.request("PUT", "/_config/CouchDB/MaximumDocumentSize", {"body": original_value});
+    xhr = CouchDB.request("PUT", "/_config/CouchDBTest/Test", {"body": "1024"});
     T(xhr.status == 200);
     var res = JSON.parse(xhr.responseText);
     T(res.ok);
-    T(res.value == original_value);
+    T(res.value == "1024");
   }
 };
 

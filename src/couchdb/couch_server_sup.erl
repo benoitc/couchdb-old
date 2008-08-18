@@ -14,7 +14,7 @@
 -behaviour(supervisor).
 
 
--export([start_link/1,stop/0,couch_config_start_link_wrapper/2]).
+-export([start_link/1,stop/0,couch_config_start_link_wrapper/2,start_primary_services/0]).
 
 -include("couch_db.hrl").
 
@@ -46,7 +46,22 @@ start_server(IniFiles) ->
         end;
     _ -> ok
     end,
+    
     {ok, ConfigPid} = couch_config:start_link(IniFiles),
+    
+    LogLevel = couch_config:get({"Log", "Level"}, "info"),
+    % announce startup
+    io:format("Apache CouchDB ~s (LogLevel=~s) is starting.~n", [
+        couch_server:get_version(),
+        LogLevel
+    ]),
+    case LogLevel of
+    "debug" ->
+        io:format("Configuration Settings ~p:~n", [IniFiles]),
+        [io:format("  [~s] ~s=~p~n", [Module, Variable, Value])
+            || {{Module, Variable}, Value} <- couch_config:all()];
+    _ -> ok
+    end,
     
     LibDir =
     case couch_config:get({"CouchDB", "UtilDriverDir"}, null) of
@@ -56,52 +71,22 @@ start_server(IniFiles) ->
     end,
     
     ok = couch_util:start_driver(LibDir),
-
     
-    ChildProcesses =
+    BaseServices =
+    {{one_for_all, 10, 3600}, 
         [{couch_config,
             {couch_server_sup, couch_config_start_link_wrapper, [IniFiles, ConfigPid]},
             permanent,
             brutal_kill,
             worker,
-            [couch_config]},
-        {couch_log,
-            {couch_log, start_link, []},
-            permanent,
-            brutal_kill,
-            worker,
-            [couch_server]},
-        {couch_db_update_event,
-            {gen_event, start_link, [{local, couch_db_update}]},
-            permanent,
-            1000,
-            supervisor,
             dynamic},
-        {couch_server,
-            {couch_server, sup_start_link, []},
+        {couch_primary_services,
+            {couch_server_sup, start_primary_services, []},
             permanent,
             brutal_kill,
-            worker,
-            [couch_server]},
-        {couch_query_servers,
-            {couch_query_servers, start_link, []},
-            permanent,
-            brutal_kill,
-            worker,
-            [couch_query_servers]},
-        {couch_view,
-            {couch_view, start_link, []},
-            permanent,
-            brutal_kill,
-            worker,
-            [couch_view]},
-        {couch_httpd,
-            {couch_httpd, start_link, []},
-            permanent,
-            1000,
             supervisor,
-            [couch_httpd]}
-        ],
+            [couch_server_sup]}
+        ]},
    
 
     % ensure these applications are running
@@ -109,8 +94,8 @@ start_server(IniFiles) ->
     application:start(crypto),
 
     {ok, Pid} = supervisor:start_link(
-        {local, couch_server_sup}, couch_server_sup, ChildProcesses),
-    io:format("started"),
+        {local, couch_server_sup}, couch_server_sup, BaseServices),
+
     % launch the icu bridge
     % just restart if one of the config settings change.
 
@@ -119,16 +104,66 @@ start_server(IniFiles) ->
             ?MODULE:stop()
         end, Pid),
     
-    % we only get where when startup was successful
-    BindAddress = couch_config:get({"HTTPd", "BindAddress"}),
-    Port = couch_config:get({"HTTPd", "Port"}),
-    io:format("Apache CouchDB has started, see http://~s:~s/_utils/index.html~n",
-            [BindAddress, Port]),
+    unlink(ConfigPid),
+    
+    io:format("Apache CouchDB has started. Time to relax.~n"),
+    
     {ok, Pid}.
 
+start_primary_services() ->
+    supervisor:start_link(couch_server_sup,
+        {{one_for_one, 10, 3600}, 
+            [{couch_log,
+                {couch_log, start_link, []},
+                permanent,
+                brutal_kill,
+                worker,
+                [couch_log]},
+            {couch_db_update_event,
+                {gen_event, start_link, [{local, couch_db_update}]},
+                permanent,
+                brutal_kill,
+                supervisor,
+                dynamic},
+            {couch_server,
+                {couch_server, sup_start_link, []},
+                permanent,
+                brutal_kill,
+                supervisor,
+                [couch_server]},
+            {couch_query_servers,
+                {couch_query_servers, start_link, []},
+                permanent,
+                brutal_kill,
+                supervisor,
+                [couch_query_servers]},
+            {couch_view,
+                {couch_view, start_link, []},
+                permanent,
+                brutal_kill,
+                supervisor,
+                [couch_view]},
+            {couch_httpd,
+                {couch_httpd, start_link, []},
+                permanent,
+                brutal_kill,
+                supervisor,
+                [couch_httpd]},
+            {couch_ft_query,
+                {couch_ft_query, start_link, []},
+                permanent,
+                brutal_kill,
+                supervisor,
+                [couch_ft_query]},
+            {couch_db_update_notifier_sup,
+                {couch_db_update_notifier_sup, start_link, []},
+                permanent,
+                brutal_kill,
+                supervisor,
+                [couch_db_update_notifier_sup]}]}).
 
 stop() ->
     catch exit(whereis(couch_server_sup), normal).
 
-init(ChildProcesses) ->
-    {ok, {{one_for_one, 10, 3600}, ChildProcesses}}.
+init(ChildSpecs) ->
+    {ok, ChildSpecs}.

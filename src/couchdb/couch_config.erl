@@ -26,7 +26,7 @@
 -export([store/2, register/1, register/2, 
     get/1, get/2,
     lookup_match/1, lookup_match/2,
-    dump/0, unset/1, load_ini_file/1]).
+    all/0, unset/1, load_ini_file/1]).
     
 -record(config,
     {notify_funs=[],
@@ -66,10 +66,7 @@ lookup_match(Key) -> gen_server:call(?MODULE, {lookup_match, Key}).
 %%      to ets::match(). Returns Default::any() if no Key is found
 lookup_match(Key, Default) -> gen_server:call(?MODULE, {lookup_match, Key, Default}).
 
-%% @spec dump() -> ok:atom()
-%% @doc Dumps the current ets table with all configuration data.
-dump() -> gen_server:call(?MODULE, {dump, []}).
-
+all() -> gen_server:call(?MODULE, all).
 
 register(Fun) -> gen_server:call(?MODULE, {register, Fun, self()}).
 
@@ -88,13 +85,6 @@ unset(Key) -> gen_server:call(?MODULE, {unset, Key}).
 init(IniFiles) ->
     ets:new(?MODULE, [named_table, set, protected]),
     [ok = load_ini_file(IniFile) || IniFile <- IniFiles],
-    
-    % announce startup
-    io:format("Apache CouchDB ~s (LogLevel=~s) is starting.~n", [
-        couch_server:get_version(),
-        ?MODULE:get({"Log", "Level"}, "info")
-    ]),
-    
     {ok, #config{writeback_filename=lists:last(IniFiles)}}.
 
 %% @doc see store/2
@@ -118,12 +108,8 @@ handle_call({unset, Key}, _From, Config) ->
 handle_call({lookup_match, Key, Default}, _From, Config) ->
     {reply, fix_lookup_result(ets:match(?MODULE, Key), Default), Config};
 
-%% @doc See dump/0
-handle_call({dump, []}, _From, Config) ->
-    KVs = lists:sort(ets:tab2list(?MODULE)),
-    [io:format("[~s] ~s=~p~n", [Module, Variable, Value])
-            || {{Module, Variable}, Value} <- KVs],
-    {reply, ok, Config};
+handle_call(all, _From, Config) ->
+    {reply, lists:sort(ets:tab2list(?MODULE)), Config};
 
 %% @doc See register/2
 handle_call({register, Fun, Pid}, _From, #config{notify_funs=PidFuns}=Config) ->
