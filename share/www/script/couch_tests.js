@@ -1435,37 +1435,6 @@ var tests = {
     T(xhr.getResponseHeader("Content-Type") == "text/plain")
     T(db.info().doc_count == 1);
     T(db.info().disk_size < deletesize);
-  },
-
-  runtime_config: function(debug) {
-    if(debug) debugger;
-    var xhr;
-
-    xhr = CouchDB.request("POST", "/_config/CouchDBTest/Test", {"body":"1024"});
-    T(xhr.status == 200);
-    var res = JSON.parse(xhr.responseText);
-    T(res.ok);
-    T(res.value == "1024");
-    
-    restartServer();
-
-    xhr = CouchDB.request("GET", "/_config/CouchDBTest/Test");
-    T(xhr.status == 200);
-    var res = JSON.parse(xhr.responseText);
-    T(res.ok);
-    T(res.value == "1024");
-
-    xhr = CouchDB.request("DELETE", "/_config/CouchDBTest/Test");
-    T(xhr.status == 200);
-    var res = JSON.parse(xhr.responseText);
-    T(res.ok);
-    T(res.old_value == "1024");
-
-    xhr = CouchDB.request("PUT", "/_config/CouchDBTest/Test", {"body": "1024"});
-    T(xhr.status == 200);
-    var res = JSON.parse(xhr.responseText);
-    T(res.ok);
-    T(res.value == "1024");
   }
 };
 
