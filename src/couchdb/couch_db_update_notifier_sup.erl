@@ -31,16 +31,17 @@ start_link() ->
 init([]) ->
     Self = self(),
     ok = couch_config:register(
-        fun({"CouchDB", "DbUpdateNotificationProcess"}) ->
+        fun({"Update Notification", _}) ->
             exit(Self, reload_config)
         end),
+    
     UpdateNotifierExes = couch_config:lookup_match(
-            {{"Update Notification", ""}, '$1'}, []),
+            {{"Update Notification", '$1'}, '$2'}, []),
 
     {ok,
         {{one_for_one, 10, 3600}, 
-            lists:map(fun({UpdateNotifierExe}) ->
-                {UpdateNotifierExe,
+            lists:map(fun({Name, UpdateNotifierExe}) ->
+                {Name,
                 {couch_db_update_notifier, start_link, [UpdateNotifierExe]},
                     permanent,
                     1000,

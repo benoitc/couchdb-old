@@ -31,7 +31,7 @@ default.ini: default.ini.tpl
 
 install-data-hook:
 	if test ! -f "$(localconfdir)/local.ini"; then \
-	    echo "; Use this file for your local configuration." > $(localconfdir)/local.ini; \
+	    cp local.ini $(localconfdir)/local.ini; \
 	fi
 
 uninstall-local:
