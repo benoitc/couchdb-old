@@ -43,6 +43,7 @@ source_files = \
     couch_config_writer.erl \
     couch_db.erl \
     couch_db_update_notifier.erl \
+    couch_db_update_notifier_sup.erl \
     couch_doc.erl \
     couch_event_sup.erl \
     couch_file.erl \
@@ -67,6 +68,7 @@ compiled_files = \
     couch_config_writer.beam \
     couch_db.beam \
     couch_db_update_notifier.beam \
+    couch_db_update_notifier_sup.beam \
     couch_doc.beam \
     couch_event_sup.beam \
     couch_file.beam \
@@ -98,6 +100,7 @@ doc_modules = \
     couch_config_writer.html \
     couch_db.html \
     couch_db_update_notifier.html \
+    couch_db_update_notifier_sup.html \
     couch_doc.html \
     couch_event_sup.html \
     couch_file.html \
