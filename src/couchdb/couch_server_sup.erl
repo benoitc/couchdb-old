@@ -83,7 +83,7 @@ start_server(IniFiles) ->
         {couch_primary_services,
             {couch_server_sup, start_primary_services, []},
             permanent,
-            brutal_kill,
+            infinity,
             supervisor,
             [couch_server_sup]}
         ]},
