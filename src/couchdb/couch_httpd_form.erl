@@ -26,7 +26,7 @@ handle_form_req(#httpd{method='GET',path_parts=[_, _, DesignName, FormName, Doci
     DesignId = <<"_design/", DesignName/binary>>,
     % Anyway we can dry up this error handling?
     case (catch couch_httpd_db:couch_doc_open(Db, DesignId, [], [])) of
-    {{not_found, missing}, _} ->
+    {not_found, missing} ->
         throw({not_found, missing_design_doc});
     {not_found, deleted} ->
         throw({not_found, deleted_design_doc});
@@ -40,7 +40,7 @@ handle_form_req(#httpd{method='GET',path_parts=[_, _, DesignName, FormName, Doci
                 throw({not_found, missing_form});
             FormSrc ->
                 case (catch couch_httpd_db:couch_doc_open(Db, Docid, [], [])) of
-                {{not_found, missing}, _} ->
+                {not_found, missing} ->
                     throw({not_found, missing});
                 {not_found, deleted} ->
                     throw({not_found, deleted});

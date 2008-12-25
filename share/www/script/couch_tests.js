@@ -1836,7 +1836,7 @@ var tests = {
     T(xhr.status == 200)
   },
 
-   templates: function(debug) {
+   forms: function(debug) {
      var db = new CouchDB("test_suite_db");
      db.deleteDb();
      db.createDb();
@@ -1938,6 +1938,22 @@ var tests = {
      // form with doc
      xhr = CouchDB.request("GET", "/test_suite_db/_form/template/just-name/"+docid);
      T(xhr.responseText == "Just Rusty");
+     
+     // form with missing doc
+     xhr = CouchDB.request("GET", "/test_suite_db/_form/template/just-name/missingdoc");
+     T(xhr.status == 404);
+     var resp = JSON.parse(xhr.responseText);
+     T(resp.error == "not_found");
+     T(resp.reason == "missing");
+     
+     // missing design doc
+     xhr = CouchDB.request("GET", "/test_suite_db/_form/missingdoc/just-name/"+docid);
+     T(xhr.status == 404);
+     var resp = JSON.parse(xhr.responseText);
+     console.log(resp)
+     T(resp.error == "not_found");
+     T(resp.reason == "missing_design_doc");
+     
      
      // query parameters
      xhr = CouchDB.request("GET", "/test_suite_db/_form/template/req-info/"+docid+"?foo=bar", {
