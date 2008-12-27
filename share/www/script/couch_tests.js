@@ -1880,7 +1880,8 @@ var tests = {
          "accept-switch" : (function(doc, req) {
            if (req.headers["Accept"].match(/image/)) {
              return {
-               "body" : "accepting image requests",
+               // a 16x16 px version of the CouchDB logo
+               "base64" : "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAAsVBMVEUAAAD////////////////////////5ur3rEBn////////////////wDBL/AADuBAe9EB3IEBz/7+//X1/qBQn2AgP/f3/ilpzsDxfpChDtDhXeCA76AQH/v7/84eLyWV/uc3bJPEf/Dw/uw8bRWmP1h4zxSlD6YGHuQ0f6g4XyQkXvCA36MDH6wMH/z8/yAwX64ODeh47BHiv/Ly/20dLQLTj98PDXWmP/Pz//39/wGyJ7Iy9JAAAADHRSTlMAbw8vf08/bz+Pv19jK/W3AAAAg0lEQVR4Xp3LRQ4DQRBD0QqTm4Y5zMxw/4OleiJlHeUtv2X6RbNO1Uqj9g0RMCuQO0vBIg4vMFeOpCWIWmDOw82fZxvaND1c8OG4vrdOqD8YwgpDYDxRgkSm5rwu0nQVBJuMg++pLXZyr5jnc1BaH4GTLvEliY253nA3pVhQqdPt0f/erJkMGMB8xucAAAAASUVORK5CYII=",
                headers : {
                  "Content-Type" : "image/png",
                  "Vary" : "Accept" // we set this for proxy caches
@@ -1950,10 +1951,8 @@ var tests = {
      xhr = CouchDB.request("GET", "/test_suite_db/_form/missingdoc/just-name/"+docid);
      T(xhr.status == 404);
      var resp = JSON.parse(xhr.responseText);
-     console.log(resp)
      T(resp.error == "not_found");
      T(resp.reason == "missing_design_doc");
-     
      
      // query parameters
      xhr = CouchDB.request("GET", "/test_suite_db/_form/template/req-info/"+docid+"?foo=bar", {
@@ -1983,10 +1982,11 @@ var tests = {
      T("text/html" == xhr.getResponseHeader("Content-Type"));
      T("Accept" == xhr.getResponseHeader("Vary"));
      var etag = xhr.getResponseHeader("etag");
-     
+
      xhr = CouchDB.request("GET", "/test_suite_db/_form/template/accept-switch/"+docid, {
        headers: {"Accept": "image/png;*/*"}
      });
+     T(xhr.responseText.match(/PNG/))
      T("image/png" == xhr.getResponseHeader("Content-Type"));
      var etag2 = xhr.getResponseHeader("etag");
      T(etag2 != etag);
