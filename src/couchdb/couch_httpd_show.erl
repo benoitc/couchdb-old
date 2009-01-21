@@ -44,7 +44,7 @@ handle_view_list_req(#httpd{method='GET',path_parts=[_, _, DesignName, ListName,
     #doc{body={Props}} = couch_httpd_db:couch_doc_open(Db, DesignId, [], []),
     Lang = proplists:get_value(<<"language">>, Props, <<"javascript">>),
     ListSrc = get_nested_json_value({Props}, [<<"lists">>,ListName]),
-    throw({not_implemented, should_be});
+    send_view_list_response(Lang, ListSrc, ViewName, DesignId, Req, Db);
 
 handle_view_list_req(Req, _Db) ->
     send_method_not_allowed(Req, "GET,HEAD").
@@ -60,7 +60,41 @@ get_nested_json_value(Value, []) ->
 get_nested_json_value(_NotJSONObj, _) ->
     throw({not_found, json_mismatch}).
 
-% get_design_doc()    
+send_view_list_response(Lang, ListSrc, ViewName, DesignId, Req, Db) ->
+    % TODO add etags when we get view etags
+    #view_query_args{
+        update = Update
+        % reduce = Reduce
+    } = QueryArgs = couch_httpd_view:parse_view_query(Req),
+    case couch_view:get_map_view(Db, DesignId, ViewName, Update) of
+    {ok, View} ->    
+        output_map_list(Req, Lang, ListSrc, View, Db, QueryArgs);
+    {not_found, Reason} ->
+        throw({not_implemented, reduce_view_lists})
+    end.
+
+    
+output_map_list(Req, Lang, ListSrc, View, Db, QueryArgs) ->
+    #view_query_args{
+        limit = Limit,
+        direction = Dir,
+        skip = SkipCount,
+        start_key = StartKey,
+        start_docid = StartDocId
+    } = QueryArgs,
+    {ok, RowCount} = couch_view:get_row_count(View),
+    Start = {StartKey, StartDocId},
+    FoldlFun = couch_httpd_view:make_view_fold_fun(Req, QueryArgs, Db, RowCount,
+            fun couch_view:reduce_to_count/1),
+    FoldAccInit = {Limit, SkipCount, undefined, []},
+    FoldResult = couch_view:fold(View, Start, Dir, FoldlFun, FoldAccInit),
+    couch_httpd_view:finish_view_fold(Req, RowCount, FoldResult).
+    
+    % send the head
+    % send each row
+    % send the tail
+    % {JsonResponse} = couch_query_servers:render_view_list(Lang, ShowSrc, Doc, Req, Db),
+
 
 send_doc_show_response(Lang, ShowSrc, #doc{revs=[DocRev|_]}=Doc, #httpd{mochi_req=MReq}=Req, Db) ->
     % make a term with etag-effecting Req components, but not always changing ones.
