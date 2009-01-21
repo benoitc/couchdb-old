@@ -403,15 +403,20 @@ make_view_fold_fun(Req, QueryArgs, Db, TotalViewCount, ReduceCountFun, PassedEnd
             Offset = ReduceCountFun(OffsetReds),
             JsonBegin = io_lib:format("{\"total_rows\":~w,\"offset\":~w,\"rows\":[\r\n",
                     [TotalViewCount, Offset]),
-            JsonObj = view_row_obj(Db, {{Key, DocId}, Value}, IncludeDocs),
-            send_chunk(Resp2, JsonBegin ++ ?JSON_ENCODE(JsonObj)),
+            send_json_view_row(Resp2, Db, 
+                {{Key, DocId}, Value}, JsonBegin, IncludeDocs),
             {ok, {AccLimit - 1, 0, Resp2, AccRevRows}};
         {_, AccLimit, _, Resp} when (AccLimit > 0) ->
-            JsonObj = view_row_obj(Db, {{Key, DocId}, Value}, IncludeDocs),
-            send_chunk(Resp, ",\r\n" ++  ?JSON_ENCODE(JsonObj)),
+            send_json_view_row(Resp, Db, 
+                {{Key, DocId}, Value}, ",\r\n", IncludeDocs),
             {ok, {AccLimit - 1, 0, Resp, AccRevRows}}
         end
     end.
+
+send_json_view_row(Resp, Db, {{Key, DocId}, Value}, RowFront, IncludeDocs) ->
+    JsonObj = view_row_obj(Db, {{Key, DocId}, Value}, IncludeDocs),
+    send_chunk(Resp, RowFront ++  ?JSON_ENCODE(JsonObj)).
+    
 
 view_row_obj(Db, {{Key, DocId}, Value}, IncludeDocs) ->
     case DocId of
