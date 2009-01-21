@@ -12,7 +12,7 @@
 
 -module(couch_httpd_show).
     
--export([handle_doc_show_req/2]).
+-export([handle_doc_show_req/2, handle_view_list_req/2]).
 
 
 -include("couch_db.hrl").
@@ -31,7 +31,6 @@ handle_doc_show_req(#httpd{
     Lang = proplists:get_value(<<"language">>, Props, <<"javascript">>),
     ShowSrc = get_nested_json_value({Props}, [<<"show">>,<<"docs">>,ShowName]),
     Doc = couch_httpd_db:couch_doc_open(Db, Docid, [], []),
-    % ok we have everythign we need. let's make it happen.
     send_doc_show_response(Lang, ShowSrc, Doc, Req, Db);
 
 handle_doc_show_req(#httpd{method='GET'}=Req, _Db) ->
@@ -45,7 +44,7 @@ handle_view_list_req(#httpd{method='GET',path_parts=[_, _, DesignName, ListName,
     #doc{body={Props}} = couch_httpd_db:couch_doc_open(Db, DesignId, [], []),
     Lang = proplists:get_value(<<"language">>, Props, <<"javascript">>),
     ListSrc = get_nested_json_value({Props}, [<<"lists">>,ListName]),
-    ok;
+    throw({not_implemented, should_be});
 
 handle_view_list_req(Req, _Db) ->
     send_method_not_allowed(Req, "GET,HEAD").
