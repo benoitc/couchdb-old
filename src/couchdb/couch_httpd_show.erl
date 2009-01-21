@@ -24,48 +24,46 @@
     
 handle_doc_show_req(#httpd{method='GET',path_parts=[_, _, DesignName, ShowName, Docid]}=Req, Db) ->
     DesignId = <<"_design/", DesignName/binary>>,
-    % Anyway we can dry up this error handling?
-    case (catch couch_httpd_db:couch_doc_open(Db, DesignId, [], [])) of
-    {not_found, missing} ->
-        throw({not_found, missing_design_doc});
-    {not_found, deleted} ->
-        throw({not_found, deleted_design_doc});
-    DesignDoc ->
-        #doc{body={Props}} = DesignDoc,
-        Lang = proplists:get_value(<<"language">>, Props, <<"javascript">>),
-        case proplists:get_value(<<"show">>, Props, nil) of
-        {DocAndViews} ->
-            case proplists:get_value(<<"docs">>, DocAndViews, nil) of 
-            nil ->
-                throw({not_found, missing_show_docs});
-            {DocShows} ->
-                case proplists:get_value(ShowName, DocShows, nil) of
-                nil ->
-                    throw({not_found, missing_show_doc_function});
-                ShowSrc ->
-                    case (catch couch_httpd_db:couch_doc_open(
-                        Db, Docid, [], [])) of
-                    {not_found, missing} ->
-                        throw({not_found, missing});
-                    {not_found, deleted} ->
-                        throw({not_found, deleted});
-                    Doc ->
-                        % ok we have everythign we need. let's make it happen.
-                        send_doc_show_response(Lang, ShowSrc, Doc, Req, Db)
-                    end
-                end
-            end;
+    #doc{body={Props}} = couch_httpd_db:couch_doc_open(Db, DesignId, [], []),
+    Lang = proplists:get_value(<<"language">>, Props, <<"javascript">>),
+    case proplists:get_value(<<"show">>, Props, nil) of
+    {DocAndViews} ->
+        case proplists:get_value(<<"docs">>, DocAndViews, nil) of 
         nil ->
-            throw({not_found, missing_show})
-        end
+            throw({not_found, missing_show_docs});
+        {DocShows} ->
+            case proplists:get_value(ShowName, DocShows, nil) of
+            nil ->
+                throw({not_found, missing_show_doc_function});
+            ShowSrc ->
+                Doc = couch_httpd_db:couch_doc_open(Db, Docid, [], []),
+                % ok we have everythign we need. let's make it happen.
+                send_doc_show_response(Lang, ShowSrc, Doc, Req, Db)
+            end
+        end;
+    nil ->
+        throw({not_found, missing_show})
     end;
 
 handle_doc_show_req(#httpd{method='GET'}=Req, _Db) ->
-    send_error(Req, 404, <<"form_error">>, <<"Invalid path.">>);
+    send_error(Req, 404, <<"show_error">>, <<"Invalid path.">>);
 
 handle_doc_show_req(Req, _Db) ->
     send_method_not_allowed(Req, "GET,HEAD").
 
+
+
+handle_view_list_req(#httpd{method='GET',path_parts=[_, _, DesignName, ListName, ViewName]}=Req, Db) ->
+    % get design doc
+    % get the requested list function
+    ok;
+
+
+handle_view_list_req(Req, _Db) ->
+    send_method_not_allowed(Req, "GET,HEAD").
+
+
+% get_design_doc()    
 
 send_doc_show_response(Lang, ShowSrc, #doc{revs=[DocRev|_]}=Doc, #httpd{mochi_req=MReq}=Req, Db) ->
     % make a term with etag-effecting Req components, but not always changing ones.
