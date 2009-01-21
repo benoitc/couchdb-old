@@ -2423,7 +2423,6 @@ var tests = {
      T(xhr.status == 404);
      var resp = JSON.parse(xhr.responseText);
      T(resp.error == "not_found");
-     T(resp.reason == "missing_design_doc");
      
      // query parameters
      xhr = CouchDB.request("GET", "/test_suite_db/_show/template/req-info/"+docid+"?foo=bar", {
@@ -2552,6 +2551,56 @@ var tests = {
      T(xhr.getResponseHeader("Content-Type") == "application/x-foo");
      T(xhr.responseText.match(/foofoo/));
    },
+
+  list_views : function(debug) {
+    var db = new CouchDB("test_suite_db");
+    db.deleteDb();
+    db.createDb();
+    if (debug) debugger;
+    
+    function stringFun(fun) {
+      var string = fun.toSource ? fun.toSource() : "(" + fun.toString() + ")";
+      return string;
+    }
+        
+    var designDoc = {
+      _id:"_design/lists",
+      language: "javascript",
+      views : {
+        basicView : {
+          map : stringFun(function(doc) {
+            emit(doc.integer, doc.string);
+          })
+        }
+      },
+      lists: {
+        simpleForm: stringFun(function(row, head, req) {
+          if (row) {
+            return '<li>Key: '+row.key+' Value: '+row.value+'</li>';
+          } else if (head) {
+            return '<h1>Rows: '+head.total_rows 
+              +' Offset: '+head.offset+'</h1><ul>';
+          } else {
+            // tail
+            return '</ul>';
+          }
+        })
+      }
+    };
+
+    T(db.save(designDoc).ok);
+    
+    var docs = makeDocs(0, 10);
+    var saveResult = db.bulkSave(docs);
+    T(saveResult.ok);
+    
+    var view = db.view('lists/basicView');
+    T(view.total_rows == 10);
+    
+    var xhr = CouchDB.request("GET", "/test_suite_db/_list/lists/simpleForm/basicView");
+    T(xhr.status == 200);
+    T(/Rows/.test(xhr.responseText))
+  },
 
   compact: function(debug) {
     var db = new CouchDB("test_suite_db");
