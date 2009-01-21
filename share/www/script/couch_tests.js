@@ -2418,6 +2418,10 @@ var tests = {
      T(resp.error == "not_found");
      T(resp.reason == "missing");
      
+     // show with missing func
+     xhr = CouchDB.request("GET", "/test_suite_db/_show/template/missing/"+docid);
+     T(xhr.status == 404);
+     
      // missing design doc
      xhr = CouchDB.request("GET", "/test_suite_db/_show/missingdoc/just-name/"+docid);
      T(xhr.status == 404);
