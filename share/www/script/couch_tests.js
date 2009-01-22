@@ -2587,7 +2587,7 @@ var tests = {
             // we return an object (like those used by external and show)
             // so that we can specify headers
             return {
-              body : '<h1>Rows: '
+              body : '<h1>Total Rows: '
                 + head.total_rows
                 + ' Offset: ' + head.offset
                 + '</h1><ul>'
@@ -2633,7 +2633,7 @@ var tests = {
     
     var xhr = CouchDB.request("GET", "/test_suite_db/_list/lists/simpleForm/basicView");
     T(xhr.status == 200);
-    T(/Rows/.test(xhr.responseText))
+    T(/Total Rows/.test(xhr.responseText))
   },
 
   compact: function(debug) {

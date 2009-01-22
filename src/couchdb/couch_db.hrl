@@ -160,6 +160,13 @@
     send_row
 }).
 
+-record(extern_resp_args, {
+    code = 200,
+    data = <<>>,
+    ctype = "application/json",
+    headers = []
+}).
+
 -record(group,
     {type=view, % can also be slow_view
     sig=nil,
