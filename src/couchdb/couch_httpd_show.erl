@@ -89,14 +89,18 @@ output_map_list(Req, Lang, ListSrc, View, Db, QueryArgs) ->
     {ok, QueryServer} = couch_query_servers:start_view_list(Lang, ListSrc),
     % need to deal with headers etc here...
     StartListRespFun = fun(Req2, Code, TotalViewCount, Offset) ->
-        JsonResp = couch_query_servers:render_list_begin(QueryServer, Req2, Db, 
-            TotalViewCount, Offset),
+        JsonResp = couch_query_servers:render_list_begin(QueryServer, 
+            Req2, Db, TotalViewCount, Offset),
         % TODO get headers from the JsonResp
-        JsonHeaders = [],
+        #extern_resp_args{
+            code = Code,
+            data = BeginBody,
+            ctype = CType,
+            headers = Headers
+        } = couch_httpd_external:parse_external_response(JsonResp),
+        JsonHeaders = couch_httpd_external:default_or_content_type(CType, Headers),
         {ok, Resp} = start_chunked_response(Req, Code, JsonHeaders),
-        % TODO get body from the JsonResp
-        BeginBody = "Hello world",
-        {ok, Resp, BeginBody}
+        {ok, Resp, binary_to_list(BeginBody)}
     end,
     FoldlFun = couch_httpd_view:make_view_fold_fun(Req, QueryArgs, Db, RowCount,
         #view_fold_helper_funs{
