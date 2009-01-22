@@ -2631,9 +2631,23 @@ var tests = {
     var view = db.view('lists/basicView');
     T(view.total_rows == 10);
     
+    // standard get
     var xhr = CouchDB.request("GET", "/test_suite_db/_list/lists/simpleForm/basicView");
     T(xhr.status == 200);
-    T(/Total Rows/.test(xhr.responseText))
+    T(/Total Rows/.test(xhr.responseText));
+    T(/Key: 1/.test(xhr.responseText));
+    
+    // get with query params
+    var xhr = CouchDB.request("GET", "/test_suite_db/_list/lists/simpleForm/basicView?startkey=3");
+    T(xhr.status == 200);
+    T(/Total Rows/.test(xhr.responseText));
+    T(!(/Key: 1/.test(xhr.responseText)));
+    
+    // with 0 rows
+    var xhr = CouchDB.request("GET", "/test_suite_db/_list/lists/simpleForm/basicView?startkey=30");
+    T(xhr.status == 200);
+    T(/Total Rows/.test(xhr.responseText));
+    T(/Offset: null/.test(xhr.responseText));
   },
 
   compact: function(debug) {

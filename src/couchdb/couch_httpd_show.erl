@@ -91,7 +91,6 @@ output_map_list(Req, Lang, ListSrc, View, Db, QueryArgs) ->
     StartListRespFun = fun(Req2, Code, TotalViewCount, Offset) ->
         JsonResp = couch_query_servers:render_list_head(QueryServer, 
             Req2, Db, TotalViewCount, Offset),
-        % TODO get headers from the JsonResp
         #extern_resp_args{
             code = Code,
             data = BeginBody,
@@ -125,19 +124,22 @@ output_map_list(Req, Lang, ListSrc, View, Db, QueryArgs) ->
         }),
     FoldAccInit = {Limit, SkipCount, undefined, []},
     FoldResult = couch_view:fold(View, Start, Dir, FoldlFun, FoldAccInit),
-    % the list end fun should return the os process
-    finish_view_list(Req, Db, QueryServer, RowCount, FoldResult).
+    finish_view_list(Req, Db, QueryServer, RowCount, FoldResult, StartListRespFun).
 
-finish_view_list(Req, Db, QueryServer, TotalRows, FoldResult) ->
+finish_view_list(Req, Db, QueryServer, TotalRows, 
+    FoldResult, StartListRespFun) ->
     case FoldResult of
     {ok, {_, _, undefined, _}} ->
         % TODO we return JSON when there are zero in-range rows. that's wrong
-        send_json(Req, 200, {[
-            {total_rows, TotalRows},
-            {rows, []}
-        ]});
+        {ok, Resp, BeginBody} = StartListRespFun(Req, 200, TotalRows, null),
+        JsonTail = couch_query_servers:render_list_tail(QueryServer, Req, Db),
+        #extern_resp_args{
+            data = Tail
+        } = couch_httpd_external:parse_external_response(JsonTail),
+        send_chunk(Resp, BeginBody ++ Tail),
+        send_chunk(Resp, []);
     {ok, {_, _, Resp, _AccRevRows}} ->
-        % end the list
+        % end the list, which returns the process
         JsonTail = couch_query_servers:render_list_tail(QueryServer, Req, Db),
         #extern_resp_args{
             data = Tail
