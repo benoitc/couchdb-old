@@ -121,7 +121,10 @@ parse_external_response({Response}) ->
             {<<"body">>, Value} ->
                 Args#extern_resp_args{data=Value, ctype="text/html"};
             {<<"base64">>, Value} ->
-                Args#extern_resp_args{data=couch_util:decodeBase64(Value), ctype="application/binary"};
+                Args#extern_resp_args{
+                    data=couch_util:decodeBase64(Value),        
+                    ctype="application/binary"
+                };
             {<<"headers">>, {Headers}} ->
                 NewHeaders = lists:map(fun({Header, HVal}) ->
                     {binary_to_list(Header), binary_to_list(HVal)}

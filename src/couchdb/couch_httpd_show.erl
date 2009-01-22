@@ -84,17 +84,35 @@ output_map_list(Req, Lang, ListSrc, View, Db, QueryArgs) ->
     } = QueryArgs,
     {ok, RowCount} = couch_view:get_row_count(View),
     Start = {StartKey, StartDocId},
+    % get the os process here
+    % pass it in with closures
+    {ok, QueryServer} = couch_query_servers:start_view_list(Lang, ListSrc),
+    % need to deal with headers etc here...
+    StartListRespFun = fun(Req2, Code, TotalViewCount, Offset) ->
+        JsonResp = couch_query_servers:render_list_begin(QueryServer, Req2, Db, 
+            TotalViewCount, Offset),
+        % TODO get headers from the JsonResp
+        JsonHeaders = [],
+        {ok, Resp} = start_chunked_response(Req, Code, JsonHeaders),
+        % TODO get body from the JsonResp
+        BeginBody = "Hello world",
+        {ok, Resp, BeginBody}
+    end,
     FoldlFun = couch_httpd_view:make_view_fold_fun(Req, QueryArgs, Db, RowCount,
-            fun couch_view:reduce_to_count/1),
+        #view_fold_helper_funs{
+            reduce_count = fun couch_view:reduce_to_count/1,
+            start_response = StartListRespFun,
+            send_row = fun send_list_row/5
+        }),
     FoldAccInit = {Limit, SkipCount, undefined, []},
     FoldResult = couch_view:fold(View, Start, Dir, FoldlFun, FoldAccInit),
+    % the list end fun should return the os process
     couch_httpd_view:finish_view_fold(Req, RowCount, FoldResult).
+        
+send_list_row(Resp, Db, {{Key, DocId}, Value}, RowFront, IncludeDocs) ->
+    RowBody = "a row",
+    send_chunk(Resp, RowFront ++ RowBody).
     
-    % send the head
-    % send each row
-    % send the tail
-    % {JsonResponse} = couch_query_servers:render_view_list(Lang, ShowSrc, Doc, Req, Db),
-
 
 send_doc_show_response(Lang, ShowSrc, #doc{revs=[DocRev|_]}=Doc, #httpd{mochi_req=MReq}=Req, Db) ->
     % make a term with etag-effecting Req components, but not always changing ones.
