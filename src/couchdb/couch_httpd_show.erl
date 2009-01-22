@@ -69,7 +69,7 @@ send_view_list_response(Lang, ListSrc, ViewName, DesignId, Req, Db) ->
     case couch_view:get_map_view(Db, DesignId, ViewName, Update) of
     {ok, View} ->    
         output_map_list(Req, Lang, ListSrc, View, Db, QueryArgs);
-    {not_found, Reason} ->
+    {not_found, _Reason} ->
         throw({not_implemented, reduce_view_lists})
     end.
 
@@ -89,7 +89,7 @@ output_map_list(Req, Lang, ListSrc, View, Db, QueryArgs) ->
     {ok, QueryServer} = couch_query_servers:start_view_list(Lang, ListSrc),
 
     StartListRespFun = fun(Req2, Code, TotalViewCount, Offset) ->
-        JsonResp = couch_query_servers:render_list_begin(QueryServer, 
+        JsonResp = couch_query_servers:render_list_head(QueryServer, 
             Req2, Db, TotalViewCount, Offset),
         % TODO get headers from the JsonResp
         #extern_resp_args{
@@ -103,14 +103,18 @@ output_map_list(Req, Lang, ListSrc, View, Db, QueryArgs) ->
         {ok, Resp, binary_to_list(BeginBody)}
     end,
     
-    SendListRowFun = fun(Resp, Db, {{Key, DocId}, Value}, 
+    SendListRowFun = fun(Resp, Db2, {{Key, DocId}, Value}, 
         RowFront, _IncludeDocs) ->
         JsonResp = couch_query_servers:render_list_row(QueryServer, 
-            Req, Db, {{Key, DocId}, Value}),
+            Req, Db2, {{Key, DocId}, Value}),
         #extern_resp_args{
             data = RowBody
         } = couch_httpd_external:parse_external_response(JsonResp),
-        send_chunk(Resp, RowFront ++ binary_to_list(RowBody))
+        RowFront2 = case RowFront of
+        nil -> [];
+        _ -> RowFront
+        end,
+        send_chunk(Resp, RowFront2 ++ binary_to_list(RowBody))
     end,
     
     FoldlFun = couch_httpd_view:make_view_fold_fun(Req, QueryArgs, Db, RowCount,
@@ -122,7 +126,28 @@ output_map_list(Req, Lang, ListSrc, View, Db, QueryArgs) ->
     FoldAccInit = {Limit, SkipCount, undefined, []},
     FoldResult = couch_view:fold(View, Start, Dir, FoldlFun, FoldAccInit),
     % the list end fun should return the os process
-    couch_httpd_view:finish_view_fold(Req, RowCount, FoldResult).
+    finish_view_list(Req, Db, QueryServer, RowCount, FoldResult).
+
+finish_view_list(Req, Db, QueryServer, TotalRows, FoldResult) ->
+    case FoldResult of
+    {ok, {_, _, undefined, _}} ->
+        % TODO we return JSON when there are zero in-range rows. that's wrong
+        send_json(Req, 200, {[
+            {total_rows, TotalRows},
+            {rows, []}
+        ]});
+    {ok, {_, _, Resp, _AccRevRows}} ->
+        % end the list
+        JsonTail = couch_query_servers:render_list_tail(QueryServer, Req, Db),
+        #extern_resp_args{
+            data = Tail
+        } = couch_httpd_external:parse_external_response(JsonTail),
+        send_chunk(Resp, Tail),
+        send_chunk(Resp, []);
+    Error ->
+        throw(Error)
+    end.
+
 
 send_doc_show_response(Lang, ShowSrc, #doc{revs=[DocRev|_]}=Doc, #httpd{mochi_req=MReq}=Req, Db) ->
     % make a term with etag-effecting Req components, but not always changing ones.

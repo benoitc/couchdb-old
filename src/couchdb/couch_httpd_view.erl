@@ -403,7 +403,7 @@ make_view_fold_fun(Req, QueryArgs, Db,
             {ok, {AccLimit - 1, 0, Resp2, AccRevRows}};
         {_, AccLimit, _, Resp} when (AccLimit > 0) ->
             SendRowFun(Resp, Db, 
-                {{Key, DocId}, Value}, ",\r\n", IncludeDocs),
+                {{Key, DocId}, Value}, nil, IncludeDocs),
             {ok, {AccLimit - 1, 0, Resp, AccRevRows}}
         end
     end.
@@ -454,7 +454,11 @@ json_view_start_resp(Req, Code, TotalViewCount, Offset) ->
 
 send_json_view_row(Resp, Db, {{Key, DocId}, Value}, RowFront, IncludeDocs) ->
     JsonObj = view_row_obj(Db, {{Key, DocId}, Value}, IncludeDocs),
-    send_chunk(Resp, RowFront ++  ?JSON_ENCODE(JsonObj)).
+    RowFront2 = case RowFront of
+    nil -> ",\r\n";
+    _ -> RowFront
+    end,
+    send_chunk(Resp, RowFront2 ++  ?JSON_ENCODE(JsonObj)).
     
 
 view_row_obj(Db, {{Key, DocId}, Value}, IncludeDocs) ->
