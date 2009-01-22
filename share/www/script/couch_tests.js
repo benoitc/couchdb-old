@@ -2373,8 +2373,9 @@ var tests = {
                },
                xml : function() {
                  var xml = new XML('<xml><node/></xml>');
-                 // becase Safari can't stand to see that dastardly
-                 // E4X outside of a string.
+                 // Becase Safari can't stand to see that dastardly
+                 // E4X outside of a string. Outside of tests you
+                 // can just use E4X literals.
                  this.eval('xml.node.@foo = doc.word');
                  return {
                    body: xml
@@ -2578,16 +2579,45 @@ var tests = {
         }
       },
       lists: {
-        simpleForm: stringFun(function(row, head, req) {
+        simpleForm: stringFun(function(head, row, req) {
           if (row) {
-            return '<li>Key: '+row.key+' Value: '+row.value+'</li>';
+            // we ignore headers on rows and tail
+            return {body : '<li>Key: '+row.key+' Value: '+row.value+'</li>'};
           } else if (head) {
-            return '<h1>Rows: '+head.total_rows 
-              +' Offset: '+head.offset+'</h1><ul>';
+            // we return an object (like those used by external and show)
+            // so that we can specify headers
+            return {
+              body : '<h1>Rows: '
+                + head.total_rows
+                + ' Offset: ' + head.offset
+                + '</h1><ul>'
+            };
           } else {
             // tail
-            return '</ul>';
+            return {body : '</ul>'};
           }
+        }),
+        acceptSwitch: stringFun(function(head, row, req) {
+          return respondWith(req, {
+            html : function() {
+              if (head) {
+                
+              } else if (row) {
+                
+              } else {
+                
+              }
+            },
+            xml : function() {
+              if (head) {
+                
+              } else if (row) {
+                
+              } else {
+                
+              }
+            }
+          })
         })
       }
     };
