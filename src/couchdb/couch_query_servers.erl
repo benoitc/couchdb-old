@@ -18,7 +18,7 @@
 -export([init/1, terminate/2, handle_call/3, handle_cast/2, handle_info/2,code_change/3,stop/0]).
 -export([start_doc_map/2, map_docs/2, stop_doc_map/1]).
 -export([reduce/3, rereduce/3,validate_doc_update/5]).
--export([render_doc_show/5,render_list_begin/5]).
+-export([render_doc_show/5,start_view_list/2,render_list_begin/5]).
 % -export([test/0]).
 
 -include("couch_db.hrl").
@@ -137,7 +137,7 @@ render_doc_show(Lang, ShowSrc, Doc, Req, Db) ->
 
 start_view_list(Lang, ListSrc) ->
     Pid = get_os_process(Lang),
-    true = couch_os_process:prompt(Pid, [<<"add_list_fun">>, ListSrc]),
+    true = couch_os_process:prompt(Pid, [<<"add_fun">>, ListSrc]),
     {ok, {Lang, Pid}}.
 
 render_list_begin({_Lang, Pid}, Req, Db, TotalRows, Offset) ->
