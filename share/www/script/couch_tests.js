@@ -2582,7 +2582,7 @@ var tests = {
         simpleForm: stringFun(function(head, row, req) {
           if (row) {
             // we ignore headers on rows and tail
-            return {body : '<li>Key: '+row.key+' Value: '+row.value+'</li>'};
+            return {body : '\n<li>Key: '+row.key+' Value: '+row.value+'</li>'};
           } else if (head) {
             // we return an object (like those used by external and show)
             // so that we can specify headers

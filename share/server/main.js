@@ -354,6 +354,11 @@ while (cmd = eval(readline())) {
         var req = cmd[2];
         runRenderFunction(listFun, [null, row, req]);
         break;
+      case "list_tail":
+        var listFun = funs[0];
+        var req = cmd[1];
+        runRenderFunction(listFun, [null, null, req]);
+        break;
       default:
         print(toJSON({error: "query_server_error",
             reason: "unknown command '" + cmd[0] + "'"}));
