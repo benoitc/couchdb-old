@@ -2613,20 +2613,29 @@ var tests = {
           return respondWith(req, {
             html : function() {
               if (head) {
-                
+                return {body : "HTML <ul>"};
               } else if (row) {
-                
-              } else {
-                
+                return {body : '\n<li>Key: '
+                  +row.key+' Value: '+row.value+'</li>'};
+              } else { // tail
+                return {body : "</ul>"};
               }
             },
             xml : function() {
               if (head) {
-                
+                return {body:'<feed xmlns="http://www.w3.org/2005/Atom">'
+                  +'<title>Test XML Feed</title>'};
               } else if (row) {
-                
+                // Becase Safari can't stand to see that dastardly
+                // E4X outside of a string. Outside of tests you
+                // can just use E4X literals.
+                var entry = new XML('<entry/>');
+                entry.id = row.id;
+                entry.title = row.key;
+                entry.content = row.value;
+                return {body:entry};
               } else {
-                
+                return {body : "</feed>"};
               }
             }
           })
@@ -2666,6 +2675,26 @@ var tests = {
     T(xhr.status == 200);
     T(/Total Rows/.test(xhr.responseText));
     T(/Key: 1/.test(xhr.responseText));
+    
+    // with accept headers for HTML
+    xhr = CouchDB.request("GET", "/test_suite_db/_list/lists/acceptSwitch/basicView", {
+      headers: {
+        "Accept": 'text/html'
+      }
+    });
+    T(xhr.getResponseHeader("Content-Type") == "text/html");
+    T(xhr.responseText.match(/HTML/));
+    T(xhr.responseText.match(/Value/));
+
+    // now with xml
+    xhr = CouchDB.request("GET", "/test_suite_db/_list/lists/acceptSwitch/basicView", {
+      headers: {
+        "Accept": 'application/xml'
+      }
+    });
+    T(xhr.getResponseHeader("Content-Type") == "application/xml");
+    T(xhr.responseText.match(/XML/));
+    T(xhr.responseText.match(/entry/));
   },
 
   compact: function(debug) {

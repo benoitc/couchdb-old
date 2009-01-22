@@ -95,7 +95,7 @@ output_map_list(Req, Lang, ListSrc, View, Db, QueryArgs) ->
     {ok, RowCount} = couch_view:get_row_count(View),
     Start = {StartKey, StartDocId},
     % get the os process here
-    % pass it in with closures
+    % pass it into the view fold with closures
     {ok, QueryServer} = couch_query_servers:start_view_list(Lang, ListSrc),
 
     StartListRespFun = fun(Req2, Code, TotalViewCount, Offset) ->
@@ -140,7 +140,6 @@ finish_view_list(Req, Db, QueryServer, TotalRows,
     FoldResult, StartListRespFun) ->
     case FoldResult of
     {ok, {_, _, undefined, _}} ->
-        % TODO we return JSON when there are zero in-range rows. that's wrong
         {ok, Resp, BeginBody} = StartListRespFun(Req, 200, TotalRows, null),
         JsonTail = couch_query_servers:render_list_tail(QueryServer, Req, Db),
         #extern_resp_args{
@@ -149,7 +148,6 @@ finish_view_list(Req, Db, QueryServer, TotalRows,
         send_chunk(Resp, BeginBody ++ Tail),
         send_chunk(Resp, []);
     {ok, {_, _, Resp, _AccRevRows}} ->
-        % end the list, which returns the process
         JsonTail = couch_query_servers:render_list_tail(QueryServer, Req, Db),
         #extern_resp_args{
             data = Tail
