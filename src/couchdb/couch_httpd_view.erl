@@ -15,7 +15,8 @@
 
 -export([handle_view_req/2,handle_slow_view_req/2]).
 
--export([parse_view_query/1,parse_view_query/2,make_view_fold_fun/5,finish_view_fold/3]).
+-export([parse_view_query/1,parse_view_query/2,make_view_fold_fun/5,
+    finish_view_fold/3, view_row_obj/3]).
 
 -import(couch_httpd,
     [send_json/2,send_json/3,send_json/4,send_method_not_allowed/2,
