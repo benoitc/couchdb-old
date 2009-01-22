@@ -2576,6 +2576,18 @@ var tests = {
           map : stringFun(function(doc) {
             emit(doc.integer, doc.string);
           })
+        },
+        withReduce : {
+          map : stringFun(function(doc) {
+            emit(doc.integer, doc.string);
+          }),
+          reduce : stringFun(function(keys, values, rereduce) {
+            if (rereduce) {
+              return sum(values);
+            } else {
+              return values.length;
+            }
+          })
         }
       },
       lists: {
@@ -2648,6 +2660,12 @@ var tests = {
     T(xhr.status == 200);
     T(/Total Rows/.test(xhr.responseText));
     T(/Offset: null/.test(xhr.responseText));
+    
+    // when there is a reduce present, but not used
+    var xhr = CouchDB.request("GET", "/test_suite_db/_list/lists/simpleForm/withReduce?reduce=false");
+    T(xhr.status == 200);
+    T(/Total Rows/.test(xhr.responseText));
+    T(/Key: 1/.test(xhr.responseText));
   },
 
   compact: function(debug) {

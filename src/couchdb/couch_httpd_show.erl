@@ -63,15 +63,28 @@ get_nested_json_value(_NotJSONObj, _) ->
 send_view_list_response(Lang, ListSrc, ViewName, DesignId, Req, Db) ->
     % TODO add etags when we get view etags
     #view_query_args{
-        update = Update
-        % reduce = Reduce
+        update = Update,
+        reduce = Reduce
     } = QueryArgs = couch_httpd_view:parse_view_query(Req),
     case couch_view:get_map_view(Db, DesignId, ViewName, Update) of
     {ok, View} ->    
         output_map_list(Req, Lang, ListSrc, View, Db, QueryArgs);
     {not_found, _Reason} ->
-        throw({not_implemented, reduce_view_lists})
+        case couch_view:get_reduce_view(Db, DesignId, ViewName, Update) of
+        {ok, ReduceView} ->
+            case Reduce of
+            false ->
+                MapView = couch_view:extract_map_view(ReduceView),
+                output_map_list(Req, Lang, ListSrc, MapView, Db, QueryArgs);
+            _ ->
+                throw({not_implemented, reduce_view_lists})
+            end;
+        {not_found, Reason} ->
+            throw({not_found, Reason})
+        end
     end.
+
+
 
     
 output_map_list(Req, Lang, ListSrc, View, Db, QueryArgs) ->
