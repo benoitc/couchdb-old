@@ -103,7 +103,8 @@
         viewName = $.cookies.get(dbName + ".view", "");
         if (viewName) {
           this.redirecting = true;
-          location.href = "database.html?" + dbName + "/" + viewName;
+          location.href = "database.html?" + encodeURIComponent(dbName) +
+            "/" + encodeDocId(viewName);
         }
       }
       var db = $.couch.db(dbName);
@@ -335,7 +336,7 @@
                   var matches = [];
                   for (var i = 0; i < docs.rows.length; i++) {
                     var docName = docs.rows[i].id.substr(8);
-                    if (docName.substr(0, text.length) == text) {
+                    if (docName.indexOf(text) == 0) {
                       matches[i] = docName;
                     }
                   }
@@ -350,7 +351,7 @@
                   var matches = [];
                   if (!doc.views) return;
                   for (var viewName in doc.views) {
-                    if (viewName.substr(0, text.length) == text) {
+                    if (viewName.indexOf(text) == 0) {
                       matches.push(viewName);
                     }
                   }
@@ -969,7 +970,7 @@
     if (parts[0] == '_design') {
       parts.shift();
       encoded = encodeURIComponent(parts.join('/'));
-      return '_design/'+encoded;
+      return '_design/' + encoded;
     } else {
       return encodeURIComponent(docid);
     }
