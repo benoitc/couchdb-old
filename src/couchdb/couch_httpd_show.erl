@@ -83,9 +83,6 @@ send_view_list_response(Lang, ListSrc, ViewName, DesignId, Req, Db) ->
             throw({not_found, Reason})
         end
     end.
-
-
-
     
 output_map_list(Req, Lang, ListSrc, View, Db, QueryArgs) ->
     #view_query_args{
