@@ -21,6 +21,28 @@ if (typeof window == 'undefined' || !window) {
 
 var tests = {
 
+  stats: function(debug) {
+    if (debug) debugger;
+
+    // open databases
+    
+    // - currently
+    var db = new CouchDB("test_suite_db");
+    db.deleteDb();
+    var open_databases = JSON.parse(CouchDB.request("GET", "/_stats/couch_db/open_databases").responseText).couch_db.open_databases;
+    
+    db.createDb();
+    
+    var new_open_databases = JSON.parse(CouchDB.request("GET", "/_stats/couch_db/open_databases").responseText).couch_db.open_databases;
+    
+    T(new_open_databases == open_databases + 1);
+    
+    // requests / time
+    // bytes sent / time
+    
+    
+  },
+
   // Do some basic tests.
   basics: function(debug) {
     var result = JSON.parse(CouchDB.request("GET", "/").responseText);
@@ -2667,7 +2689,7 @@ var tests = {
             }
           })
         })
-      }
+      },
     };
 
     T(db.save(designDoc).ok);
