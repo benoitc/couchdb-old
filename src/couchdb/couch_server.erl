@@ -184,7 +184,7 @@ maybe_close_lru_db(#server{dbs_open=NumOpen}=Server) ->
     case try_close_lru(now()) of
     ok ->
         couch_stats_collector:decrement({<<"couch_db">>, <<"open_databases">>}),   
-        {ok, Server#server{dbs_open=NumOpen-1}};
+        {ok, Server#server{dbs_open=NumOpen - 1}};
     Error -> Error
     end.
 
@@ -333,6 +333,7 @@ handle_info({'EXIT', Pid, _Reason}, #server{dbs_open=DbsOpen}=Server) ->
     true = ets:delete(couch_dbs_by_pid, Pid),
     true = ets:delete(couch_dbs_by_name, DbName),
     true = ets:delete(couch_dbs_by_lru, LruTime),
-    {noreply, Server#server{dbs_open=DbsOpen-1}};
+    couch_stats_collector:decrement({<<"couch_db">>, <<"open_databases">>}),   
+    {noreply, Server#server{dbs_open=DbsOpen - 1}};
 handle_info(Info, _Server) ->
     exit({unknown_message, Info}).
