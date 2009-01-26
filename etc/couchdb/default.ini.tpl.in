@@ -33,6 +33,8 @@ external_manager={couch_external_manager, start_link, []}
 db_update_notifier={couch_db_update_notifier_sup, start_link, []}
 query_servers={couch_query_servers, start_link, []}
 httpd={couch_httpd, start_link, []}
+stats_aggregator={couch_stats_aggregator, start, []}
+stats_collector={couch_stats_collector, start, []}
 
 [httpd_global_handlers]
 / = {couch_httpd_misc_handlers, handle_welcome_req, <<"Welcome">>}
