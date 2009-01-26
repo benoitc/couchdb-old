@@ -23,7 +23,7 @@
         terminate/2, code_change/3]).
 
 
--export([start/0, get/1]).
+-export([start/0, stop/0, get/1]).
 
 -record(state, {}).
 
@@ -46,7 +46,9 @@ init(_) ->
 
 handle_call({get, Key}, _, State) ->
     Value = integer_to_binary(couch_stats_collector:get(Key)),
-    {reply, Value, State}.
+    {reply, Value, State};
+handle_call(stop, _, State) ->
+    {stop, normal, stopped, State}.
 
 % PRIVATE API
 
@@ -71,10 +73,10 @@ code_change(_OldVersion, State, _Extra) -> {ok, State}.
 
 % TESTS  
 should_return_value_from_collector_test() ->
-    couch_stats_aggregator:terminate(test_end, ok),
-    couch_stats_collector:terminate(test_end, ok),
-    couch_stats_aggregator:start(),
+    %?MODULE:stop(),
+    %couch_stats_collector:stop(),
+    ?MODULE:start(),
     couch_stats_collector:start(),
-    ?assert(<<"0">> =:= couch_stats_aggregator:get({<<"couch_db">>, <<"open_databases">>})),
-    couch_stats_aggregator:terminate(test_end, ok),
-    couch_stats_collector:terminate(test_end, ok).
+    ?assertEqual(<<"0">>, couch_stats_aggregator:get({<<"couch_db">>, <<"open_databases">>})),
+    ?MODULE:stop(),
+    couch_stats_collector:stop().

@@ -41,7 +41,6 @@ start_link(DbName, Filepath, Options) ->
 open_db_file(Filepath, Options) ->
     case couch_file:open(Filepath, Options) of
     {ok, Fd} ->
-        couch_stats_collector:increment({<<"couch_db">>, <<"open_databases">>}),
         {ok, Fd};
     {error, enoent} ->
         % couldn't find file. is there a compact version? This can happen if

@@ -166,6 +166,10 @@ function T(arg1, arg2) {
   }
 }
 
+function TEquals(expected, actual) {
+  T(equals(expected, actual), "expected '" + expected + "', got '" + actual + "'");
+}
+
 function equals(a,b) {
   if (a === b) return true;
   try {

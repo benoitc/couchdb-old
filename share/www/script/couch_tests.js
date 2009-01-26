@@ -24,20 +24,71 @@ var tests = {
   stats: function(debug) {
     if (debug) debugger;
 
-    // should return the number of open databases
-    var db = new CouchDB("test_suite_db");
-    db.deleteDb();
-    var open_databases = JSON.parse(CouchDB.request("GET", "/_stats/couch_db/open_databases").responseText).couch_db.open_databases;
-    
-    db.createDb();
-    
-    var new_open_databases = JSON.parse(CouchDB.request("GET", "/_stats/couch_db/open_databases").responseText).couch_db.open_databases;
-    T(new_open_databases == parseInt(open_databases) + 1);
+    var tests = {
+      'should increment the number of open databases when creating a db': function() {
+        var db = new CouchDB("test_suite_db");
+        db.deleteDb();
+        var open_databases = JSON.parse(CouchDB.request("GET", "/_stats/couch_db/open_databases").responseText).couch_db.open_databases;
+        
+        db.createDb();
+        
+        var new_open_databases = JSON.parse(CouchDB.request("GET", "/_stats/couch_db/open_databases").responseText).couch_db.open_databases;
+        TEquals(parseInt(open_databases) + 1, parseInt(new_open_databases));
+      },
+      'should increment the number of open databases when opening a db': function() {
+        var db = new CouchDB("test_suite_db");
+        db.deleteDb();
+        db.createDb();
+        
+        restartServer();
+
+        var open_databases = JSON.parse(CouchDB.request("GET", "/_stats/couch_db/open_databases").responseText).couch_db.open_databases;
+        
+        db.open("123");
+        
+        var new_open_databases = JSON.parse(CouchDB.request("GET", "/_stats/couch_db/open_databases").responseText).couch_db.open_databases;
+        TEquals(parseInt(open_databases) + 1, parseInt(new_open_databases));
+      },
+      'should decrement the number of open databases when deleting': function() {
+        var db = new CouchDB("test_suite_db");
+        db.deleteDb();
+        db.createDb();
+        var open_databases = JSON.parse(CouchDB.request("GET", "/_stats/couch_db/open_databases").responseText).couch_db.open_databases;
+        
+        db.deleteDb();
+        
+        var new_open_databases = JSON.parse(CouchDB.request("GET", "/_stats/couch_db/open_databases").responseText).couch_db.open_databases;
+        TEquals(parseInt(open_databases) - 1, parseInt(new_open_databases));
+      },
+      'should keep the same number of open databases when reaching the max_dbs_open limit': function() {
+        var xhr = CouchDB.request("PUT", "/_config/couchdb/max_dbs_open",{
+          body : JSON.stringify("2")
+        });
+        
+
+        var db1 = new CouchDB("test_suite_db_1");
+        db1.deleteDb();
+        db1.createDb();
+
+        var db2 = new CouchDB("test_suite_db_2");
+        db2.deleteDb();
+        db2.createDb();
+
+        var db3 = new CouchDB("test_suite_db_3");
+        db3.deleteDb();
+        db3.createDb();
+
+        var open_databases = JSON.parse(CouchDB.request("GET", "/_stats/couch_db/open_databases").responseText).couch_db.open_databases;
+        TEquals(2, parseInt(open_databases));
+      }
     
     // requests / time
     // bytes sent / time
+    };
     
-    
+    for(var i in tests) {
+      tests[i]();
+    };
   },
 
   // Do some basic tests.

@@ -23,7 +23,7 @@
         terminate/2, code_change/3]).
 
 
--export([start/0, get/1, increment/1]).
+-export([start/0, stop/0, get/1, increment/1, decrement/1]).
 
 -record(state, {}).
 
@@ -42,6 +42,9 @@ get(Key) ->
 increment(Key) ->
     gen_server:call(?MODULE, {increment, Key}).
 
+decrement(Key) ->
+    gen_server:call(?MODULE, {decrement, Key}).
+
 integer_to_binary(Integer) ->
     list_to_binary(integer_to_list(Integer)).
 
@@ -53,7 +56,12 @@ init(_) ->
 handle_call({get, {Module, Key}}, _, State) ->
     {reply, State, State};
 handle_call({increment, {Module, Key}}, _, State) ->
-    {reply, ok, State + 1}.
+    {reply, ok, State + 1};
+handle_call({decrement, {Module, Key}}, _, State) ->
+    {reply, ok, State - 1};
+handle_call(stop, _, State) ->
+    {stop, normal, stopped, State}.
+
 
 % Unused gen_server behaviour API functions that we need to declare.
   
@@ -72,13 +80,21 @@ code_change(_OldVersion, State, _Extra) -> {ok, State}.
 
 % TESTS  
 should_return_value_from_store_test() ->
-    ?MODULE:terminate(test_end, ok),
+    %?MODULE:stop(),
     ?MODULE:start(),
-    ?assert(0 =:= ?MODULE:get({<<"couch_db">>, <<"open_databases">>})),
-    ?MODULE:terminate(test_end, ok).
+    ?assertEqual(0, ?MODULE:get({<<"couch_db">>, <<"open_databases">>})),
+    ?MODULE:stop().
 
 should_increment_value_test() ->
-    ?MODULE:terminate(test_end, ok),
+    %?MODULE:stop(),
     ?MODULE:start(),
     ?assert(?MODULE:increment({<<"couch_db">>, <<"open_databases">>}) =:= ok),
-    ?assert(?MODULE:get({<<"couch_db">>, <<"open_databases">>}) =:= 1).
+    ?assertEqual(1, ?MODULE:get({<<"couch_db">>, <<"open_databases">>})),
+    ?MODULE:stop().
+
+should_decrement_value_test() ->
+    %?MODULE:stop(),
+    ?MODULE:start(),
+    ?assert(?MODULE:decrement({<<"couch_db">>, <<"open_databases">>}) =:= ok),
+    ?assertEqual(-1, ?MODULE:get({<<"couch_db">>, <<"open_databases">>})),
+    ?MODULE:stop().
