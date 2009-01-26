@@ -70,3 +70,7 @@ distsign: distcheck
 	    > $(top_srcdir)/$(distdir).tar.gz.md5
 	sha1sum $(top_srcdir)/$(distdir).tar.gz \
 	    > $(top_srcdir)/$(distdir).tar.gz.sha
+
+.PHONY: t
+t: all
+	@erl -pa src/couchdb/ -eval "couch_stats_aggregator:test()" -eval "couch_stats_collector:test()"
