@@ -64,7 +64,6 @@ var tests = {
         var xhr = CouchDB.request("PUT", "/_config/couchdb/max_dbs_open",{
           body : JSON.stringify("2")
         });
-        
 
         var db1 = new CouchDB("test_suite_db_1");
         db1.deleteDb();
@@ -80,6 +79,9 @@ var tests = {
 
         var open_databases = JSON.parse(CouchDB.request("GET", "/_stats/couch_db/open_databases").responseText).couch_db.open_databases;
         TEquals(2, parseInt(open_databases));
+        var xhr = CouchDB.request("PUT", "/_config/couchdb/max_dbs_open",{
+          body : JSON.stringify("100")
+        });
       }
     
     // requests / time
