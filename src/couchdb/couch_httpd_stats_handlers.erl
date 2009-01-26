@@ -10,11 +10,6 @@
 % License for the specific language governing permissions and limitations under
 % the License.
 
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
-
 -module(couch_httpd_stats_handlers).
 -include("couch_db.hrl").
 
@@ -25,15 +20,8 @@
     start_chunked_response/3, send_error/4]).
 
 handle_stats_req(#httpd{method='GET'}=Req) ->
-  Response = {[{<<"couch_db">>,{[{<<"open_databases">>,<<"1">>}]}}]}, %couch_stats:get(<<"couch_db">>, <<"open_databases">>), 
+  OpenDbs = couch_stats_aggregator:get({<<"couch_db">>, <<"open_databases">>}),
+  Response = {[{<<"couch_db">>, {[{<<"open_databases">>, OpenDbs}]}}]},
   send_json(Req, Response);
 handle_stats_req(Req) ->
-    send_method_not_allowed(Req, "GET").
-
-
--ifdef(TEST).
-
-foo_test() ->
-  ok.
-
--endif.
+  send_method_not_allowed(Req, "GET").

@@ -10,7 +10,7 @@
 % License for the specific language governing permissions and limitations under
 % the License.
 
--module(couch_stats_aggregator).
+-module(couch_stats_collector).
 
 -define(TEST, true).
 -ifdef(TEST).
@@ -23,9 +23,10 @@
         terminate/2, code_change/3]).
 
 
--export([start/0, get/1]).
+-export([start/0, get/1, increment/1]).
 
 -record(state, {}).
+
 
 % PUBLIC API
 
@@ -38,21 +39,21 @@ stop() ->
 get(Key) ->
     gen_server:call(?MODULE, {get, Key}).
 
-
-% GEN_SERVER
-    
-init(_) ->
-    {ok, #state{}}.
-
-handle_call({get, Key}, _, State) ->
-    Value = integer_to_binary(couch_stats_collector:get(Key)),
-    {reply, Value, State}.
-
-% PRIVATE API
+increment(Key) ->
+    gen_server:call(?MODULE, {increment, Key}).
 
 integer_to_binary(Integer) ->
     list_to_binary(integer_to_list(Integer)).
 
+% GEN_SERVER
+    
+init(_) ->
+    {ok, 0}.
+
+handle_call({get, {Module, Key}}, _, State) ->
+    {reply, State, State};
+handle_call({increment, {Module, Key}}, _, State) ->
+    {reply, ok, State + 1}.
 
 % Unused gen_server behaviour API functions that we need to declare.
   
@@ -70,11 +71,14 @@ terminate(_Reason, _State) -> ok.
 code_change(_OldVersion, State, _Extra) -> {ok, State}.
 
 % TESTS  
-should_return_value_from_collector_test() ->
-    couch_stats_aggregator:terminate(test_end, ok),
-    couch_stats_collector:terminate(test_end, ok),
-    couch_stats_aggregator:start(),
-    couch_stats_collector:start(),
-    ?assert(<<"0">> =:= couch_stats_aggregator:get({<<"couch_db">>, <<"open_databases">>})),
-    couch_stats_aggregator:terminate(test_end, ok),
-    couch_stats_collector:terminate(test_end, ok).
+should_return_value_from_store_test() ->
+    ?MODULE:terminate(test_end, ok),
+    ?MODULE:start(),
+    ?assert(0 =:= ?MODULE:get({<<"couch_db">>, <<"open_databases">>})),
+    ?MODULE:terminate(test_end, ok).
+
+should_increment_value_test() ->
+    ?MODULE:terminate(test_end, ok),
+    ?MODULE:start(),
+    ?assert(?MODULE:increment({<<"couch_db">>, <<"open_databases">>}) =:= ok),
+    ?assert(?MODULE:get({<<"couch_db">>, <<"open_databases">>}) =:= 1).
