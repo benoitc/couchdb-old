@@ -24,9 +24,7 @@ var tests = {
   stats: function(debug) {
     if (debug) debugger;
 
-    // open databases
-    
-    // - currently
+    // should return the number of open databases
     var db = new CouchDB("test_suite_db");
     db.deleteDb();
     var open_databases = JSON.parse(CouchDB.request("GET", "/_stats/couch_db/open_databases").responseText).couch_db.open_databases;
@@ -34,8 +32,7 @@ var tests = {
     db.createDb();
     
     var new_open_databases = JSON.parse(CouchDB.request("GET", "/_stats/couch_db/open_databases").responseText).couch_db.open_databases;
-    
-    T(new_open_databases == open_databases + 1);
+    T(new_open_databases == parseInt(open_databases) + 1);
     
     // requests / time
     // bytes sent / time
