@@ -73,10 +73,23 @@ code_change(_OldVersion, State, _Extra) -> {ok, State}.
 
 % TESTS  
 should_return_value_from_collector_test() ->
-    %?MODULE:stop(),
-    %couch_stats_collector:stop(),
+    catch ?MODULE:stop(),
     ?MODULE:start(),
     couch_stats_collector:start(),
     ?assertEqual(<<"0">>, couch_stats_aggregator:get({<<"couch_db">>, <<"open_databases">>})),
     ?MODULE:stop(),
     couch_stats_collector:stop().
+
+should_handle_multiple_key_value_pairs_test() ->
+    catch ?MODULE:stop(),
+    ?MODULE:start(),
+    couch_stats_collector:start(),
+    
+    couch_stats_collector:increment({<<"couch_db">>, <<"open_databases">>}),
+    ?assertEqual(<<"1">>, couch_stats_aggregator:get({<<"couch_db">>, <<"open_databases">>})),
+    ?assertEqual(<<"0">>, couch_stats_aggregator:get({<<"couch_db">>, <<"request_count">>})),
+    
+    ?MODULE:stop(),
+    couch_stats_collector:stop().
+
+    
