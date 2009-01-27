@@ -51,16 +51,34 @@ reset(Key) ->
 % GEN_SERVER
     
 init(_) ->
-    {ok, 0}.
+    ets:new(?MODULE, [named_table, set, protected]),
+    {ok, #state{}}.
 
-handle_call({get, {Module, Key}}, _, State) ->
-    {reply, State, State};
-handle_call({increment, {Module, Key}}, _, State) ->
-    {reply, ok, State + 1};
-handle_call({decrement, {Module, Key}}, _, State) ->
-    {reply, ok, State - 1};
-handle_call({reset, {Module, Key}}, _, State) ->
+handle_call({get, Key}, _, State) ->
+    Result = case ets:lookup(?MODULE, Key) of
+        [] -> 0;
+        [{_,Result1}] -> Result1
+    end,
+    {reply, Result, State};
+    
+handle_call({increment, Key}, _, State) ->
+    case catch ets:update_counter(?MODULE, Key, 1) of
+        {'EXIT', {badarg, _}} -> ets:insert(?MODULE, {Key, 1});
+        _ -> ok
+    end,
+    {reply, ok, State};
+    
+handle_call({decrement, Key}, _, State) ->
+    case catch ets:update_counter(?MODULE, Key, -1) of
+        {'EXIT', {badarg, _}} -> ets:insert(?MODULE, {Key, -1});
+        _ -> ok
+    end,
+    {reply, ok, State};
+    
+handle_call({reset, Key}, _, State) ->
+    ets:insert(?MODULE, {Key, 0}),
     {reply, ok, 0};
+    
 handle_call(stop, _, State) ->
     {stop, normal, stopped, State}.
 
@@ -82,23 +100,27 @@ code_change(_OldVersion, State, _Extra) -> {ok, State}.
 
 % TESTS  
 should_return_value_from_store_test() ->
+    catch ?MODULE:stop(),
     ?MODULE:start(),
     ?assertEqual(0, ?MODULE:get({<<"couch_db">>, <<"open_databases">>})),
     ?MODULE:stop().
 
 should_increment_value_test() ->
+    catch ?MODULE:stop(),
     ?MODULE:start(),
     ?assert(?MODULE:increment({<<"couch_db">>, <<"open_databases">>}) =:= ok),
     ?assertEqual(1, ?MODULE:get({<<"couch_db">>, <<"open_databases">>})),
     ?MODULE:stop().
 
 should_decrement_value_test() ->
+    catch ?MODULE:stop(),
     ?MODULE:start(),
     ?assert(?MODULE:decrement({<<"couch_db">>, <<"open_databases">>}) =:= ok),
     ?assertEqual(-1, ?MODULE:get({<<"couch_db">>, <<"open_databases">>})),
     ?MODULE:stop().
 
 should_increment_and_decrement_value_test() ->
+    catch ?MODULE:stop(),
     ?MODULE:start(),
     ?assert(?MODULE:increment({<<"couch_db">>, <<"open_databases">>}) =:= ok),
     ?assert(?MODULE:decrement({<<"couch_db">>, <<"open_databases">>}) =:= ok),
@@ -106,8 +128,20 @@ should_increment_and_decrement_value_test() ->
     ?MODULE:stop().
 
 should_reset_counter_value_test() ->
+    catch ?MODULE:stop(),
     ?MODULE:start(),
     ?assert(?MODULE:increment({<<"couch_db">>, <<"open_databases">>}) =:= ok),
     ?assert(?MODULE:reset({<<"couch_db">>, <<"open_databases">>}) =:= ok),
     ?assertEqual(0, ?MODULE:get({<<"couch_db">>, <<"open_databases">>})),
     ?MODULE:stop().
+
+should_handle_multiple_key_value_pairs_test() ->
+    catch ?MODULE:stop(),
+    ?MODULE:start(),
+    
+    ?MODULE:increment({<<"couch_db">>, <<"open_databases">>}),
+    ?assertEqual(1, ?MODULE:get({<<"couch_db">>, <<"open_databases">>})),
+    ?assertEqual(0, ?MODULE:get({<<"couch_db">>, <<"request_count">>})),
+    
+    ?MODULE:stop().
+    

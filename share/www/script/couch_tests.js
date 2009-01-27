@@ -24,7 +24,7 @@ var tests = {
   stats: function(debug) {
     if (debug) debugger;
 
-    var tests = {
+    var open_databases_tests = {
       'should increment the number of open databases when creating a db': function(name) {
         var db = new CouchDB("test_suite_db");
         db.deleteDb();
@@ -92,8 +92,24 @@ var tests = {
     // bytes sent / time
     };
     
-    for(var i in tests) {
-      tests[i](i);
+    var request_count_tests = {
+      'should increase the request count for every request': function(name) {
+        var requests = parseInt(CouchDB.requestStats("httpd", "request_count")) + 1;
+        
+        CouchDB.request("GET", "/");
+        
+        var new_requests = parseInt(CouchDB.requestStats("httpd", "request_count"));
+        T(requests >= 0, "requests >= 0", name);
+        TEquals(requests + 1, new_requests, name);
+      }
+    }
+    
+    var tests = [open_databases_tests, request_count_tests];
+    
+    for(var testGroup in tests) {
+      for(var test in tests[testGroup]) {
+        tests[testGroup][test](test);
+      }
     };
   },
 

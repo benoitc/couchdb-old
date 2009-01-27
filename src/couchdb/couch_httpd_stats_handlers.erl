@@ -19,9 +19,10 @@
     start_json_response/2,send_chunk/2,end_json_response/1,
     start_chunked_response/3, send_error/4]).
 
-handle_stats_req(#httpd{method='GET'}=Req) ->
-  OpenDbs = couch_stats_aggregator:get({<<"couch_db">>, <<"open_databases">>}),
-  Response = {[{<<"couch_db">>, {[{<<"open_databases">>, OpenDbs}]}}]},
-  send_json(Req, Response);
+handle_stats_req(#httpd{method='GET', path_parts=PathParts}=Req) ->
+    [_Db, Module, Key] = PathParts,
+    Count = couch_stats_aggregator:get({Module, Key}),
+    Response = {[{Module, {[{Key, Count}]}}]},
+    send_json(Req, Response);
 handle_stats_req(Req) ->
-  send_method_not_allowed(Req, "GET").
+    send_method_not_allowed(Req, "GET").
