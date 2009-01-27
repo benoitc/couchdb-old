@@ -295,6 +295,11 @@ CouchDB.request = function(method, uri, options) {
   return req;
 }
 
+CouchDB.requestStats = function(module, key) {
+  var stat = CouchDB.request("GET", "/_stats/" + module + "/ " + key).responseText;
+  return JSON.parse(stat)[module][key];
+}
+
 CouchDB.uuids_cache = [];
 
 CouchDB.newUuids = function(n) {

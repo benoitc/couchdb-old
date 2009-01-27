@@ -182,7 +182,9 @@ maybe_close_lru_db(#server{dbs_open=NumOpen, max_dbs_open=MaxOpen}=Server)
 maybe_close_lru_db(#server{dbs_open=NumOpen}=Server) ->
     % must free up the lru db.
     case try_close_lru(now()) of
-    ok -> {ok, Server#server{dbs_open=NumOpen - 1}};
+    ok -> 
+        couch_stats_collector:decrement({<<"couch_db">>, <<"open_databases">>}),   
+        {ok, Server#server{dbs_open=NumOpen - 1}};
     Error -> Error
     end.
 
@@ -199,7 +201,6 @@ try_close_lru(StartTime) ->
         0 ->
             exit(MainPid, kill),
             receive {'EXIT', MainPid, _Reason} -> ok end,
-            couch_stats_collector:decrement({<<"couch_db">>, <<"open_databases">>}),   
             true = ets:delete(couch_dbs_by_lru, LruTime),
             true = ets:delete(couch_dbs_by_name, DbName),
             true = ets:delete(couch_dbs_by_pid, MainPid),

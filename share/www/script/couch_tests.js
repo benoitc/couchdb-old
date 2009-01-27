@@ -25,63 +25,67 @@ var tests = {
     if (debug) debugger;
 
     var tests = {
-      'should increment the number of open databases when creating a db': function() {
+      'should increment the number of open databases when creating a db': function(name) {
         var db = new CouchDB("test_suite_db");
         db.deleteDb();
-        var open_databases = JSON.parse(CouchDB.request("GET", "/_stats/couch_db/open_databases").responseText).couch_db.open_databases;
-        
+        var open_databases = parseInt(CouchDB.requestStats("couch_db", "open_databases"));
         db.createDb();
         
-        var new_open_databases = JSON.parse(CouchDB.request("GET", "/_stats/couch_db/open_databases").responseText).couch_db.open_databases;
-        TEquals(parseInt(open_databases) + 1, parseInt(new_open_databases));
+        var new_open_databases = parseInt(CouchDB.requestStats("couch_db", "open_databases"));
+        TEquals(parseInt(open_databases) + 1, parseInt(new_open_databases), name);
       },
-      'should increment the number of open databases when opening a db': function() {
+      'should increment the number of open databases when opening a db': function(name) {
+          var db = new CouchDB("test_suite_db");
+          db.deleteDb();
+          db.createDb();
+          
+          restartServer();
+        
+        var open_databases = parseInt(CouchDB.requestStats("couch_db", "open_databases"));
+          
+          db.open("123");
+          
+          var new_open_databases = parseInt(CouchDB.requestStats("couch_db", "open_databases"));
+          TEquals(parseInt(open_databases) + 1, parseInt(new_open_databases), name);
+        },
+        'should decrement the number of open databases when deleting': function(name) {
         var db = new CouchDB("test_suite_db");
         db.deleteDb();
         db.createDb();
+        var open_databases = parseInt(CouchDB.requestStats("couch_db", "open_databases"));
         
+        db.deleteDb();
+        var new_open_databases = parseInt(CouchDB.requestStats("couch_db", "open_databases"));
+        TEquals(parseInt(open_databases) - 1, parseInt(new_open_databases), name);
+      },
+      'should keep the same number of open databases when reaching the max_dbs_open limit': function(name) {
         restartServer();
+        var max = 5;
+        run_on_modified_server(
+          [{section: "couchdb",
+            key: "max_dbs_open",
+            value: max.toString()}],
 
-        var open_databases = JSON.parse(CouchDB.request("GET", "/_stats/couch_db/open_databases").responseText).couch_db.open_databases;
-        
-        db.open("123");
-        
-        var new_open_databases = JSON.parse(CouchDB.request("GET", "/_stats/couch_db/open_databases").responseText).couch_db.open_databases;
-        TEquals(parseInt(open_databases) + 1, parseInt(new_open_databases));
+          function () {
+            for(var i=0; i<max+1; i++) {
+              var db = new CouchDB("test_suite_db"+ i);
+              db.deleteDb();
+              db.createDb();
+            }
+
+            var open_databases = parseInt(CouchDB.requestStats("couch_db", "open_databases"));
+            TEquals(max, parseInt(open_databases), name);
+          })
       },
-      'should decrement the number of open databases when deleting': function() {
+      'should return 0 for number of open databases after call to restartServer()': function(name) {
         var db = new CouchDB("test_suite_db");
         db.deleteDb();
         db.createDb();
-        var open_databases = JSON.parse(CouchDB.request("GET", "/_stats/couch_db/open_databases").responseText).couch_db.open_databases;
+
+        restartServer();
+        var open_databases = parseInt(CouchDB.requestStats("couch_db", "open_databases"));
         
-        db.deleteDb();
-        
-        var new_open_databases = JSON.parse(CouchDB.request("GET", "/_stats/couch_db/open_databases").responseText).couch_db.open_databases;
-        TEquals(parseInt(open_databases) - 1, parseInt(new_open_databases));
-      },
-      'should keep the same number of open databases when reaching the max_dbs_open limit': function() {
-        var xhr = CouchDB.request("PUT", "/_config/couchdb/max_dbs_open",{
-          body : JSON.stringify("2")
-        });
-
-        var db1 = new CouchDB("test_suite_db_1");
-        db1.deleteDb();
-        db1.createDb();
-
-        var db2 = new CouchDB("test_suite_db_2");
-        db2.deleteDb();
-        db2.createDb();
-
-        var db3 = new CouchDB("test_suite_db_3");
-        db3.deleteDb();
-        db3.createDb();
-
-        var open_databases = JSON.parse(CouchDB.request("GET", "/_stats/couch_db/open_databases").responseText).couch_db.open_databases;
-        TEquals(2, parseInt(open_databases));
-        var xhr = CouchDB.request("PUT", "/_config/couchdb/max_dbs_open",{
-          body : JSON.stringify("100")
-        });
+        TEquals(0, parseInt(open_databases), name);
       }
     
     // requests / time
@@ -89,7 +93,7 @@ var tests = {
     };
     
     for(var i in tests) {
-      tests[i]();
+      tests[i](i);
     };
   },
 
