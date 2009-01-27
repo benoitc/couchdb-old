@@ -32,6 +32,7 @@ start_link(IniFiles) ->
     end.
 
 restart_core_server() ->
+    couch_stats_collector:reset({<<"couch_db">>, <<"open_databases">>}),
     supervisor:terminate_child(couch_primary_services, couch_server),
     supervisor:restart_child(couch_primary_services, couch_server).
 

@@ -23,7 +23,7 @@
         terminate/2, code_change/3]).
 
 
--export([start/0, stop/0, get/1, increment/1, decrement/1]).
+-export([start/0, stop/0, get/1, increment/1, decrement/1, reset/1]).
 
 -record(state, {}).
 
@@ -45,8 +45,8 @@ increment(Key) ->
 decrement(Key) ->
     gen_server:call(?MODULE, {decrement, Key}).
 
-integer_to_binary(Integer) ->
-    list_to_binary(integer_to_list(Integer)).
+reset(Key) ->
+    gen_server:call(?MODULE, {reset, Key}).
 
 % GEN_SERVER
     
@@ -59,6 +59,8 @@ handle_call({increment, {Module, Key}}, _, State) ->
     {reply, ok, State + 1};
 handle_call({decrement, {Module, Key}}, _, State) ->
     {reply, ok, State - 1};
+handle_call({reset, {Module, Key}}, _, State) ->
+    {reply, ok, 0};
 handle_call(stop, _, State) ->
     {stop, normal, stopped, State}.
 
@@ -80,21 +82,32 @@ code_change(_OldVersion, State, _Extra) -> {ok, State}.
 
 % TESTS  
 should_return_value_from_store_test() ->
-    %?MODULE:stop(),
     ?MODULE:start(),
     ?assertEqual(0, ?MODULE:get({<<"couch_db">>, <<"open_databases">>})),
     ?MODULE:stop().
 
 should_increment_value_test() ->
-    %?MODULE:stop(),
     ?MODULE:start(),
     ?assert(?MODULE:increment({<<"couch_db">>, <<"open_databases">>}) =:= ok),
     ?assertEqual(1, ?MODULE:get({<<"couch_db">>, <<"open_databases">>})),
     ?MODULE:stop().
 
 should_decrement_value_test() ->
-    %?MODULE:stop(),
     ?MODULE:start(),
     ?assert(?MODULE:decrement({<<"couch_db">>, <<"open_databases">>}) =:= ok),
     ?assertEqual(-1, ?MODULE:get({<<"couch_db">>, <<"open_databases">>})),
+    ?MODULE:stop().
+
+should_increment_and_decrement_value_test() ->
+    ?MODULE:start(),
+    ?assert(?MODULE:increment({<<"couch_db">>, <<"open_databases">>}) =:= ok),
+    ?assert(?MODULE:decrement({<<"couch_db">>, <<"open_databases">>}) =:= ok),
+    ?assertEqual(0, ?MODULE:get({<<"couch_db">>, <<"open_databases">>})),
+    ?MODULE:stop().
+
+should_reset_counter_value_test() ->
+    ?MODULE:start(),
+    ?assert(?MODULE:increment({<<"couch_db">>, <<"open_databases">>}) =:= ok),
+    ?assert(?MODULE:reset({<<"couch_db">>, <<"open_databases">>}) =:= ok),
+    ?assertEqual(0, ?MODULE:get({<<"couch_db">>, <<"open_databases">>})),
     ?MODULE:stop().

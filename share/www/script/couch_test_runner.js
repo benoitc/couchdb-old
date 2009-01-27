@@ -152,13 +152,13 @@ function updateTestsFooter() {
 // display the line that failed.
 // Example:
 // T(MyValue==1);
-function T(arg1, arg2) {
+function T(arg1, arg2, testName) {
   if (!arg1) {
     if (currentRow) {
       if ($("td.details ol", currentRow).length == 0) {
         $("<ol></ol>").appendTo($("td.details", currentRow));
       }
-      $("<li><b>Assertion failed:</b> <code class='failure'></code></li>")
+      $("<li><b>Assertion " + (testName ? "'" + testName + "'" : "") + " failed:</b> <code class='failure'></code></li>")
         .find("code").text((arg2 != null ? arg2 : arg1).toString()).end()
         .appendTo($("td.details ol", currentRow));
     }
@@ -166,8 +166,8 @@ function T(arg1, arg2) {
   }
 }
 
-function TEquals(expected, actual) {
-  T(equals(expected, actual), "expected '" + expected + "', got '" + actual + "'");
+function TEquals(expected, actual, testName) {
+  T(equals(expected, actual), "expected '" + expected + "', got '" + actual + "'", testName);
 }
 
 function equals(a,b) {
