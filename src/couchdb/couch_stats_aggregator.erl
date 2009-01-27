@@ -23,7 +23,7 @@
         terminate/2, code_change/3]).
 
 
--export([start/0, stop/0, get/1]).
+-export([start/0, stop/0, get/1, time_passed/1]).
 
 -record(state, {}).
 
@@ -38,23 +38,66 @@ stop() ->
 get(Key) ->
     gen_server:call(?MODULE, {get, Key}).
 
+time_passed(Time) ->
+    gen_server:call(?MODULE, {time_passed, Time}).
+
 
 % GEN_SERVER
     
 init(_) ->
+    ets:new(?MODULE, [named_table, set, protected]),
+    ets:insert(?MODULE, {{<<"httpd">>, <<"previous_request_count">>}, {0, 0}}),
+    % ets:insert(?MODULE, {<<"average_open_tables">>, 0}),
+    start_timer(60, fun() -> ?MODULE:time_passed({minute, 1}) end),
     {ok, #state{}}.
 
-handle_call({get, Key}, _, State) ->
-    Value = integer_to_binary(couch_stats_collector:get(Key)),
-    {reply, Value, State};
+handle_call({get, {Module, Key}}, _, State) ->
+    Value = 
+    case Key of
+        <<"average_",CollectorKey/binary>> ->
+            get_average(Module, CollectorKey);
+        _ -> 
+            couch_stats_collector:get({Module, Key})
+    end,
+    {reply, integer_to_binary(Value), State};
+
 handle_call(stop, _, State) ->
-    {stop, normal, stopped, State}.
+    {stop, normal, stopped, State};
+    
+handle_call({time_passed, Time}, _, State) ->
+    lists:foreach(fun(Counter) -> 
+        {{Module, Key}, {_, PreviousCount}} = Counter,
+        CurrentCount = couch_stats_collector:get({Module, get_collector_key(Key)}),
+        ets:insert(?MODULE, {{Module, Key}, {PreviousCount, CurrentCount}})
+    end, ets:tab2list(?MODULE)),
+    {reply, ok, State}.
 
 % PRIVATE API
 
 integer_to_binary(Integer) ->
     list_to_binary(integer_to_list(Integer)).
 
+get_average(Module, Key) ->
+    case ets:lookup(?MODULE, {Module, <<"previous_",Key/binary>>}) of
+        [] -> 0;
+        [{_, {PreviousCounter, CurrentCounter}}] -> 
+            round((CurrentCounter - PreviousCounter) / 60)
+    end.
+
+get_collector_key(Key) ->
+    <<"previous_", CollectorKey/binary>> = Key,
+    CollectorKey.
+
+start_timer(Time, Fun) ->
+    spawn(fun() -> timer(Time * 1000, Fun) end).
+
+timer(Time, Fun) ->
+    receive
+        cancel -> void
+    after
+        Time -> Fun(),
+        timer(Time, Fun)
+    end.
 
 % Unused gen_server behaviour API functions that we need to declare.
   
@@ -92,4 +135,17 @@ should_handle_multiple_key_value_pairs_test() ->
     ?MODULE:stop(),
     couch_stats_collector:stop().
 
+should_return_the_average_over_the_last_minute_test() ->
+    catch ?MODULE:stop(),
+    ?MODULE:start(),
+    couch_stats_collector:start(),
+
+    lists:map(fun(_) ->
+        couch_stats_collector:increment({<<"httpd">>, <<"request_count">>})
+    end, lists:seq(1, 200)),
+
+    ?MODULE:time_passed({minute, 1}),
+    ?assertEqual(<<"3">>, ?MODULE:get({<<"httpd">>, <<"average_request_count">>})),
     
+    ?MODULE:stop(),
+    couch_stats_collector:stop().

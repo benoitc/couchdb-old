@@ -87,9 +87,6 @@ var tests = {
         
         TEquals(0, parseInt(open_databases), name);
       }
-    
-    // requests / time
-    // bytes sent / time
     };
     
     var request_count_tests = {
@@ -101,8 +98,13 @@ var tests = {
         var new_requests = parseInt(CouchDB.requestStats("httpd", "request_count"));
         T(requests >= 0, "requests >= 0", name);
         TEquals(requests + 1, new_requests, name);
+      },
+      'should return the average requests/s for the last minute': function(name) {
+        restartServer();
+        var requests = parseFloat(CouchDB.requestStats("httpd", "average_requests"));
+        TEquals(requests, 0.0, name);
       }
-    }
+    };
     
     var tests = [open_databases_tests, request_count_tests];
     
