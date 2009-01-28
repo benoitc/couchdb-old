@@ -103,7 +103,6 @@ start_server(IniFiles) ->
 
     % ensure these applications are running
     application:start(ibrowse),
-    application:start(inets),
     application:start(crypto),
 
     {ok, Pid} = supervisor:start_link(

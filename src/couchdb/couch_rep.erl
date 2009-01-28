@@ -180,7 +180,7 @@ do_http_request(Url, Action, Headers, JsonBody, Retries) ->
     _ ->
         iolist_to_binary(?JSON_ENCODE(JsonBody))
     end,
-    case ibrowse:send_req(Url, Headers, Action, Body, [{content_type, "application/json; charset=utf-8"}, {max_pipeline_size, 101}], 5000) of
+    case ibrowse:send_req(Url, Headers, Action, Body, [{content_type, "application/json; charset=utf-8"}, {max_pipeline_size, 101}], 10000) of
     {ok, Status, ResponseHeaders, ResponseBody} ->
         ResponseCode = list_to_integer(Status),
         if
