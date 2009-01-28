@@ -103,6 +103,14 @@ var tests = {
         restartServer();
         var requests = parseFloat(CouchDB.requestStats("httpd", "average_requests"));
         TEquals(requests, 0.0, name);
+      },
+      'should return the average request/s for the last 5 and 15 minutes': function(name) {
+        restartServer();
+        var requests = parseFloat(CouchDB.requestStats("httpd", "average_requests"), {"timeframe":5});
+        TEquals(requests, 0.0, name);
+
+        var requests = parseFloat(CouchDB.requestStats("httpd", "average_requests"), {"timeframe":15});
+        TEquals(requests, 0.0, name);
       }
     };
     

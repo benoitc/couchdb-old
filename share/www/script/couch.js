@@ -295,8 +295,10 @@ CouchDB.request = function(method, uri, options) {
   return req;
 }
 
-CouchDB.requestStats = function(module, key) {
-  var stat = CouchDB.request("GET", "/_stats/" + module + "/" + key).responseText;
+CouchDB.requestStats = function(module, key, options) {
+  options = options || {};
+  var stat = CouchDB.request("GET", "/_stats/" + module + "/" + key + 
+    "?" + CouchDB.params(options)).responseText;
   return JSON.parse(stat)[module][key];
 }
 
@@ -331,4 +333,14 @@ CouchDB.maybeThrowError = function(req) {
     }
     throw result;
   }
+}
+
+CouchDB.params = function(options) {
+  options = options || {};
+  var returnArray = [];
+  for(var key in options) {
+    var value = options[key];
+    returnArray.push(key + "=" + value);
+  }
+  return returnArray.join("&");
 }
