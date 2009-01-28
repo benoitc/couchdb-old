@@ -157,30 +157,49 @@ replicate2(Source, DbSrc, Target, DbTgt, Options) ->
     end.
 
 pull_rep(DbTarget, DbSource, SourceSeqNum) ->
-    http:set_options([{max_pipeline_length, 101}, {pipeline_timeout, 5000}]),
     {ok, {NewSeq, Stats}} = 
         enum_docs_since(DbSource, DbTarget, SourceSeqNum, {SourceSeqNum, []}),
-    http:set_options([{max_pipeline_length, 2}, {pipeline_timeout, 0}]),
     {NewSeq, Stats}.
 
 do_http_request(Url, Action, Headers) ->
     do_http_request(Url, Action, Headers, []).
 
 do_http_request(Url, Action, Headers, JsonBody) ->
+    do_http_request(Url, Action, Headers, JsonBody, 10).
+
+do_http_request(_Url, _Action, _Headers, _JsonBody, 0) -> nil;
+
+do_http_request(Url, Action, Headers, JsonBody, Retries) ->
     ?LOG_DEBUG("couch_rep HTTP client request:", []),
     ?LOG_DEBUG("\tAction: ~p", [Action]),
     ?LOG_DEBUG("\tUrl: ~p", [Url]),
-    Request =
+    Body =
     case JsonBody of
     [] ->
-        {Url, Headers};
+        <<>>;
     _ ->
-        {Url, Headers, "application/json; charset=utf-8", iolist_to_binary(?JSON_ENCODE(JsonBody))}
+        iolist_to_binary(?JSON_ENCODE(JsonBody))
     end,
-    {ok, {{_, ResponseCode,_},_Headers, ResponseBody}} = http:request(Action, Request, [], []),
-    if
-    ResponseCode >= 200, ResponseCode < 500 ->
-        ?JSON_DECODE(ResponseBody)
+    case ibrowse:send_req(Url, Headers, Action, Body, [{content_type, "application/json; charset=utf-8"}, {max_pipeline_size, 101}], 5000) of
+    {ok, Status, ResponseHeaders, ResponseBody} ->
+        ResponseCode = list_to_integer(Status),
+        if
+        ResponseCode >= 200, ResponseCode < 500 ->
+            if
+            ResponseCode >= 300, ResponseCode < 400 ->
+                do_http_request(mochiweb_headers:get_value("Location", mochiweb_headers:make(ResponseHeaders)),
+                    Action, Headers, JsonBody, Retries - 1);
+            true ->
+                ?JSON_DECODE(ResponseBody)
+            end
+        end;
+    {error, Reason} ->
+        case Action of
+        get ->
+            do_http_request(Url, Action, Headers, JsonBody, Retries - 1);
+        _ ->
+            ?LOG_DEBUG("Error occurred during couch_rep HTTP client request: ~p", [Reason])
+        end
     end.
 
 save_docs_buffer(DbTarget, DocsBuffer, []) ->
