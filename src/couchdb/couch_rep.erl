@@ -193,10 +193,12 @@ do_http_request(Url, Action, Headers, JsonBody, Retries) ->
             true ->
                 ?JSON_DECODE(ResponseBody)
             end;
-        true ->
+        ResponseCode == 500 ->
+            ?LOG_DEBUG("Warning: retrying couch_rep HTTP client request due to 500 error: ~p: ~p", [Action, Url]),
             do_http_request(Url, Action, Headers, JsonBody, Retries - 1)
         end;
-    {error, _Reason} ->
+    {error, Reason} ->
+        ?LOG_DEBUG("Warning: retrying couch_rep HTTP client request due to error: ~p", [Reason]),
         do_http_request(Url, Action, Headers, JsonBody, Retries - 1)
     end.
 
