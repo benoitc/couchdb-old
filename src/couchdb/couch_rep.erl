@@ -167,7 +167,8 @@ do_http_request(Url, Action, Headers) ->
 do_http_request(Url, Action, Headers, JsonBody) ->
     do_http_request(Url, Action, Headers, JsonBody, 10).
 
-do_http_request(_Url, _Action, _Headers, _JsonBody, 0) -> nil;
+do_http_request(Url, Action, _Headers, _JsonBody, 0) ->
+    ?LOG_DEBUG("Error: couch_rep HTTP client request did not complete after 10 retries: ~p: ~p", [Action, Url]);
 
 do_http_request(Url, Action, Headers, JsonBody, Retries) ->
     ?LOG_DEBUG("couch_rep HTTP client request:", []),
@@ -191,15 +192,12 @@ do_http_request(Url, Action, Headers, JsonBody, Retries) ->
                     Action, Headers, JsonBody, Retries - 1);
             true ->
                 ?JSON_DECODE(ResponseBody)
-            end
+            end;
+        true ->
+            do_http_request(Url, Action, Headers, JsonBody, Retries - 1)
         end;
-    {error, Reason} ->
-        case Action of
-        get ->
-            do_http_request(Url, Action, Headers, JsonBody, Retries - 1);
-        _ ->
-            ?LOG_DEBUG("Error occurred during couch_rep HTTP client request: ~p", [Reason])
-        end
+    {error, _Reason} ->
+        do_http_request(Url, Action, Headers, JsonBody, Retries - 1)
     end.
 
 save_docs_buffer(DbTarget, DocsBuffer, []) ->
