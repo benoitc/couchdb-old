@@ -242,20 +242,17 @@ wait_result({Pid,Ref}) ->
     {'DOWN', Ref, _, _, Reason} -> exit(Reason)
 end.
 
-enum_docs_parallel(DbS, DbT, DocInfoList) ->
-    UpdateSeqs = [D#doc_info.update_seq || D <- DocInfoList],
+enum_docs_parallel(DbS, DbT, InfoList) ->
+    UpdateSeqs = [Seq || {_, Seq, _, _} <- InfoList],
     SaveDocsPid = spawn_link(fun() -> save_docs_buffer(DbT,[],UpdateSeqs) end),
     
-    Stats = pmap(fun(SrcDocInfo) ->
-        #doc_info{id=Id,
-            rev=Rev,
-            conflict_revs=Conflicts,
-            deleted_conflict_revs=DelConflicts,
-            update_seq=Seq} = SrcDocInfo,
-        SrcRevs = [Rev | Conflicts] ++ DelConflicts,
-        
-        case get_missing_revs(DbT, [{Id, SrcRevs}]) of
-        {ok, [{Id, MissingRevs}]} ->
+    Stats = pmap(fun({Id, Seq, SrcRevs, MissingRevs}) ->
+        case MissingRevs of
+        [] ->
+            SaveDocsPid ! {self(), skip, Seq},
+            receive got_it -> ok end,
+            [{missing_checked, length(SrcRevs)}];
+        _ ->
             {ok, DocResults} = open_doc_revs(DbS, Id, MissingRevs, [latest]),
             
             % only save successful reads
@@ -266,13 +263,9 @@ enum_docs_parallel(DbS, DbT, DocInfoList) ->
             receive got_it -> ok end,
             [{missing_checked, length(SrcRevs)},
              {missing_found, length(MissingRevs)},
-             {docs_read, length(Docs)}];
-        {ok, []} ->
-            SaveDocsPid ! {self(), skip, Seq},
-            receive got_it -> ok end,
-            [{missing_checked, length(SrcRevs)}]
-        end    
-    end, DocInfoList),
+             {docs_read, length(Docs)}]
+        end
+    end, InfoList),
     
     SaveDocsPid ! {self(), shutdown},
     
@@ -364,7 +357,22 @@ enum_docs_since(DbSource, DbTarget, StartSeq, InAcc) ->
     [] ->
         {ok, InAcc};
     _ ->
-        Stats = enum_docs_parallel(DbSource, DbTarget, DocInfoList),
+        UpdateSeqs = [D#doc_info.update_seq || D <- DocInfoList],
+        SrcRevsList = lists:map(fun(SrcDocInfo) ->
+            #doc_info{id=Id,
+                rev=Rev,
+                conflict_revs=Conflicts,
+                deleted_conflict_revs=DelConflicts
+            } = SrcDocInfo,
+            SrcRevs = [Rev | Conflicts] ++ DelConflicts,
+            {Id, SrcRevs}
+        end, DocInfoList),        
+        {ok, MissingRevsList} = get_missing_revs(DbTarget, SrcRevsList),
+        InfoList = lists:map(fun({{Id, SrcRevs}, Seq}) ->
+            MissingRevs = proplists:get_value(Id, MissingRevsList, []),
+            {Id, Seq, SrcRevs, MissingRevs}
+        end, lists:zip(SrcRevsList, UpdateSeqs)),
+        Stats = enum_docs_parallel(DbSource, DbTarget, InfoList),
         OldStats = element(2, InAcc),
         TotalStats = [
             {<<"missing_checked">>, 
