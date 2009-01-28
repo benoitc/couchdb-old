@@ -23,7 +23,7 @@
         terminate/2, code_change/3]).
 
 
--export([start/0, stop/0, get/1, increment/1, decrement/1, reset/1]).
+-export([start/0, stop/0, restart/0, get/1, increment/1, decrement/1]).
 
 -record(state, {}).
 
@@ -45,8 +45,10 @@ increment(Key) ->
 decrement(Key) ->
     gen_server:call(?MODULE, {decrement, Key}).
 
-reset(Key) ->
-    gen_server:call(?MODULE, {reset, Key}).
+restart() ->
+    ?MODULE:stop(),
+    ?MODULE:start(),
+    ok.
 
 % GEN_SERVER
     
@@ -75,9 +77,9 @@ handle_call({decrement, Key}, _, State) ->
     end,
     {reply, ok, State};
     
-handle_call({reset, Key}, _, State) ->
-    ets:insert(?MODULE, {Key, 0}),
-    {reply, ok, 0};
+% handle_call(reset, _, State) ->
+%     ets:insert(?MODULE, {Key, 0}),
+%     {reply, ok, 0};
     
 handle_call(stop, _, State) ->
     {stop, normal, stopped, State}.
@@ -99,49 +101,56 @@ terminate(_Reason, _State) -> ok.
 code_change(_OldVersion, State, _Extra) -> {ok, State}.
 
 % TESTS  
-should_return_value_from_store_test() ->
+
+test_helper(Fun) ->
     catch ?MODULE:stop(),
     ?MODULE:start(),
-    ?assertEqual(0, ?MODULE:get({<<"couch_db">>, <<"open_databases">>})),
+
+    Fun(),
+
     ?MODULE:stop().
+
+should_return_value_from_store_test() ->
+    test_helper(fun() -> 
+        ?assertEqual(0, ?MODULE:get({<<"couch_db">>, <<"open_databases">>}))
+    end).
 
 should_increment_value_test() ->
-    catch ?MODULE:stop(),
-    ?MODULE:start(),
-    ?assert(?MODULE:increment({<<"couch_db">>, <<"open_databases">>}) =:= ok),
-    ?assertEqual(1, ?MODULE:get({<<"couch_db">>, <<"open_databases">>})),
-    ?MODULE:stop().
+    test_helper(fun() ->
+            ?assert(?MODULE:increment({<<"couch_db">>, <<"open_databases">>}) =:= ok),
+            ?assertEqual(1, ?MODULE:get({<<"couch_db">>, <<"open_databases">>}))
+    end).
 
 should_decrement_value_test() ->
-    catch ?MODULE:stop(),
-    ?MODULE:start(),
-    ?assert(?MODULE:decrement({<<"couch_db">>, <<"open_databases">>}) =:= ok),
-    ?assertEqual(-1, ?MODULE:get({<<"couch_db">>, <<"open_databases">>})),
-    ?MODULE:stop().
+    test_helper(fun() ->
+        ?assert(?MODULE:decrement({<<"couch_db">>, <<"open_databases">>}) =:= ok),
+        ?assertEqual(-1, ?MODULE:get({<<"couch_db">>, <<"open_databases">>}))
+    end).
 
 should_increment_and_decrement_value_test() ->
-    catch ?MODULE:stop(),
-    ?MODULE:start(),
-    ?assert(?MODULE:increment({<<"couch_db">>, <<"open_databases">>}) =:= ok),
-    ?assert(?MODULE:decrement({<<"couch_db">>, <<"open_databases">>}) =:= ok),
-    ?assertEqual(0, ?MODULE:get({<<"couch_db">>, <<"open_databases">>})),
-    ?MODULE:stop().
+    test_helper(fun() ->
+        ?assert(?MODULE:increment({<<"couch_db">>, <<"open_databases">>}) =:= ok),
+        ?assert(?MODULE:decrement({<<"couch_db">>, <<"open_databases">>}) =:= ok),
+        ?assertEqual(0, ?MODULE:get({<<"couch_db">>, <<"open_databases">>}))
+    end).
 
 should_reset_counter_value_test() ->
-    catch ?MODULE:stop(),
-    ?MODULE:start(),
-    ?assert(?MODULE:increment({<<"couch_db">>, <<"open_databases">>}) =:= ok),
-    ?assert(?MODULE:reset({<<"couch_db">>, <<"open_databases">>}) =:= ok),
-    ?assertEqual(0, ?MODULE:get({<<"couch_db">>, <<"open_databases">>})),
-    ?MODULE:stop().
+    test_helper(fun() ->
+        ?assert(?MODULE:increment({<<"couch_db">>, <<"open_databases">>}) =:= ok),
+        ?assert(?MODULE:restart() =:= ok),
+        ?assertEqual(0, ?MODULE:get({<<"couch_db">>, <<"open_databases">>}))
+    end).
 
 should_handle_multiple_key_value_pairs_test() ->
-    catch ?MODULE:stop(),
-    ?MODULE:start(),
-    
-    ?MODULE:increment({<<"couch_db">>, <<"open_databases">>}),
-    ?assertEqual(1, ?MODULE:get({<<"couch_db">>, <<"open_databases">>})),
-    ?assertEqual(0, ?MODULE:get({<<"couch_db">>, <<"request_count">>})),
-    
-    ?MODULE:stop().
-    
+    test_helper(fun() ->
+        ?MODULE:increment({<<"couch_db">>, <<"open_databases">>}),
+        ?assertEqual(1, ?MODULE:get({<<"couch_db">>, <<"open_databases">>})),
+        ?assertEqual(0, ?MODULE:get({<<"couch_db">>, <<"request_count">>}))
+    end).
+
+should_restart_module_should_create_new_pid_test() ->
+    test_helper(fun() ->
+        OldPid = whereis(?MODULE),
+        ?MODULE:restart(),
+        ?assertNot(whereis(?MODULE) =:= OldPid)
+    end).
