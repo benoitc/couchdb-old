@@ -112,40 +112,40 @@ test_helper(Fun) ->
 
 should_return_value_from_store_test() ->
     test_helper(fun() -> 
-        ?assertEqual(0, ?MODULE:get({<<"couch_db">>, <<"open_databases">>}))
+        ?assertEqual(0, ?MODULE:get({couch_db, open_databases}))
     end).
 
 should_increment_value_test() ->
     test_helper(fun() ->
-            ?assert(?MODULE:increment({<<"couch_db">>, <<"open_databases">>}) =:= ok),
-            ?assertEqual(1, ?MODULE:get({<<"couch_db">>, <<"open_databases">>}))
+            ?assert(?MODULE:increment({couch_db, open_databases}) =:= ok),
+            ?assertEqual(1, ?MODULE:get({couch_db, open_databases}))
     end).
 
 should_decrement_value_test() ->
     test_helper(fun() ->
-        ?assert(?MODULE:decrement({<<"couch_db">>, <<"open_databases">>}) =:= ok),
-        ?assertEqual(-1, ?MODULE:get({<<"couch_db">>, <<"open_databases">>}))
+        ?assert(?MODULE:decrement({couch_db, open_databases}) =:= ok),
+        ?assertEqual(-1, ?MODULE:get({couch_db, open_databases}))
     end).
 
 should_increment_and_decrement_value_test() ->
     test_helper(fun() ->
-        ?assert(?MODULE:increment({<<"couch_db">>, <<"open_databases">>}) =:= ok),
-        ?assert(?MODULE:decrement({<<"couch_db">>, <<"open_databases">>}) =:= ok),
-        ?assertEqual(0, ?MODULE:get({<<"couch_db">>, <<"open_databases">>}))
+        ?assert(?MODULE:increment({couch_db, open_databases}) =:= ok),
+        ?assert(?MODULE:decrement({couch_db, open_databases}) =:= ok),
+        ?assertEqual(0, ?MODULE:get({couch_db, open_databases}))
     end).
 
 should_reset_counter_value_test() ->
     test_helper(fun() ->
-        ?assert(?MODULE:increment({<<"couch_db">>, <<"open_databases">>}) =:= ok),
+        ?assert(?MODULE:increment({couch_db, open_databases}) =:= ok),
         ?assert(?MODULE:restart() =:= ok),
-        ?assertEqual(0, ?MODULE:get({<<"couch_db">>, <<"open_databases">>}))
+        ?assertEqual(0, ?MODULE:get({couch_db, open_databases}))
     end).
 
 should_handle_multiple_key_value_pairs_test() ->
     test_helper(fun() ->
-        ?MODULE:increment({<<"couch_db">>, <<"open_databases">>}),
-        ?assertEqual(1, ?MODULE:get({<<"couch_db">>, <<"open_databases">>})),
-        ?assertEqual(0, ?MODULE:get({<<"couch_db">>, <<"request_count">>}))
+        ?MODULE:increment({couch_db, open_databases}),
+        ?assertEqual(1, ?MODULE:get({couch_db, open_databases})),
+        ?assertEqual(0, ?MODULE:get({couch_db, request_count}))
     end).
 
 should_restart_module_should_create_new_pid_test() ->

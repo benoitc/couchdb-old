@@ -27,6 +27,8 @@
 
 -record(state, {}).
 
+-define(COLLECTOR, couch_stats_collector).
+
 % PUBLIC API
 
 start() ->
@@ -53,11 +55,11 @@ init(_) ->
 
 handle_call({get, {Module, Key}, Options}, _, State) ->
     Value = 
-    case Key of
+    case a2b(Key) of
         <<"average_",CollectorKey/binary>> ->
             get_average(Module, CollectorKey, Options);
         _ -> 
-            couch_stats_collector:get({Module, Key})
+            ?COLLECTOR:get({Module, Key})
     end,
     
     {reply, integer_to_binary(Value), State};
@@ -69,7 +71,7 @@ handle_call(stop, _, State) ->
 handle_call({time_passed, Time}, _, State) ->
     lists:foreach(fun(Counter) ->
         {{Module, Key, _}, {_, PreviousCount}} = Counter,
-        CurrentCount = couch_stats_collector:get({Module, get_collector_key(Key)}),
+        CurrentCount = ?COLLECTOR:get({Module, get_collector_key(Key)}),
         ets:insert(?MODULE, {{Module, Key, Time}, {PreviousCount, CurrentCount}})
     end, ets:tab2list(?MODULE)),
     {reply, ok, State}.
@@ -77,10 +79,11 @@ handle_call({time_passed, Time}, _, State) ->
 % PRIVATE API
 
 get_average_counters() ->
-    [{<<"httpd">>, <<"previous_request_count">>}].
+    [{httpd, <<"previous_request_count">>}].
 
 get_average(Module, Key, Options) ->
     Time = proplists:get_value("timeframe", Options, 1) * 60, % default to 1 minute, in seconds
+    % BinaryKey = a2b(Key),
     case ets:lookup(?MODULE, {Module, <<"previous_",Key/binary>>, Time}) of
         [] -> 0;
         [{_, {PreviousCounter, CurrentCounter}}] ->
@@ -88,8 +91,8 @@ get_average(Module, Key, Options) ->
     end.
 
 get_collector_key(Key) ->
-    <<"previous_", CollectorKey/binary>> = Key,
-    CollectorKey.
+    <<"previous_", CollectorKey/binary>> = a2b(Key),
+    b2a(CollectorKey).
 
 init_counter(Time) ->
     Seconds = Time * 60,
@@ -99,8 +102,6 @@ init_counter(Time) ->
             ets:insert(?MODULE, {{Module, Key, Time}, {0, 0}})
         end, get_average_counters()).
 
-integer_to_binary(Integer) ->
-    list_to_binary(integer_to_list(Integer)).
 
 start_timer(Time, Fun) ->
     spawn(fun() -> timer(Time * 1000, Fun) end).
@@ -112,6 +113,21 @@ timer(Time, Fun) ->
         Time -> Fun(),
         timer(Time, Fun)
     end.
+
+% UTILS
+
+integer_to_binary(Integer) ->
+    list_to_binary(integer_to_list(Integer)).
+
+b2a(Binary) when is_atom(Binary)->
+    Binary;
+b2a(Binary) ->
+    list_to_atom(binary_to_list(Binary)).
+
+a2b(Atom) when is_binary(Atom) ->
+    Atom;
+a2b(Atom) ->
+    list_to_binary(atom_to_list(Atom)).
 
 % Unused gen_server behaviour API functions that we need to declare.
   
@@ -133,42 +149,42 @@ code_change(_OldVersion, State, _Extra) -> {ok, State}.
 test_helper(Fun) ->
     catch ?MODULE:stop(),
     ?MODULE:start(),
-    couch_stats_collector:start(),
+    ?COLLECTOR:start(),
 
     Fun(),
 
     ?MODULE:stop(),
-    couch_stats_collector:stop().
+    ?COLLECTOR:stop().
 
 should_return_value_from_collector_test() ->
     test_helper(fun() ->
-        ?assertEqual(<<"0">>, couch_stats_aggregator:get({<<"couch_db">>, <<"open_databases">>}))
+        ?assertEqual(<<"0">>, couch_stats_aggregator:get({couch_db, open_databases}))
     end).
 
 should_handle_multiple_key_value_pairs_test() ->
     test_helper(fun() ->
-        couch_stats_collector:increment({<<"couch_db">>, <<"open_databases">>}),
-        ?assertEqual(<<"1">>, couch_stats_aggregator:get({<<"couch_db">>, <<"open_databases">>})),
-        ?assertEqual(<<"0">>, couch_stats_aggregator:get({<<"couch_db">>, <<"request_count">>}))
+        ?COLLECTOR:increment({couch_db, open_databases}),
+        ?assertEqual(<<"1">>, couch_stats_aggregator:get({couch_db, open_databases})),
+        ?assertEqual(<<"0">>, couch_stats_aggregator:get({couch_db, request_count}))
     end).
 
 should_return_the_average_over_the_last_minute_test() ->
     test_helper(fun() ->
         lists:map(fun(_) ->
-            couch_stats_collector:increment({<<"httpd">>, <<"request_count">>})
+            ?COLLECTOR:increment({httpd, request_count})
         end, lists:seq(1, 200)),
 
         ?MODULE:time_passed(60), % seconds
-        ?assertEqual(<<"3">>, ?MODULE:get({<<"httpd">>, <<"average_request_count">>}))
+        ?assertEqual(<<"3">>, ?MODULE:get({httpd, average_request_count}))
     end).
 
 should_return_the_average_over_the_last_five_minutes_test() ->
     test_helper(fun() ->
         lists:map(fun(_) ->
-            couch_stats_collector:increment({<<"httpd">>, <<"request_count">>})
+            ?COLLECTOR:increment({httpd, request_count})
         end, lists:seq(1, 2000)),
 
         ?MODULE:time_passed(300), % seconds
-        Result = ?MODULE:get({<<"httpd">>, <<"average_request_count">>}, [{"timeframe", list_to_integer("5")}]),
+        Result = ?MODULE:get({httpd, average_request_count}, [{"timeframe", list_to_integer("5")}]),
         ?assertEqual(<<"7">>, Result)
     end).
