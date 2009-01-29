@@ -374,7 +374,7 @@ var tests = {
         var db = new CouchDB("test_suite_db");
         db.deleteDb();
         db.createDb();
-        
+
         var doc = {_id:"test"};
         db.save(doc);
 
@@ -388,17 +388,37 @@ var tests = {
       }
 
     };
+    var response_codes_tests = {
+      'should increment the response code counter': function(name) {
+        var db = new CouchDB("nonexistant_db");
+        db.deleteDb();
+
+        var not_founds = parseInt(CouchDB.requestStats("http_status_codes", "404"));
+        CouchDB.request("GET", "/nonexistant_db");
+        var new_not_founds = parseInt(CouchDB.requestStats("http_status_codes", "404"));
+
+        TEquals(not_founds + 1, new_not_founds, name);
+      },
+      'should not increment respinse code counter for other response code': function(name) {
+        var not_founds = parseInt(CouchDB.requestStats("http_status_codes", "404"));
+        CouchDB.request("GET", "/");
+        var new_not_founds = parseInt(CouchDB.requestStats("http_status_codes", "404"));
+
+        TEquals(not_founds, new_not_founds, name);
+      }
+      
+    };
 
     var tests = [
       open_databases_tests, 
       request_count_tests, 
       document_read_count_tests, 
       view_read_count_tests, 
-      http_requests_by_method_tests
+      http_requests_by_method_tests,
+      document_write_count_tests,
+      response_codes_tests
     ];
     
-    var tests = [document_write_count_tests, false];
-
     for(var testGroup in tests) {
       for(var test in tests[testGroup]) {
         tests[testGroup][test](test);

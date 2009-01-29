@@ -39,6 +39,8 @@ stop() ->
 get(Key) ->
     gen_server:call(?MODULE, {get, Key}).
 
+increment({Module, Key}) when is_integer(Key) ->
+    gen_server:call(?MODULE, {increment, {Module, list_to_atom(integer_to_list(Key))}});
 increment(Key) ->
     gen_server:call(?MODULE, {increment, Key}).
 

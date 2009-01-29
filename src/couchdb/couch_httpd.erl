@@ -329,6 +329,7 @@ basic_username_pw(Req) ->
 
 
 start_chunked_response(#httpd{mochi_req=MochiReq}, Code, Headers) ->
+    couch_stats_collector:increment({http_status_codes, Code}),
     {ok, MochiReq:respond({Code, Headers ++ server_header(), chunked})}.
 
 send_chunk(Resp, Data) ->
@@ -336,6 +337,7 @@ send_chunk(Resp, Data) ->
     {ok, Resp}.
 
 send_response(#httpd{mochi_req=MochiReq}, Code, Headers, Body) ->
+    couch_stats_collector:increment({http_status_codes, Code}),
     if Code >= 400 ->
         ?LOG_DEBUG("HTTPd ~p error response:~n ~s", [Code, Body]);
     true -> ok
