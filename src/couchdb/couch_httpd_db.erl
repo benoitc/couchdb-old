@@ -391,6 +391,7 @@ db_doc_req(#httpd{method='GET'}=Req, Db, DocId) ->
     [] ->
         Doc = couch_doc_open(Db, DocId, Rev, Options),
         DiskEtag = couch_httpd:doc_etag(Doc),
+        couch_stats_collector:increment({httpd, document_reads}),
         couch_httpd:etag_respond(Req, DiskEtag, fun() -> 
             Headers = case Doc#doc.meta of
             [] -> [{"Etag", DiskEtag}]; % output etag only when we have no meta
