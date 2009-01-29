@@ -59,7 +59,7 @@ handle_call({get, {Module, Key}, Options}, _, State) ->
         <<"average_",CollectorKey/binary>> ->
             get_average(Module, CollectorKey, Options);
         _ -> 
-            ?COLLECTOR:get({Module, Key})
+            ?COLLECTOR:get({b2a(Module), b2a(Key)})
     end,
     
     {reply, integer_to_binary(Value), State};
