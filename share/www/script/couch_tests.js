@@ -211,8 +211,38 @@ var tests = {
         TEquals(reads + 1 , new_reads, name);
       }
     };
+    
+    var http_requests_by_method_tests = {
+      'should count GET requests': function(name) {
+        var requests = parseInt(CouchDB.requestStats("httpd", "get_requests"));
+        var new_requests = parseInt(CouchDB.requestStats("httpd", "get_requests"));
+        
+        TEquals(requests + 1, new_requests, name);
+      },
+      'should not count GET requests for POST request': function(name) {
+        var requests = parseInt(CouchDB.requestStats("httpd", "get_requests"));
+        CouchDB.request("POST", "/");
+        var new_requests = parseInt(CouchDB.requestStats("httpd", "get_requests"));
+        
+        TEquals(requests + 1, new_requests, name);
+        
+      },
+      'should count POST requests': function(name) {
+        var requests = parseInt(CouchDB.requestStats("httpd", "post_requests"));
+        CouchDB.request("POST", "/");
+        var new_requests = parseInt(CouchDB.requestStats("httpd", "post_requests"));
+        
+        TEquals(requests + 1, new_requests, name);
+      }
+    };
 
-    var tests = [open_databases_tests, request_count_tests, document_read_count_tests, view_read_count_tests];
+    var tests = [
+      open_databases_tests, 
+      request_count_tests, 
+      document_read_count_tests, 
+      view_read_count_tests, 
+      http_requests_by_method_tests
+    ];
 
     for(var testGroup in tests) {
       for(var test in tests[testGroup]) {

@@ -126,11 +126,8 @@ handle_request(MochiReq, UrlHandlers, DbUrlHandlers) ->
         mochiweb_headers:to_list(MochiReq:get(headers))
     ]),
     
-    Method =
+    Method1 =
     case MochiReq:get(method) of
-        % alias HEAD to GET as mochiweb takes care of stripping the body
-        'HEAD' -> 'GET';
-        
         % already an atom
         Meth when is_atom(Meth) -> Meth;
         
@@ -138,6 +135,15 @@ handle_request(MochiReq, UrlHandlers, DbUrlHandlers) ->
         % possible (if any module references the atom, then it's existing).
         Meth -> couch_util:to_existing_atom(Meth)
     end,
+    
+    increment_method_stats(Method1),
+    
+    % alias HEAD to GET as mochiweb takes care of stripping the body
+    Method = case Method1 of
+        'HEAD' -> 'GET';
+        Other -> Other
+    end,
+
     HttpReq = #httpd{
         mochi_req = MochiReq,
         method = Method,
@@ -169,6 +175,9 @@ handle_request(MochiReq, UrlHandlers, DbUrlHandlers) ->
     couch_stats_collector:increment({httpd, request_count}),
     {ok, Resp}.
 
+increment_method_stats(Method) ->
+    CounterName = list_to_atom(string:to_lower(atom_to_list(Method)) ++ "_requests"),
+    couch_stats_collector:increment({httpd, CounterName}).
 
 special_test_authentication_handler(Req) ->
     case header_value(Req, "WWW-Authenticate") of
