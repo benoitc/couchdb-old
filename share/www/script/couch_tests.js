@@ -92,9 +92,9 @@ var tests = {
     var request_count_tests = {
       'should increase the request count for every request': function(name) {
         var requests = parseInt(CouchDB.requestStats("httpd", "request_count")) + 1;
-        
+
         CouchDB.request("GET", "/");
-        
+
         var new_requests = parseInt(CouchDB.requestStats("httpd", "request_count"));
         T(requests >= 0, "requests >= 0", name);
         TEquals(requests + 1, new_requests, name);
@@ -106,16 +106,55 @@ var tests = {
       },
       'should return the average request/s for the last 5 and 15 minutes': function(name) {
         restartServer();
-        var requests = parseFloat(CouchDB.requestStats("httpd", "average_requests"), {"timeframe":5});
-        TEquals(requests, 0.0, name);
+        var requests = parseInt(CouchDB.requestStats("httpd", "average_requests"), {"timeframe":5});
+        TEquals(requests, 0, name);
 
-        var requests = parseFloat(CouchDB.requestStats("httpd", "average_requests"), {"timeframe":15});
-        TEquals(requests, 0.0, name);
+        var requests = parseInt(CouchDB.requestStats("httpd", "average_requests"), {"timeframe":15});
+        TEquals(requests, 0, name);
       }
     };
     
-    var tests = [open_databases_tests, request_count_tests];
+    var document_read_count_tests = {
+      'should increase read document counter when a document is read': function(name) {
+        var db = new CouchDB("test_suite_db");
+        db.deleteDb();
+        db.createDb();
+        db.save({"_id":"test"});
+
+        var reads = parseInt(CouchDB.requestStats("httpd", "document_reads"));
+        db.open("test");
+        var new_reads = parseInt(CouchDB.requestStats("httpd", "document_reads"));
+
+        TEquals(reads + 1 , new_reads, name);
+      },
+      'should not increase read document counter when a non-document is read': function(name) {
+        var db = new CouchDB("test_suite_db");
+        db.deleteDb();
+        db.createDb();
+        db.save({"_id":"test"});
+
+        var reads = parseInt(CouchDB.requestStats("httpd", "document_reads"));
+        CouchDB.request("GET", "/");
+        var new_reads = parseInt(CouchDB.requestStats("httpd", "document_reads"));
+
+        TEquals(reads, new_reads, name);
+      },
+      'should increase read document counter when a document\'s revisions are read': function(name) {
+        var db = new CouchDB("test_suite_db");
+        db.deleteDb();
+        db.createDb();
+        db.save({"_id":"test"});
+
+        var reads = parseInt(CouchDB.requestStats("httpd", "document_reads"));
+        db.open("test", {"open_revs":"all"});
+        var new_reads = parseInt(CouchDB.requestStats("httpd", "document_reads"));
+
+        TEquals(reads + 1 , new_reads, name);
+      }
+    };
     
+    var tests = [open_databases_tests, request_count_tests, document_read_count_tests];
+
     for(var testGroup in tests) {
       for(var test in tests[testGroup]) {
         tests[testGroup][test](test);
