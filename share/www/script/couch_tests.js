@@ -241,8 +241,9 @@ var tests = {
       request_count_tests, 
       document_read_count_tests, 
       view_read_count_tests, 
-      http_requests_by_method_tests
+      http_requests_by_method_tests,
     ];
+
 
     for(var testGroup in tests) {
       for(var test in tests[testGroup]) {
