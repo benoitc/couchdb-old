@@ -152,14 +152,88 @@ var tests = {
         TEquals(reads + 1 , new_reads, name);
       }
     };
-    
+
+    var view_read_count_tests = {
+      'should increase the permanent view read counter': function(name) {
+        var db = new CouchDB("test_suite_db");
+        db.deleteDb();
+        db.createDb();
+
+        var reads = parseInt(CouchDB.requestStats("httpd", "view_reads"));
+        createAndRequestView(db);
+        var new_reads = parseInt(CouchDB.requestStats("httpd", "view_reads"));
+
+        TEquals(reads + 1 , new_reads, name);
+      },
+      'should not increase the permanent view read counter when a document is read': function(name) {
+        var db = new CouchDB("test_suite_db");
+        db.deleteDb();
+        db.createDb();
+        db.save({"_id":"test"});
+
+        var reads = parseInt(CouchDB.requestStats("httpd", "view_reads"));
+        db.open("test");
+        var new_reads = parseInt(CouchDB.requestStats("httpd", "view_reads"));
+
+        TEquals(reads, new_reads, name);
+      },
+      'should not increase the permanent view read counter when a temporary view is read': function(name) {
+        var db = new CouchDB("test_suite_db");
+        db.deleteDb();
+        db.createDb();
+
+        var reads = parseInt(CouchDB.requestStats("httpd", "view_reads"));
+        db.query(function(doc) { emit(doc._id)});
+        var new_reads = parseInt(CouchDB.requestStats("httpd", "view_reads"));
+
+        TEquals(reads, new_reads, name);
+      },
+      'should increase the temporary view read counter': function(name) {
+        var db = new CouchDB("test_suite_db");
+        db.deleteDb();
+        db.createDb();
+
+        var reads = parseInt(CouchDB.requestStats("httpd", "temporary_view_reads"));
+        db.query(function(doc) { emit(doc._id)});
+        var new_reads = parseInt(CouchDB.requestStats("httpd", "temporary_view_reads"));
+
+        TEquals(reads + 1, new_reads, name);
+      },
+      'should increase the temporary view read counter when querying a permanent view': function(name) {
+        var db = new CouchDB("test_suite_db");
+        db.deleteDb();
+        db.createDb();
+
+        var reads = parseInt(CouchDB.requestStats("httpd", "view_reads"));
+        createAndRequestView(db);
+        var new_reads = parseInt(CouchDB.requestStats("httpd", "view_reads"));
+
+        TEquals(reads + 1 , new_reads, name);
+      }
+    };
+
     var tests = [open_databases_tests, request_count_tests, document_read_count_tests];
+    // var tests = [view_read_count_tests];
 
     for(var testGroup in tests) {
       for(var test in tests[testGroup]) {
         tests[testGroup][test](test);
       }
     };
+
+    function createAndRequestView(db) {
+      var designDoc = {
+        _id:"_design/test", // turn off couch.js id escaping?
+        language: "javascript",
+        views: {
+          all_docs_twice: {map: "function(doc) { emit(doc.integer, null); emit(doc.integer, null) }"},
+        }
+      };
+      db.save(designDoc);
+
+      db.view("test/all_docs_twice");
+    }
+
   },
 
   // Do some basic tests.
