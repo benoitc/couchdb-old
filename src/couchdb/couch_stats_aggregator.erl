@@ -83,7 +83,6 @@ get_average_counters() ->
 
 get_average(Module, Key, Options) ->
     Time = proplists:get_value("timeframe", Options, 1) * 60, % default to 1 minute, in seconds
-    % BinaryKey = a2b(Key),
     case ets:lookup(?MODULE, {Module, <<"previous_",Key/binary>>, Time}) of
         [] -> 0;
         [{_, {PreviousCounter, CurrentCounter}}] ->
@@ -158,14 +157,14 @@ test_helper(Fun) ->
 
 should_return_value_from_collector_test() ->
     test_helper(fun() ->
-        ?assertEqual(<<"0">>, couch_stats_aggregator:get({couch_db, open_databases}))
+        ?assertEqual(<<"0">>, ?MODULE:get({couch_db, open_databases}))
     end).
 
 should_handle_multiple_key_value_pairs_test() ->
     test_helper(fun() ->
         ?COLLECTOR:increment({couch_db, open_databases}),
-        ?assertEqual(<<"1">>, couch_stats_aggregator:get({couch_db, open_databases})),
-        ?assertEqual(<<"0">>, couch_stats_aggregator:get({couch_db, request_count}))
+        ?assertEqual(<<"1">>, ?MODULE:get({couch_db, open_databases})),
+        ?assertEqual(<<"0">>, ?MODULE:get({couch_db, request_count}))
     end).
 
 should_return_the_average_over_the_last_minute_test() ->

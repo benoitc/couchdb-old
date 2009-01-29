@@ -166,7 +166,7 @@ handle_request(MochiReq, UrlHandlers, DbUrlHandlers) ->
         RawUri,
         Resp:get(code)
     ]),
-    couch_stats_collector:increment({<<"httpd">>, <<"request_count">>}),
+    couch_stats_collector:increment({httpd, request_count}),
     {ok, Resp}.
 
 
