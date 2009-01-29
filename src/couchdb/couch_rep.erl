@@ -181,9 +181,10 @@ do_http_request(Url, Action, Headers, JsonBody, Retries) ->
     end,
     Options = [
         {content_type, "application/json; charset=utf-8"},
-        {max_pipeline_size, 101}
+        {max_pipeline_size, 101},
+        {transfer_encoding, {chunked, 65535}}
     ],
-    case ibrowse:send_req(Url, Headers, Action, Body, Options, 10000) of
+    case ibrowse:send_req(Url, Headers, Action, Body, Options) of
     {ok, Status, ResponseHeaders, ResponseBody} ->
         ResponseCode = list_to_integer(Status),
         if
