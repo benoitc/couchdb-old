@@ -23,7 +23,7 @@
         terminate/2, code_change/3]).
 
 
--export([start/0, stop/0, restart/0, get/1, increment/1, decrement/1]).
+-export([start/0, stop/0, get/1, increment/1, decrement/1]).
 
 -record(state, {}).
 
@@ -44,11 +44,6 @@ increment(Key) ->
 
 decrement(Key) ->
     gen_server:call(?MODULE, {decrement, Key}).
-
-restart() ->
-    ?MODULE:stop(),
-    ?MODULE:start(),
-    ok.
 
 % GEN_SERVER
     
@@ -117,8 +112,8 @@ should_return_value_from_store_test() ->
 
 should_increment_value_test() ->
     test_helper(fun() ->
-            ?assert(?MODULE:increment({couch_db, open_databases}) =:= ok),
-            ?assertEqual(1, ?MODULE:get({couch_db, open_databases}))
+        ?assert(?MODULE:increment({couch_db, open_databases}) =:= ok),
+        ?assertEqual(1, ?MODULE:get({couch_db, open_databases}))
     end).
 
 should_decrement_value_test() ->
@@ -137,7 +132,8 @@ should_increment_and_decrement_value_test() ->
 should_reset_counter_value_test() ->
     test_helper(fun() ->
         ?assert(?MODULE:increment({couch_db, open_databases}) =:= ok),
-        ?assert(?MODULE:restart() =:= ok),
+        ?MODULE:stop(),
+        ?MODULE:start(),
         ?assertEqual(0, ?MODULE:get({couch_db, open_databases}))
     end).
 
@@ -151,6 +147,7 @@ should_handle_multiple_key_value_pairs_test() ->
 should_restart_module_should_create_new_pid_test() ->
     test_helper(fun() ->
         OldPid = whereis(?MODULE),
-        ?MODULE:restart(),
+        ?MODULE:stop(),
+        ?MODULE:start(),
         ?assertNot(whereis(?MODULE) =:= OldPid)
     end).
