@@ -216,24 +216,177 @@ var tests = {
       'should count GET requests': function(name) {
         var requests = parseInt(CouchDB.requestStats("httpd", "get_requests"));
         var new_requests = parseInt(CouchDB.requestStats("httpd", "get_requests"));
-        
+
         TEquals(requests + 1, new_requests, name);
       },
       'should not count GET requests for POST request': function(name) {
         var requests = parseInt(CouchDB.requestStats("httpd", "get_requests"));
         CouchDB.request("POST", "/");
         var new_requests = parseInt(CouchDB.requestStats("httpd", "get_requests"));
-        
-        TEquals(requests + 1, new_requests, name);
-        
+
+        TEquals(requests + 1, new_requests, name);        
       },
       'should count POST requests': function(name) {
         var requests = parseInt(CouchDB.requestStats("httpd", "post_requests"));
         CouchDB.request("POST", "/");
         var new_requests = parseInt(CouchDB.requestStats("httpd", "post_requests"));
-        
+
         TEquals(requests + 1, new_requests, name);
       }
+    };
+
+    var document_write_count_tests = {
+      'should increment counter for document creates': function(name) {
+        var db = new CouchDB("test_suite_db");
+        db.deleteDb();
+        db.createDb();
+
+        var creates = parseInt(CouchDB.requestStats("httpd", "document_creates"));
+        db.save({"a":"1"});
+        var new_creates = parseInt(CouchDB.requestStats("httpd", "document_creates"));
+
+        TEquals(creates + 1, new_creates, name);
+      },
+      'should not increment counter for document creates when updating a doc': function(name) {
+        var db = new CouchDB("test_suite_db");
+        db.deleteDb();
+        db.createDb();
+
+        var doc = {"_id":"test"};
+        db.save(doc);
+        
+        var creates = parseInt(CouchDB.requestStats("httpd", "document_creates"));
+        db.save(doc);
+        var new_creates = parseInt(CouchDB.requestStats("httpd", "document_creates"));
+
+        TEquals(creates, new_creates, name);
+      },
+      'should increment counter for document updates': function(name) {
+        var db = new CouchDB("test_suite_db");
+        db.deleteDb();
+        db.createDb();
+
+        var doc = {"_id":"test"};
+        db.save(doc);
+        
+        var updates = parseInt(CouchDB.requestStats("httpd", "document_updates"));
+        db.save(doc);
+        var new_updates = parseInt(CouchDB.requestStats("httpd", "document_updates"));
+
+        TEquals(updates + 1, new_updates, name);
+      },
+      'should not increment counter for document updates when creating a document': function(name) {
+        var db = new CouchDB("test_suite_db");
+        db.deleteDb();
+        db.createDb();
+
+        var updates = parseInt(CouchDB.requestStats("httpd", "document_updates"));
+        db.save({"a":"1"});
+        var new_updates = parseInt(CouchDB.requestStats("httpd", "document_updates"));
+
+        TEquals(updates, new_updates, name);
+      },
+      'should increment counter for document deletes': function(name) {
+        var db = new CouchDB("test_suite_db");
+        db.deleteDb();
+        db.createDb();
+
+        var doc = {"_id":"test"};
+        db.save(doc);
+        
+        var deletes = parseInt(CouchDB.requestStats("httpd", "document_deletes"));
+        db.deleteDoc(doc);
+        var new_deletes = parseInt(CouchDB.requestStats("httpd", "document_deletes"));
+
+        TEquals(deletes + 1, new_deletes, name);
+      },
+      'should increment the copy counter': function(name) {
+        var db = new CouchDB("test_suite_db");
+        db.deleteDb();
+        db.createDb();
+
+        var doc = {"_id":"test"};
+        db.save(doc);
+
+        var copies = parseInt(CouchDB.requestStats("httpd", "document_copies"));
+        CouchDB.request("COPY", "/test_suite_db/test", {
+          headers: {"Destination":"copy_of_test"}
+        });
+        var new_copies = parseInt(CouchDB.requestStats("httpd", "document_copies"));
+
+        TEquals(copies + 1, new_copies, name);
+      },
+      'should increment the move counter': function(name) {
+        var db = new CouchDB("test_suite_db");
+        db.deleteDb();
+        db.createDb();
+
+        var doc = {"_id":"test"};
+        db.save(doc);
+
+        var moves = parseInt(CouchDB.requestStats("httpd", "document_moves"));
+        CouchDB.request("MOVE", "/test_suite_db/test?rev=" + doc._rev, {
+          headers: {"Destination":"move_of_test"}
+        });
+        var new_moves = parseInt(CouchDB.requestStats("httpd", "document_moves"));
+
+        TEquals(moves + 1, new_moves, name);
+      },
+      'should increase the bulk doc counter': function(name) {
+        var db = new CouchDB("test_suite_db");
+        db.deleteDb();
+        db.createDb();
+
+        var bulks = parseInt(CouchDB.requestStats("httpd", "bulk_requests"));
+
+        var docs = makeDocs(5);
+        db.bulkSave(docs);
+        
+        var new_bulks = parseInt(CouchDB.requestStats("httpd", "bulk_requests"));
+
+        TEquals(bulks + 1, new_bulks, name);
+      },
+      'should increment counter for document creates using POST': function(name) {
+        var db = new CouchDB("test_suite_db");
+        db.deleteDb();
+        db.createDb();
+
+        var creates = parseInt(CouchDB.requestStats("httpd", "document_creates"));
+        CouchDB.request("POST", "/test_suite_db", {body:'{"a":"1"}'});
+        var new_creates = parseInt(CouchDB.requestStats("httpd", "document_creates"));
+
+        TEquals(creates + 1, new_creates, name);
+      },
+      'should increment document create counter when adding attachment': function(name) {
+        var db = new CouchDB("test_suite_db");
+        db.deleteDb();
+        db.createDb();
+
+        var creates = parseInt(CouchDB.requestStats("httpd", "document_creates"));
+        CouchDB.request("PUT", "/test_suite_db/bin_doc2/foo2.txt", {
+              body:"This is no base64 encoded text",
+              headers:{"Content-Type": "text/plain;charset=utf-8"}
+        });
+        var new_creates = parseInt(CouchDB.requestStats("httpd", "document_creates"));
+        TEquals(creates + 1, new_creates, name);
+      },
+      'should increment document update counter when adding attachment to existing doc': function(name) {
+        var db = new CouchDB("test_suite_db");
+        db.deleteDb();
+        db.createDb();
+        
+        var doc = {_id:"test"};
+        db.save(doc);
+
+        var updates = parseInt(CouchDB.requestStats("httpd", "document_updates"));
+        CouchDB.request("PUT", "/test_suite_db/test/foo2.txt?rev=" + doc._rev, {
+              body:"This is no base64 encoded text",
+              headers:{"Content-Type": "text/plain;charset=utf-8"}
+        });
+        var new_updates = parseInt(CouchDB.requestStats("httpd", "document_updates"));
+        TEquals(updates + 1, new_updates, name);
+      }
+
     };
 
     var tests = [
@@ -243,6 +396,8 @@ var tests = {
       view_read_count_tests, 
       http_requests_by_method_tests
     ];
+    
+    var tests = [document_write_count_tests, false];
 
     for(var testGroup in tests) {
       for(var test in tests[testGroup]) {

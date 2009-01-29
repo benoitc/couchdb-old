@@ -80,6 +80,7 @@ db_req(#httpd{method='POST',path_parts=[_DbName]}=Req, Db) ->
     Doc = couch_doc:from_json_obj(couch_httpd:json_body(Req)),
     DocId = couch_util:new_uuid(),
     {ok, NewRev} = couch_db:update_doc(Db, Doc#doc{id=DocId, revs=[]}, []),
+    couch_stats_collector:increment({httpd, document_creates}),
     send_json(Req, 201, {[
         {ok, true},
         {id, DocId},
@@ -100,6 +101,7 @@ db_req(#httpd{path_parts=[_,<<"_ensure_full_commit">>]}=Req, _Db) ->
     send_method_not_allowed(Req, "POST");
 
 db_req(#httpd{method='POST',path_parts=[_,<<"_bulk_docs">>]}=Req, Db) ->
+    couch_stats_collector:increment({httpd, bulk_requests}),
     {JsonProps} = couch_httpd:json_body(Req),
     DocsArray = proplists:get_value(<<"docs">>, JsonProps),
     case couch_httpd:header_value(Req, "X-Couch-Full-Commit", "false") of
@@ -370,6 +372,7 @@ db_doc_req(#httpd{method='DELETE'}=Req, Db, DocId) ->
         couch_httpd:send_error(Req, 412, <<"missing_rev">>,
             <<"Document rev/etag must be specified to delete">>);
     RevToDelete ->
+        couch_stats_collector:increment({httpd, document_deletes}),
         {ok, NewRev} = couch_db:delete_doc(Db, DocId, [RevToDelete]),
         send_json(Req, 200, {[
             {ok, true},
@@ -462,8 +465,10 @@ db_doc_req(#httpd{method='PUT'}=Req, Db, DocId) ->
     end,
     case extract_header_rev(Req, ExplicitRev) of
     missing_rev ->
+        couch_stats_collector:increment({httpd, document_creates}),
         Revs = [];
     Rev ->
+        couch_stats_collector:increment({httpd, document_updates}),
         Revs = [Rev]
     end,
     {ok, NewRev} = couch_db:update_doc(Db, Doc#doc{id=DocId, revs=Revs}, Options),
@@ -487,6 +492,7 @@ db_doc_req(#httpd{method='COPY'}=Req, Db, SourceDocId) ->
 
     % save new doc
     {ok, NewTargetRev} = couch_db:update_doc(Db, Doc#doc{id=TargetDocId, revs=TargetRev}, []),
+    couch_stats_collector:increment({httpd, document_copies}),
 
     send_json(Req, 201, [{"Etag", "\"" ++ binary_to_list(NewTargetRev) ++ "\""}], {[
         {ok, true},
@@ -512,9 +518,9 @@ db_doc_req(#httpd{method='MOVE'}=Req, Db, SourceDocId) ->
         Doc#doc{id=TargetDocId, revs=TargetRev},
         #doc{id=SourceDocId, revs=[SourceRev], deleted=true}
         ],
-
     {ok, ResultRevs} = couch_db:update_docs(Db, Docs, []),
-
+    couch_stats_collector:increment({httpd, document_moves}),
+    
     DocResults = lists:zipwith(
         fun(FDoc, NewRev) ->
             {[{id, FDoc#doc.id}, {rev, NewRev}]}
@@ -604,8 +610,10 @@ db_attachment_req(#httpd{method=Method}=Req, Db, DocId, FileNameParts)
 
     Doc = case extract_header_rev(Req, couch_httpd:qs_value(Req, "rev")) of
         missing_rev -> % make the new doc
+            couch_stats_collector:increment({httpd, document_creates}),
             #doc{id=DocId};
         Rev ->
+            couch_stats_collector:increment({httpd, document_updates}),
             case couch_db:open_doc_revs(Db, DocId, [Rev], []) of
             {ok, [{ok, Doc0}]}  -> Doc0#doc{revs=[Rev]};
             {ok, [Error]}       -> throw(Error)
