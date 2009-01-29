@@ -245,9 +245,8 @@ path(#httpd{mochi_req=MochiReq}) ->
 absolute_uri(#httpd{mochi_req=MochiReq}, Path) ->
     Host = case MochiReq:get_header_value("Host") of
         undefined ->
-            case inet:sockname(MochiReq:get(socket)) of
-                {ok, {Address, Port}} -> inet_parse:ntoa(Address) ++ [$:] ++ integer_to_list(Port)
-            end;
+            {ok, {Address, Port}} = inet:sockname(MochiReq:get(socket)),
+            inet_parse:ntoa(Address) ++ ":" ++ integer_to_list(Port);
         Value -> Value
     end,
     "http://" ++ Host ++ Path.

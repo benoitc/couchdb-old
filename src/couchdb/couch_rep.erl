@@ -168,12 +168,10 @@ do_http_request(Url, Action, Headers, JsonBody) ->
     do_http_request(Url, Action, Headers, JsonBody, 10).
 
 do_http_request(Url, Action, _Headers, _JsonBody, 0) ->
-    ?LOG_DEBUG("Error: couch_rep HTTP client request did not complete after 10 retries: ~p: ~p", [Action, Url]);
-
+    ?LOG_ERROR("couch_rep HTTP ~p request failed after 10 retries: ~p", 
+        [Action, Url]);
 do_http_request(Url, Action, Headers, JsonBody, Retries) ->
-    ?LOG_DEBUG("couch_rep HTTP client request:", []),
-    ?LOG_DEBUG("\tAction: ~p", [Action]),
-    ?LOG_DEBUG("\tUrl: ~p", [Url]),
+    ?LOG_DEBUG("couch_rep HTTP ~p request: ~p", [Action, Url]),
     Body =
     case JsonBody of
     [] ->
@@ -181,24 +179,30 @@ do_http_request(Url, Action, Headers, JsonBody, Retries) ->
     _ ->
         iolist_to_binary(?JSON_ENCODE(JsonBody))
     end,
-    case ibrowse:send_req(Url, Headers, Action, Body, [{content_type, "application/json; charset=utf-8"}, {max_pipeline_size, 101}], 10000) of
+    Options = [
+        {content_type, "application/json; charset=utf-8"},
+        {max_pipeline_size, 101}
+    ],
+    case ibrowse:send_req(Url, Headers, Action, Body, Options, 10000) of
     {ok, Status, ResponseHeaders, ResponseBody} ->
         ResponseCode = list_to_integer(Status),
         if
-        ResponseCode >= 200, ResponseCode < 500 ->
-            if
-            ResponseCode >= 300, ResponseCode < 400 ->
-                do_http_request(mochiweb_headers:get_value("Location", mochiweb_headers:make(ResponseHeaders)),
-                    Action, Headers, JsonBody, Retries - 1);
-            true ->
-                ?JSON_DECODE(ResponseBody)
-            end;
+        ResponseCode >= 200, ResponseCode < 300 ->
+            ?JSON_DECODE(ResponseBody);
+        ResponseCode >= 300, ResponseCode < 400 ->
+            RedirectUrl = mochiweb_headers:get_value("Location", 
+                mochiweb_headers:make(ResponseHeaders)),
+            do_http_request(RedirectUrl, Action, Headers, JsonBody, Retries-1);
+        ResponseCode >= 400, ResponseCode < 500 -> 
+            ?JSON_DECODE(ResponseBody);        
         ResponseCode == 500 ->
-            ?LOG_DEBUG("Warning: retrying couch_rep HTTP client request due to 500 error: ~p: ~p", [Action, Url]),
+            ?LOG_INFO("retrying couch_rep HTTP ~p request due to 500 error: ~p",
+                [Action, Url]),
             do_http_request(Url, Action, Headers, JsonBody, Retries - 1)
         end;
     {error, Reason} ->
-        ?LOG_DEBUG("Warning: retrying couch_rep HTTP client request due to error: ~p", [Reason]),
+        ?LOG_INFO("retrying couch_rep HTTP ~p request due to {error, ~p}: ~p", 
+            [Action, Reason, Url]),
         do_http_request(Url, Action, Headers, JsonBody, Retries - 1)
     end.
 
