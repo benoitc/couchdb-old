@@ -91,26 +91,13 @@ var tests = {
     
     var request_count_tests = {
       'should increase the request count for every request': function(name) {
-        var requests = parseInt(CouchDB.requestStats("httpd", "request_count")) + 1;
+        var requests = parseInt(CouchDB.requestStats("httpd", "requests")) + 1;
 
         CouchDB.request("GET", "/");
 
-        var new_requests = parseInt(CouchDB.requestStats("httpd", "request_count"));
+        var new_requests = parseInt(CouchDB.requestStats("httpd", "requests"));
         T(requests >= 0, "requests >= 0", name);
         TEquals(requests + 1, new_requests, name);
-      },
-      'should return the average requests/s for the last minute': function(name) {
-        restartServer();
-        var requests = parseFloat(CouchDB.requestStats("httpd", "average_requests"));
-        TEquals(requests, 0.0, name);
-      },
-      'should return the average request/s for the last 5 and 15 minutes': function(name) {
-        restartServer();
-        var requests = parseInt(CouchDB.requestStats("httpd", "average_requests"), {"timeframe":5});
-        TEquals(requests, 0, name);
-
-        var requests = parseInt(CouchDB.requestStats("httpd", "average_requests"), {"timeframe":15});
-        TEquals(requests, 0, name);
       }
     };
     
@@ -406,7 +393,37 @@ var tests = {
 
         TEquals(not_founds, new_not_founds, name);
       }
-      
+    };
+
+    var aggregation_tests = {
+      'should return the average': function(name) {
+        CouchDB.request("GET", "/");
+
+        var average = parseInt(CouchDB.requestStats("httpd", "average_requests"));
+
+        T(average >= 0, name);
+      },
+      'should return the maximum': function(name) {
+        CouchDB.request("GET", "/");
+
+        var maximum = parseInt(CouchDB.requestStats("httpd", "max_requests"));
+
+        T(maximum >= 0, name);
+      },
+      'should return the minimum': function(name) {
+        CouchDB.request("GET", "/");
+
+        var minimum = parseInt(CouchDB.requestStats("httpd", "min_requests"));
+
+        T(minimum >= 0, name);
+      },
+      'should return the stddev': function(name) {
+        CouchDB.request("GET", "/");
+
+        var stddev = parseInt(CouchDB.requestStats("httpd", "stddev_requests"));
+
+        T(stddev >= 0, name);
+      }
     };
 
     var tests = [
@@ -416,9 +433,10 @@ var tests = {
       view_read_count_tests, 
       http_requests_by_method_tests,
       document_write_count_tests,
-      response_codes_tests
+      response_codes_tests,
+      aggregation_tests
     ];
-    
+
     for(var testGroup in tests) {
       for(var test in tests[testGroup]) {
         tests[testGroup][test](test);

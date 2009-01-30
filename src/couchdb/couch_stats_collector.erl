@@ -23,7 +23,7 @@
         terminate/2, code_change/3]).
 
 
--export([start/0, stop/0, get/1, increment/1, decrement/1]).
+-export([start/0, stop/0, get/1, increment/1, decrement/1, all/0]).
 
 -record(state, {}).
 
@@ -46,6 +46,9 @@ increment(Key) ->
 
 decrement(Key) ->
     gen_server:call(?MODULE, {decrement, Key}).
+
+all() ->
+    gen_server:call(?MODULE, all).
 
 % GEN_SERVER
     
@@ -74,13 +77,27 @@ handle_call({decrement, Key}, _, State) ->
     end,
     {reply, ok, State};
     
-% handle_call(reset, _, State) ->
-%     ets:insert(?MODULE, {Key, 0}),
-%     {reply, ok, 0};
-    
+handle_call(all, _, State) ->
+    {reply, ets:tab2list(?MODULE), State};
+
 handle_call(stop, _, State) ->
     {stop, normal, stopped, State}.
 
+
+% PRIVATE API
+
+insert_if(Condition, Key, Value) ->
+    case Condition of
+        true ->
+            ets:insert(?MODULE, {Key, Value});
+        _other -> ok
+    end.
+
+get_value(Key, Default) ->
+    case ets:lookup(?MODULE, Key) of
+        [] -> Default;
+        [{_Key, Other}] -> Other
+    end.
 
 % Unused gen_server behaviour API functions that we need to declare.
   
