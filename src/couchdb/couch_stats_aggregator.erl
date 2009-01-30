@@ -23,11 +23,12 @@
         terminate/2, code_change/3]).
 
 
--export([start/0, stop/0, get/1, get/2, time_passed/1]).
+-export([start/0, stop/0, get/1, get/2, time_passed/0]).
 
 -record(state, {}).
 
 -define(COLLECTOR, couch_stats_collector).
+-define(QUEUE_MAX_LENGTH, 900). % maximimum number of seconds
 
 % PUBLIC API
 
@@ -42,24 +43,31 @@ get(Key) ->
 get(Key, Options) ->
     gen_server:call(?MODULE, {get, Key, Options}).
 
-time_passed(Time) ->
-    gen_server:call(?MODULE, {time_passed, Time}).
+time_passed() ->
+    gen_server:call(?MODULE, time_passed).
 
 
 % GEN_SERVER
     
 init(_) ->
     ets:new(?MODULE, [named_table, set, protected]),
-    lists:map(fun(Time) -> init_counter(Time) end, [1, 5, 15]),
+    init_counter(),
     {ok, #state{}}.
 
-handle_call({get, {Module, Key}, Options}, _, State) ->
+handle_call({get, {ModuleBinary, Key}, Options}, _, State) ->
+    Module = b2a(ModuleBinary),
     Value = 
     case a2b(Key) of
         <<"average_",CollectorKey/binary>> ->
-            get_average(Module, CollectorKey, Options);
+            queue_extract_average(get_queue({Module, b2a(CollectorKey)}, Options));
+        <<"max_",CollectorKey/binary>> ->
+            queue_extract_max(get_queue({Module, b2a(CollectorKey)}, Options));
+        <<"min_",CollectorKey/binary>> ->
+            queue_extract_min(get_queue({Module, b2a(CollectorKey)}, Options));
+        <<"stddev_",CollectorKey/binary>> ->
+            queue_extract_stddev(get_queue({Module, b2a(CollectorKey)}, Options));
         _ -> 
-            ?COLLECTOR:get({b2a(Module), b2a(Key)})
+            ?COLLECTOR:get({Module, b2a(Key)})
     end,
     
     {reply, integer_to_binary(Value), State};
@@ -68,39 +76,72 @@ handle_call(stop, _, State) ->
     {stop, normal, stopped, State};
 
 % update all counters that match `Time` = int()
-handle_call({time_passed, Time}, _, State) ->
-    lists:foreach(fun(Counter) ->
-        {{Module, Key, _}, {_, PreviousCount}} = Counter,
-        CurrentCount = ?COLLECTOR:get({Module, get_collector_key(Key)}),
-        ets:insert(?MODULE, {{Module, Key, Time}, {PreviousCount, CurrentCount}})
-    end, ets:tab2list(?MODULE)),
+handle_call(time_passed, _, State) ->
+    % minmax
+    lists:foreach(fun(Counter) -> 
+        {Key, Count} = Counter,
+        Queue = maybe_initialise_queue(Key),
+        queue_append(Queue, Key, Count) % drops after QUEUE_MAX_LENGTH
+    end, ?COLLECTOR:all()),
     {reply, ok, State}.
 
 % PRIVATE API
 
-get_average_counters() ->
-    [{httpd, <<"previous_request_count">>}].
-
-get_average(Module, Key, Options) ->
-    Time = proplists:get_value("timeframe", Options, 1) * 60, % default to 1 minute, in seconds
-    case ets:lookup(?MODULE, {Module, <<"previous_",Key/binary>>, Time}) of
-        [] -> 0;
-        [{_, {PreviousCounter, CurrentCounter}}] ->
-            round((CurrentCounter - PreviousCounter) / Time)
+maybe_initialise_queue(Key) -> 
+    case ets:lookup(?MODULE, Key) of
+        [] -> queue:new();
+        [{Key, Queue}] -> Queue
     end.
 
-get_collector_key(Key) ->
-    <<"previous_", CollectorKey/binary>> = a2b(Key),
-    b2a(CollectorKey).
+queue_append(Queue, Key, Value) ->
+    NewQueue = queue_truncate(queue:in(Value, Queue)),
+    ets:insert(?MODULE, {Key, NewQueue}).
 
-init_counter(Time) ->
-    Seconds = Time * 60,
-    lists:map(
-        fun({Module, Key}) ->
-            start_timer(Seconds, fun() -> ?MODULE:time_passed(Seconds) end),
-            ets:insert(?MODULE, {{Module, Key, Time}, {0, 0}})
-        end, get_average_counters()).
+queue_truncate(Queue) ->
+    case queue:len(Queue) > ?QUEUE_MAX_LENGTH of
+        true -> 
+            {_Head, TruncatedQueue} = queue:out(Queue),
+            TruncatedQueue;
+        false -> Queue
+    end.
 
+get_queue(Key, Options) ->
+    Time = proplists:get_value("timeframe", Options, 60) + 1, % we need one more element to determine the differences between elements
+    [{_, Queue}] = ets:lookup(?MODULE, Key),
+    SplitLength = lists:min([Time, queue:len(Queue)]),
+    {QueueInTime, _} = queue:split(SplitLength, queue:reverse(Queue)),
+    queue:reverse(QueueInTime).
+
+queue_extract_average(Queue) ->
+    Differences = queue_to_differences_list(Queue),
+    round(list_average(Differences)).
+
+list_average(List) ->
+    lists:sum(List) / length(List).
+
+queue_extract_max(Queue) ->
+    lists:max(queue_to_differences_list(Queue)).
+    
+queue_extract_min(Queue) ->
+    lists:min(queue_to_differences_list(Queue)).
+
+queue_extract_stddev(Queue) ->
+    Differences = queue_to_differences_list(Queue),
+    Average = list_average(Differences),
+    Deviations = lists:map(fun(Elem) -> 
+        abs(Elem - Average)
+    end, Differences),
+    round(list_average(Deviations)).
+
+queue_to_differences_list(Queue) ->
+    [Head|List] = queue:to_list(Queue),
+    {_Prev, Result} = lists:foldl(fun(Elm, {Prev, AccList}) ->
+        {Elm, [Elm - Prev|AccList]}
+    end, {Head, []}, List),
+    Result.
+
+init_counter() ->
+    start_timer(1, fun() -> ?MODULE:time_passed() end). % fire every second
 
 start_timer(Time, Fun) ->
     spawn(fun() -> timer(Time * 1000, Fun) end).
@@ -170,20 +211,100 @@ should_handle_multiple_key_value_pairs_test() ->
 should_return_the_average_over_the_last_minute_test() ->
     test_helper(fun() ->
         lists:map(fun(_) ->
-            ?COLLECTOR:increment({httpd, request_count})
-        end, lists:seq(1, 200)),
-
-        ?MODULE:time_passed(60), % seconds
+            ?COLLECTOR:increment({httpd, request_count}),
+            ?COLLECTOR:increment({httpd, request_count}),
+            ?COLLECTOR:increment({httpd, request_count}),
+            ?MODULE:time_passed()
+        end, lists:seq(1, 60)),
         ?assertEqual(<<"3">>, ?MODULE:get({httpd, average_request_count}))
     end).
 
-should_return_the_average_over_the_last_five_minutes_test() ->
+should_return_the_max_value_per_second_over_time_test() ->
+    test_helper(fun() ->
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?MODULE:time_passed(), % seconds
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?MODULE:time_passed(), % seconds
+
+        Result = ?MODULE:get({httpd, max_request_count}, [{"timeframe", 60}]),
+        ?assertEqual(<<"3">>, Result)
+    end).
+
+should_return_the_min_value_per_second_over_time_test() ->
+    test_helper(fun() ->
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?MODULE:time_passed(), % seconds
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?MODULE:time_passed(), % seconds
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?MODULE:time_passed(), % seconds
+        Result = ?MODULE:get({httpd, min_request_count}, [{"timeframe", 60}]),
+        ?assertEqual(<<"2">>, Result)
+    end).
+
+should_return_the_max_value_per_second_over_the_given_time_period_only_test() ->
+    test_helper(fun() ->
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?MODULE:time_passed(), % seconds
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?MODULE:time_passed(), % seconds
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?MODULE:time_passed(), % seconds
+
+        Result = ?MODULE:get({httpd, max_request_count}, [{"timeframe", 1}]),
+        ?assertEqual(<<"2">>, Result)
+    end).
+    
+should_return_the_stddev_value_per_second_test() ->
+    test_helper(fun() ->
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?MODULE:time_passed(), % seconds
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?MODULE:time_passed(), % seconds
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?COLLECTOR:increment({httpd, request_count}),
+        ?MODULE:time_passed(), % seconds
+
+        Result = ?MODULE:get({httpd, stddev_request_count}),
+        ?assertEqual(<<"1">>, Result)
+    end).
+
+should_not_sample_more_than_QUEUE_MAX_LENGTH_seconds_test() ->
     test_helper(fun() ->
         lists:map(fun(_) ->
-            ?COLLECTOR:increment({httpd, request_count})
-        end, lists:seq(1, 2000)),
+            ?COLLECTOR:increment({httpd, request_count}),
+            ?COLLECTOR:increment({httpd, request_count}),
+            ?COLLECTOR:increment({httpd, request_count}),
+            ?COLLECTOR:increment({httpd, request_count}),
+            ?COLLECTOR:increment({httpd, request_count}),
+            ?COLLECTOR:increment({httpd, request_count}),
+            ?COLLECTOR:increment({httpd, request_count}),
+            ?COLLECTOR:increment({httpd, request_count}),
+            ?COLLECTOR:increment({httpd, request_count}),
+            ?COLLECTOR:increment({httpd, request_count}),
+            ?COLLECTOR:increment({httpd, request_count}),
+            ?MODULE:time_passed()
+        end, lists:seq(1, 100)),
+        lists:map(fun(_) ->
+            ?COLLECTOR:increment({httpd, request_count}),
+            ?MODULE:time_passed()
+        end, lists:seq(1, 900)),
 
-        ?MODULE:time_passed(300), % seconds
-        Result = ?MODULE:get({httpd, average_request_count}, [{"timeframe", list_to_integer("5")}]),
-        ?assertEqual(<<"7">>, Result)
+        Result = ?MODULE:get({httpd, average_request_count}, [{"timeframe", 1000}]),
+        ?assertEqual(<<"1">>, Result)
     end).

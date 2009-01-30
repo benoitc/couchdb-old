@@ -33,6 +33,7 @@ start_link(IniFiles) ->
 
 restart_core_server() ->
     catch couch_stats_collector:stop(), % TODO: move to more appropriate place
+    catch couch_stats_aggregator:stop(), % TODO: move to more appropriate place
     supervisor:terminate_child(couch_primary_services, couch_server),
     supervisor:restart_child(couch_primary_services, couch_server).
 
