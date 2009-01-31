@@ -19,6 +19,9 @@
     start_json_response/2,send_chunk/2,end_json_response/1,
     start_chunked_response/3, send_error/4]).
 
+handle_stats_req(#httpd{method='GET', path_parts=[_]}=Req) ->
+    send_json(Req, couch_stats_aggregator:all());
+
 handle_stats_req(#httpd{method='GET', path_parts=PathParts}=Req) ->
     [_Db, Module, Key] = PathParts,
     Options = couch_httpd:qs(Req),

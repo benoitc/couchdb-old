@@ -22,8 +22,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
         terminate/2, code_change/3]).
 
-
--export([start/0, stop/0, get/1, get/2, time_passed/0]).
+-export([start/0, stop/0, get/1, get/2, time_passed/0, all/0]).
 
 -record(state, {}).
 
@@ -46,6 +45,8 @@ get(Key, Options) ->
 time_passed() ->
     gen_server:call(?MODULE, time_passed).
 
+all() ->
+    gen_server:call(?MODULE, all).
 
 % GEN_SERVER
     
@@ -72,9 +73,6 @@ handle_call({get, {ModuleBinary, Key}, Options}, _, State) ->
     
     {reply, integer_to_binary(Value), State};
 
-handle_call(stop, _, State) ->
-    {stop, normal, stopped, State};
-
 % update all counters that match `Time` = int()
 handle_call(time_passed, _, State) ->
     % minmax
@@ -83,9 +81,41 @@ handle_call(time_passed, _, State) ->
         Queue = maybe_initialise_queue(Key),
         queue_append(Queue, Key, Count) % drops after QUEUE_MAX_LENGTH
     end, ?COLLECTOR:all()),
-    {reply, ok, State}.
+    {reply, ok, State};
+
+handle_call(all, _ , State) ->
+    Results = convert(?COLLECTOR:all()),
+    {reply, Results, State};
+
+handle_call(stop, _, State) ->
+    {stop, normal, stopped, State}.
+
+
 
 % PRIVATE API
+
+get_stats({{Module, Key}, Count}) ->
+    {[
+        {current, Count},
+        {average, queue_extract_average(get_queue({Module, b2a(Key)}))},
+        {min, queue_extract_min(get_queue({Module, b2a(Key)}))},
+        {max, queue_extract_max(get_queue({Module, b2a(Key)}))},
+        {stddev, queue_extract_stddev(get_queue({Module, b2a(Key)}))},
+        {timespan, 60}
+    ]}.
+
+convert(In) ->
+    [{LastMod, LastVals} | LastRestMods] = lists:foldl(fun({{Module, Key}, _Count} = Current, AccIn) ->
+        case AccIn of
+            [] ->
+                [{Module, [{Key, get_stats(Current)}]}];
+            [{Module, PrevVals} | RestMods] ->
+                [{Module, [{Key, get_stats(Current)} | PrevVals]} | RestMods];
+            [{OtherMod, ModVals} | RestMods] ->
+                [{Module, [{Key, get_stats(Current)}]}, {OtherMod, {lists:reverse(ModVals)}} | RestMods]
+        end
+    end, [], lists:sort(In)),
+    {[{LastMod, {lists:sort(LastVals)}} | LastRestMods]}.
 
 maybe_initialise_queue(Key) -> 
     case ets:lookup(?MODULE, Key) of
@@ -97,6 +127,7 @@ queue_append(Queue, Key, Value) ->
     NewQueue = queue_truncate(queue:in(Value, Queue)),
     ets:insert(?MODULE, {Key, NewQueue}).
 
+
 queue_truncate(Queue) ->
     case queue:len(Queue) > ?QUEUE_MAX_LENGTH of
         true -> 
@@ -105,9 +136,14 @@ queue_truncate(Queue) ->
         false -> Queue
     end.
 
+get_queue(Key) ->
+    get_queue(Key, []).
 get_queue(Key, Options) ->
     Time = proplists:get_value("timeframe", Options, 60) + 1, % we need one more element to determine the differences between elements
-    [{_, Queue}] = ets:lookup(?MODULE, Key),
+    [{_, Queue}] = case ets:lookup(?MODULE, Key) of
+        [] -> [{Key, queue:new()}];
+        Other -> Other
+    end,
     SplitLength = lists:min([Time, queue:len(Queue)]),
     {QueueInTime, _} = queue:split(SplitLength, queue:reverse(Queue)),
     queue:reverse(QueueInTime).
@@ -116,14 +152,27 @@ queue_extract_average(Queue) ->
     Differences = queue_to_differences_list(Queue),
     round(list_average(Differences)).
 
+list_average(List) when length(List) == 0 ->
+    0;
 list_average(List) ->
-    lists:sum(List) / length(List).
+    {Len, Sum} = lists:foldl(fun(Elem, {Len, SoFar}) -> 
+        {Len+1, SoFar + Elem} 
+    end, {0, 0}, List),
+    Sum / Len.
 
 queue_extract_max(Queue) ->
-    lists:max(queue_to_differences_list(Queue)).
+    List = queue_to_differences_list(Queue),
+    case length(List) of
+        0 -> 0;
+        _ -> lists:max(List)
+    end.
     
 queue_extract_min(Queue) ->
-    lists:min(queue_to_differences_list(Queue)).
+    List = queue_to_differences_list(Queue),
+    case length(List) of
+        0 -> 0;
+        _ -> lists:min(List)
+    end.
 
 queue_extract_stddev(Queue) ->
     Differences = queue_to_differences_list(Queue),
@@ -134,11 +183,15 @@ queue_extract_stddev(Queue) ->
     round(list_average(Deviations)).
 
 queue_to_differences_list(Queue) ->
-    [Head|List] = queue:to_list(Queue),
-    {_Prev, Result} = lists:foldl(fun(Elm, {Prev, AccList}) ->
-        {Elm, [Elm - Prev|AccList]}
-    end, {Head, []}, List),
-    Result.
+    case queue:len(Queue) of
+        0 -> [];
+        _ ->
+            [Head|List] = queue:to_list(Queue),
+            {_Prev, Result} = lists:foldl(fun(Elm, {Prev, AccList}) ->
+                {Elm, [Elm - Prev|AccList]}
+            end, {Head, []}, List),
+            Result
+    end.
 
 init_counter() ->
     start_timer(1, fun() -> ?MODULE:time_passed() end). % fire every second
@@ -246,9 +299,11 @@ should_return_the_min_value_per_second_over_time_test() ->
         ?COLLECTOR:increment({httpd, request_count}),
         ?COLLECTOR:increment({httpd, request_count}),
         ?MODULE:time_passed(), % seconds
+
         Result = ?MODULE:get({httpd, min_request_count}, [{"timeframe", 60}]),
         ?assertEqual(<<"2">>, Result)
     end).
+
 
 should_return_the_max_value_per_second_over_the_given_time_period_only_test() ->
     test_helper(fun() ->
@@ -307,4 +362,10 @@ should_not_sample_more_than_QUEUE_MAX_LENGTH_seconds_test() ->
 
         Result = ?MODULE:get({httpd, average_request_count}, [{"timeframe", 1000}]),
         ?assertEqual(<<"1">>, Result)
+    end).
+
+should_not_count_a_damn_thing_test() ->
+    test_helper(fun() ->
+        Result = ?MODULE:get({httpd, average_request_count}),
+        ?assertEqual(<<"0">>, Result)
     end).
