@@ -297,8 +297,12 @@ CouchDB.request = function(method, uri, options) {
 
 CouchDB.requestStats = function(module, key, options) {
   options = options || {};
+
+  var request_options = {};
+  request_options.headers = {"Content-Type": "application/json"};
+
   var stat = CouchDB.request("GET", "/_stats/" + module + "/" + key + 
-    "?" + CouchDB.params(options)).responseText;
+    "?" + CouchDB.params(options), request_options).responseText;
   return JSON.parse(stat)[module][key];
 }
 

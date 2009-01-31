@@ -86,18 +86,18 @@ handle_call(stop, _, State) ->
 
 % PRIVATE API
 
-insert_if(Condition, Key, Value) ->
-    case Condition of
-        true ->
-            ets:insert(?MODULE, {Key, Value});
-        _other -> ok
-    end.
-
-get_value(Key, Default) ->
-    case ets:lookup(?MODULE, Key) of
-        [] -> Default;
-        [{_Key, Other}] -> Other
-    end.
+% insert_if(Condition, Key, Value) ->
+%     case Condition of
+%         true ->
+%             ets:insert(?MODULE, {Key, Value});
+%         _other -> ok
+%     end.
+% 
+% get_value(Key, Default) ->
+%     case ets:lookup(?MODULE, Key) of
+%         [] -> Default;
+%         [{_Key, Other}] -> Other
+%     end.
 
 % Unused gen_server behaviour API functions that we need to declare.
   

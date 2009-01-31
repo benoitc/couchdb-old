@@ -426,6 +426,19 @@ var tests = {
       }
     };
 
+    var summary_tests = {
+      'should show a summary of all counters with aggregated values': function(name) {
+        var options = {};
+        options.headers = {"Accept": "application/json"};
+        var summary = JSON.parse(CouchDB.request("GET", "/_stats", options).responseText);
+        var aggregates = ["average", "min", "max", "stddev"];
+
+        for(var i in aggregates) {
+          T(summary.httpd.requests[aggregates[i]] >= 0, name);
+        }
+      }
+    };
+
     var tests = [
       open_databases_tests, 
       request_count_tests, 
