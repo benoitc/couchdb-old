@@ -71,7 +71,7 @@ handle_call({get, {ModuleBinary, Key}, Options}, _, State) ->
             ?COLLECTOR:get({Module, b2a(Key)})
     end,
     
-    {reply, integer_to_binary(Value), State};
+    {reply, number_to_binary(Value), State};
 
 % update all counters that match `Time` = int()
 handle_call(time_passed, _, State) ->
@@ -97,10 +97,10 @@ handle_call(stop, _, State) ->
 get_stats({{Module, Key}, Count}) ->
     {[
         {current, Count},
-        {average, queue_extract_average(get_queue({Module, b2a(Key)}))},
-        {min, queue_extract_min(get_queue({Module, b2a(Key)}))},
-        {max, queue_extract_max(get_queue({Module, b2a(Key)}))},
-        {stddev, queue_extract_stddev(get_queue({Module, b2a(Key)}))},
+        {average, number_to_binary(queue_extract_average(get_queue({Module, b2a(Key)})))},
+        {min, number_to_binary(queue_extract_min(get_queue({Module, b2a(Key)})))},
+        {max, number_to_binary(queue_extract_max(get_queue({Module, b2a(Key)})))},
+        {stddev, number_to_binary(queue_extract_stddev(get_queue({Module, b2a(Key)})))},
         {timespan, 60}
     ]}.
 
@@ -150,10 +150,10 @@ get_queue(Key, Options) ->
 
 queue_extract_average(Queue) ->
     Differences = queue_to_differences_list(Queue),
-    round(list_average(Differences)).
+    list_average(Differences).
 
 list_average(List) when length(List) == 0 ->
-    0;
+    0.0;
 list_average(List) ->
     {Len, Sum} = lists:foldl(fun(Elem, {Len, SoFar}) -> 
         {Len+1, SoFar + Elem} 
@@ -180,7 +180,7 @@ queue_extract_stddev(Queue) ->
     Deviations = lists:map(fun(Elem) -> 
         abs(Elem - Average)
     end, Differences),
-    round(list_average(Deviations)).
+    list_average(Deviations).
 
 queue_to_differences_list(Queue) ->
     case queue:len(Queue) of
@@ -209,8 +209,12 @@ timer(Time, Fun) ->
 
 % UTILS
 
-integer_to_binary(Integer) ->
-    list_to_binary(integer_to_list(Integer)).
+number_to_binary(Integer) when is_integer(Integer)  ->
+    list_to_binary(integer_to_list(Integer));
+number_to_binary(Float) when is_float(Float) ->
+	List = float_to_list(Float),
+	{match, Start, Length} = regexp:match(List, "[0-9]\\.[0-9][0-9]"),
+	list_to_binary(lists:sublist(List, Start, Length)).
 
 b2a(Binary) when is_atom(Binary)->
     Binary;
@@ -269,7 +273,7 @@ should_return_the_average_over_the_last_minute_test() ->
             ?COLLECTOR:increment({httpd, request_count}),
             ?MODULE:time_passed()
         end, lists:seq(1, 60)),
-        ?assertEqual(<<"3">>, ?MODULE:get({httpd, average_request_count}))
+        ?assertEqual(<<"3.00">>, ?MODULE:get({httpd, average_request_count}))
     end).
 
 should_return_the_max_value_per_second_over_time_test() ->
@@ -336,7 +340,7 @@ should_return_the_stddev_value_per_second_test() ->
         ?MODULE:time_passed(), % seconds
 
         Result = ?MODULE:get({httpd, stddev_request_count}),
-        ?assertEqual(<<"1">>, Result)
+        ?assertEqual(<<"1.00">>, Result)
     end).
 
 should_not_sample_more_than_QUEUE_MAX_LENGTH_seconds_test() ->
@@ -361,11 +365,11 @@ should_not_sample_more_than_QUEUE_MAX_LENGTH_seconds_test() ->
         end, lists:seq(1, 900)),
 
         Result = ?MODULE:get({httpd, average_request_count}, [{"timeframe", 1000}]),
-        ?assertEqual(<<"1">>, Result)
+        ?assertEqual(<<"1.00">>, Result)
     end).
 
-should_not_count_a_damn_thing_test() ->
+should_return_zero_if_nothing_has_been_counted_yet_test() ->
     test_helper(fun() ->
         Result = ?MODULE:get({httpd, average_request_count}),
-        ?assertEqual(<<"0">>, Result)
+        ?assertEqual(<<"0.00">>, Result)
     end).
