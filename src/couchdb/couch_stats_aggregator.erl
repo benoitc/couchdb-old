@@ -212,9 +212,8 @@ timer(Time, Fun) ->
 number_to_binary(Integer) when is_integer(Integer)  ->
     list_to_binary(integer_to_list(Integer));
 number_to_binary(Float) when is_float(Float) ->
-	List = float_to_list(Float),
-	{match, Start, Length} = regexp:match(List, "[0-9]\\.[0-9][0-9]"),
-	list_to_binary(lists:sublist(List, Start, Length)).
+	[List|_Tail] = (io_lib:fwrite("~.2f", [Float])),
+	list_to_binary(List).
 
 b2a(Binary) when is_atom(Binary)->
     Binary;
