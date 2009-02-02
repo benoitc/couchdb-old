@@ -26,8 +26,8 @@ handle_stats_req(#httpd{method='GET', path_parts=PathParts}=Req) ->
     [_Db, Module, Key] = PathParts,
     Options = couch_httpd:qs(Req),
 
-    Count = couch_stats_aggregator:get({Module, Key}, Options),
-    Response = {[{Module, {[{Key, Count}]}}]},
+    Stats = couch_stats_aggregator:get({Module, Key}, Options),
+    Response = {[{Module, {[{Key, Stats}]}}]},
     send_json(Req, Response);
 handle_stats_req(Req) ->
     send_method_not_allowed(Req, "GET").

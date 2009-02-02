@@ -438,10 +438,11 @@ var tests = {
         var options = {};
         options.headers = {"Accept": "application/json"};
         var summary = JSON.parse(CouchDB.request("GET", "/_stats", options).responseText);
-        var aggregates = ["average", "min", "max", "stddev"];
+        var aggregates = ["average", "min", "max", "stddev", 
+          "current", "resolution"];
 
         for(var i in aggregates) {
-          T(summary.httpd.requests[aggregates[i]] >= 0, name);
+          T(summary.httpd.requests[aggregates[i]] >= 0, aggregates[i] + " >= 0", name);
         }
       }
     };

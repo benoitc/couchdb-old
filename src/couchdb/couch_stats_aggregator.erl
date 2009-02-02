@@ -101,7 +101,8 @@ get_stats({{Module, Key}, Count}) ->
         {min, number_to_binary(queue_extract_min(get_queue({Module, b2a(Key)})))},
         {max, number_to_binary(queue_extract_max(get_queue({Module, b2a(Key)})))},
         {stddev, number_to_binary(queue_extract_stddev(get_queue({Module, b2a(Key)})))},
-        {timespan, 60}
+        {timespan, 60},
+        {resolution, 1}
     ]}.
 
 convert(In) ->
