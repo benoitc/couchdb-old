@@ -26,9 +26,6 @@
 -export([default_authentication_handler/1,special_test_authentication_handler/1]).
 
 
-% Maximum size of document PUT request body (4GB)
--define(MAX_DOC_SIZE, (4*1024*1024*1024)).
-
 start_link() ->
     % read config and register for configuration changes
 
@@ -274,10 +271,13 @@ recv(#httpd{mochi_req=MochiReq}, Len) ->
     MochiReq:recv(Len).
 
 body(#httpd{mochi_req=MochiReq}) ->
-    MochiReq:recv_body(?MAX_DOC_SIZE).
+    % Maximum size of document PUT request body (4GB)
+    MaxSize = list_to_integer(
+        couch_config:get("couchdb", "max_document_size", "4294967296")),
+    MochiReq:recv_body(MaxSize).
 
-json_body(#httpd{mochi_req=MochiReq}) ->
-    ?JSON_DECODE(MochiReq:recv_body(?MAX_DOC_SIZE)).
+json_body(Httpd) ->
+    ?JSON_DECODE(body(Httpd)).
 
 doc_etag(#doc{revs=[DiskRev|_]}) ->
     "\"" ++ binary_to_list(DiskRev) ++ "\"".
@@ -383,7 +383,7 @@ send_error(Req, not_found) ->
 send_error(Req, {not_found, Reason}) ->
     send_error(Req, 404, <<"not_found">>, Reason);
 send_error(Req, conflict) ->
-    send_error(Req, 412, <<"conflict">>, <<"Document update conflict.">>);
+    send_error(Req, 409, <<"conflict">>, <<"Document update conflict.">>);
 send_error(Req, {forbidden, Msg}) ->
     send_json(Req, 403,
         {[{<<"error">>,  <<"forbidden">>},
@@ -409,7 +409,7 @@ send_error(Req, {user_error, {Props}}) ->
         {[{<<"error">>, proplists:get_value(<<"error">>, Props)},
             {<<"reason">>, proplists:get_value(<<"reason">>, Props)}]});
 send_error(Req, file_exists) ->
-    send_error(Req, 409, <<"file_exists">>, <<"The database could not be "
+    send_error(Req, 412, <<"file_exists">>, <<"The database could not be "
         "created, the file already exists.">>);
 send_error(Req, {Error, Reason}) ->
     send_error(Req, 500, Error, Reason);
