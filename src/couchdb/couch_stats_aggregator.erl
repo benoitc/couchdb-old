@@ -22,9 +22,19 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
         terminate/2, code_change/3]).
 
--export([start/0, stop/0, get/1, get/2, time_passed/0, all/0]).
+-export([start/0, stop/0, get/1, get/2, set/2, time_passed/0, all/0]).
 
--record(state, {}).
+-record(state, {
+    absolute_aggregates = []
+}).
+
+-record(aggregates, {
+    min=0,
+    max=0,
+    mean=0.0,
+    stddev=0.0,
+    count=0
+}).
 
 -define(COLLECTOR, couch_stats_collector).
 -define(QUEUE_MAX_LENGTH, 900). % maximimum number of seconds
@@ -41,6 +51,9 @@ get(Key) ->
     get(Key, []).
 get(Key, Options) ->
     gen_server:call(?MODULE, {get, Key, Options}).
+
+set(Key, Value) ->
+    gen_server:call(?MODULE, {set, Key, Value}).
 
 time_passed() ->
     gen_server:call(?MODULE, time_passed).
@@ -60,18 +73,25 @@ handle_call({get, {ModuleBinary, Key}, Options}, _, State) ->
     Value = 
     case a2b(Key) of
         <<"average_",CollectorKey/binary>> ->
-            queue_extract_average(get_queue({Module, b2a(CollectorKey)}, Options));
+            number_to_binary(queue_extract_average(get_queue({Module, b2a(CollectorKey)}, Options)));
         <<"max_",CollectorKey/binary>> ->
-            queue_extract_max(get_queue({Module, b2a(CollectorKey)}, Options));
+            number_to_binary(queue_extract_max(get_queue({Module, b2a(CollectorKey)}, Options)));
         <<"min_",CollectorKey/binary>> ->
-            queue_extract_min(get_queue({Module, b2a(CollectorKey)}, Options));
+            number_to_binary(queue_extract_min(get_queue({Module, b2a(CollectorKey)}, Options)));
         <<"stddev_",CollectorKey/binary>> ->
-            queue_extract_stddev(get_queue({Module, b2a(CollectorKey)}, Options));
+            number_to_binary(queue_extract_stddev(get_queue({Module, b2a(CollectorKey)}, Options)));
+        <<"aggregate_",CollectorKey/binary>> ->
+            get_aggregate({Module, b2a(Key)}, State);
         _ -> 
-            ?COLLECTOR:get({Module, b2a(Key)})
+            number_to_binary(?COLLECTOR:get({Module, b2a(Key)}))
     end,
     
-    {reply, number_to_binary(Value), State};
+    {reply, Value, State};
+
+handle_call({set, Key, Value}, _, State) ->
+    #state{absolute_aggregates=Stats} = State,
+    NewState = update_aggregates(Key, Value, State),
+    {reply, ok, NewState};
 
 % update all counters that match `Time` = int()
 handle_call(time_passed, _, State) ->
@@ -80,6 +100,8 @@ handle_call(time_passed, _, State) ->
         {Key, Count} = Counter,
         Queue = maybe_initialise_queue(Key),
         queue_append(Queue, Key, Count) % drops after QUEUE_MAX_LENGTH
+
+        % set_stats(Counter)
     end, ?COLLECTOR:all()),
     {reply, ok, State};
 
@@ -91,8 +113,56 @@ handle_call(stop, _, State) ->
     {stop, normal, stopped, State}.
 
 
-
 % PRIVATE API
+
+get_aggregate(Key, #state{absolute_aggregates=Stats}) ->
+    Aggregates = case proplists:lookup(Key, Stats) of
+        none -> #aggregates{};
+        {Key, Other} -> Other
+    end,
+    Aggregates.
+    % aggregates_to_tuple(Aggregates).
+
+aggregates_to_tuple(#aggregates{min=Min,max=Max,mean=Mean,stddev=Stddev,count=Count}) ->
+    {[
+        {current, 0},
+        {average, Mean},
+        {min, Min},
+        {max, Max},
+        {stddev, Stddev},
+        {timespan, get_start_time()},
+        {resolution, 0}
+    ]}.
+
+get_start_time() ->
+    case whereis(couch_server) of
+        undefined -> 0; % in testing
+        _ -> 
+            [{start_time, Date}, _] = couch_server:get_stats(),
+            calendar:time_to_seconds(httpd_util:convert_request_date(Date))
+    end.
+
+update_aggregates(Key, Value, #state{absolute_aggregates=Stats}) ->
+    NewValues = case proplists:lookup(Key, Stats) of
+        none -> #aggregates{
+            min=Value,
+            max=Value,
+            mean=Value,
+            stddev=0,
+            count=1
+        };
+        % Knuth, The Art of Computer Programming, vol. 2, p. 232. 
+        [#aggregates{min=Min,max=Max,mean=Mean,stddev=Stddev,count=Count}] ->
+            NewMean = Mean + (Value - Mean) / Count, % Count is never 0.
+            #aggregates{
+                min=lists:min([Value, Min]),
+                max=lists:max([Value, Max]),
+                mean=NewMean,
+                stddev=Stddev = (Value - Mean) * (Value - NewMean),
+                count=Count + 1
+            }
+    end,
+    #state{absolute_aggregates=proplists:compact([{Key, NewValues} | Stats])}.
 
 get_stats({{Module, Key}, Count}) ->
     {[
@@ -373,3 +443,13 @@ should_return_zero_if_nothing_has_been_counted_yet_test() ->
         Result = ?MODULE:get({httpd, average_request_count}),
         ?assertEqual(<<"0.00">>, Result)
     end).
+
+should_set_aggregate_counter_test() ->
+    test_helper(fun() -> 
+        ?MODULE:set({couchdb, aggregate_request_time}, 20),
+
+        #aggregates{min=Min} = ?MODULE:get({couchdb, aggregate_request_time}),
+        ?assertEqual(20, Min)
+    end).
+
+    
