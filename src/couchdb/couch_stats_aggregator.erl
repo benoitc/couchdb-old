@@ -72,8 +72,8 @@ handle_call({get, {ModuleBinary, Key}, Options}, _, State) ->
     Module = b2a(ModuleBinary),
     Value = 
     case a2b(Key) of
-        <<"average_",CollectorKey/binary>> ->
-            number_to_binary(queue_extract_average(get_queue({Module, b2a(CollectorKey)}, Options)));
+        <<"mean_",CollectorKey/binary>> ->
+            number_to_binary(queue_extract_mean(get_queue({Module, b2a(CollectorKey)}, Options)));
         <<"max_",CollectorKey/binary>> ->
             number_to_binary(queue_extract_max(get_queue({Module, b2a(CollectorKey)}, Options)));
         <<"min_",CollectorKey/binary>> ->
@@ -126,7 +126,7 @@ get_aggregate(Key, #state{absolute_aggregates=Stats}) ->
 aggregates_to_tuple(#aggregates{min=Min,max=Max,mean=Mean,stddev=Stddev,count=Count}) ->
     {[
         {current, 0},
-        {average, Mean},
+        {mean, Mean},
         {min, Min},
         {max, Max},
         {stddev, Stddev},
@@ -167,7 +167,7 @@ update_aggregates(Key, Value, #state{absolute_aggregates=Stats}) ->
 get_stats({{Module, Key}, Count}) ->
     {[
         {current, Count},
-        {average, number_to_binary(queue_extract_average(get_queue({Module, b2a(Key)})))},
+        {mean, number_to_binary(queue_extract_mean(get_queue({Module, b2a(Key)})))},
         {min, number_to_binary(queue_extract_min(get_queue({Module, b2a(Key)})))},
         {max, number_to_binary(queue_extract_max(get_queue({Module, b2a(Key)})))},
         {stddev, number_to_binary(queue_extract_stddev(get_queue({Module, b2a(Key)})))},
@@ -219,13 +219,13 @@ get_queue(Key, Options) ->
     {QueueInTime, _} = queue:split(SplitLength, queue:reverse(Queue)),
     queue:reverse(QueueInTime).
 
-queue_extract_average(Queue) ->
+queue_extract_mean(Queue) ->
     Differences = queue_to_differences_list(Queue),
-    list_average(Differences).
+    list_mean(Differences).
 
-list_average(List) when length(List) == 0 ->
+list_mean(List) when length(List) == 0 ->
     0.0;
-list_average(List) ->
+list_mean(List) ->
     {Len, Sum} = lists:foldl(fun(Elem, {Len, SoFar}) -> 
         {Len+1, SoFar + Elem} 
     end, {0, 0}, List),
@@ -247,11 +247,11 @@ queue_extract_min(Queue) ->
 
 queue_extract_stddev(Queue) ->
     Differences = queue_to_differences_list(Queue),
-    Average = list_average(Differences),
+    Average = list_mean(Differences),
     Deviations = lists:map(fun(Elem) -> 
         abs(Elem - Average)
     end, Differences),
-    list_average(Deviations).
+    list_mean(Deviations).
 
 queue_to_differences_list(Queue) ->
     case queue:len(Queue) of
@@ -335,7 +335,7 @@ should_handle_multiple_key_value_pairs_test() ->
         ?assertEqual(<<"0">>, ?MODULE:get({couch_db, request_count}))
     end).
 
-should_return_the_average_over_the_last_minute_test() ->
+should_return_the_mean_over_the_last_minute_test() ->
     test_helper(fun() ->
         lists:map(fun(_) ->
             ?COLLECTOR:increment({httpd, request_count}),
@@ -343,7 +343,7 @@ should_return_the_average_over_the_last_minute_test() ->
             ?COLLECTOR:increment({httpd, request_count}),
             ?MODULE:time_passed()
         end, lists:seq(1, 60)),
-        ?assertEqual(<<"3.00">>, ?MODULE:get({httpd, average_request_count}))
+        ?assertEqual(<<"3.00">>, ?MODULE:get({httpd, mean_request_count}))
     end).
 
 should_return_the_max_value_per_second_over_time_test() ->
@@ -434,13 +434,13 @@ should_not_sample_more_than_QUEUE_MAX_LENGTH_seconds_test() ->
             ?MODULE:time_passed()
         end, lists:seq(1, 900)),
 
-        Result = ?MODULE:get({httpd, average_request_count}, [{"timeframe", 1000}]),
+        Result = ?MODULE:get({httpd, mean_request_count}, [{"timeframe", 1000}]),
         ?assertEqual(<<"1.00">>, Result)
     end).
 
 should_return_zero_if_nothing_has_been_counted_yet_test() ->
     test_helper(fun() ->
-        Result = ?MODULE:get({httpd, average_request_count}),
+        Result = ?MODULE:get({httpd, mean_request_count}),
         ?assertEqual(<<"0.00">>, Result)
     end).
 

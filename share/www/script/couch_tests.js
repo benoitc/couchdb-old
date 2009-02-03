@@ -403,12 +403,12 @@ var tests = {
     };
 
     var aggregation_tests = {
-      'should return the average': function(name) {
+      'should return the mean': function(name) {
         CouchDB.request("GET", "/");
 
-        var average = parseInt(CouchDB.requestStats("httpd", "average_requests"));
+        var mean = parseInt(CouchDB.requestStats("httpd", "mean_requests"));
 
-        T(average >= 0, name);
+        T(mean >= 0, name);
       },
       'should return the maximum': function(name) {
         CouchDB.request("GET", "/");
@@ -438,7 +438,7 @@ var tests = {
         var options = {};
         options.headers = {"Accept": "application/json"};
         var summary = JSON.parse(CouchDB.request("GET", "/_stats", options).responseText);
-        var aggregates = ["average", "min", "max", "stddev", 
+        var aggregates = ["mean", "min", "max", "stddev", 
           "current", "resolution"];
 
         for(var i in aggregates) {
