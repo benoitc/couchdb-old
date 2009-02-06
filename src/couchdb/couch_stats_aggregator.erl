@@ -83,6 +83,7 @@ handle_call({get, {ModuleBinary, Key}, Options}, _, State) ->
         <<"aggregate_",CollectorKey/binary>> ->
             get_aggregate({Module, b2a(Key)}, State);
         _ -> 
+            % get the raw counter value
             number_to_binary(?COLLECTOR:get({Module, b2a(Key)}))
     end,
     

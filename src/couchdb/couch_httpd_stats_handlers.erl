@@ -22,8 +22,8 @@
 handle_stats_req(#httpd{method='GET', path_parts=[_]}=Req) ->
     send_json(Req, couch_stats_aggregator:all());
 
-handle_stats_req(#httpd{method='GET', path_parts=PathParts}=Req) ->
-    [_Db, Module, Key] = PathParts,
+handle_stats_req(#httpd{method='GET', path_parts=[_Db, Module, Key]}=Req) ->
+    ?LOG_DEBUG("PATH ~p",[{_Db, Module, Key}]),
     Options = couch_httpd:qs(Req),
 
     Stats = couch_stats_aggregator:get({Module, Key}, Options),
