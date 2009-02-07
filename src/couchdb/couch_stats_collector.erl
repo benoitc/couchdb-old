@@ -184,24 +184,25 @@ should_restart_module_should_create_new_pid_test() ->
         ?assertNot(whereis(?MODULE) =:= OldPid)
     end).
 
-should_increse_max_value_for_request_time_test() ->
-    test_helper(fun() -> 
-        ?MODULE:update({max, {httpd, request_time}, 200}),
-        ?MODULE:update({max, {httpd, request_time}, 400}),
-        ?assertEqual(400, ?MODULE:get({max, {httpd, request_time}}))
-    end).
-
-should_not_decrese_max_value_for_request_time_test() ->
-    test_helper(fun() -> 
-        ?MODULE:update({max, {httpd, request_time}, 500}),
-        ?MODULE:update({max, {httpd, request_time}, 400}),
-        ?assertEqual(500, ?MODULE:get({max, {httpd, request_time}}))
-    end).
-
-should_decrese_min_value_for_request_time_test() ->
-    test_helper(fun() -> 
-        ?MODULE:update({min, {httpd, request_time}, 400}),
-        ?MODULE:update({min, {httpd, request_time}, 200}),
-        ?assertEqual(200, ?MODULE:get({min, {httpd, request_time}}))
-    end).
+% update is pushed to knuth stuff
+% should_increse_max_value_for_request_time_test() ->
+%     test_helper(fun() -> 
+%         ?MODULE:update({max, {httpd, request_time}, 200}),
+%         ?MODULE:update({max, {httpd, request_time}, 400}),
+%         ?assertEqual(400, ?MODULE:get({max, {httpd, request_time}}))
+%     end).
+% 
+% should_not_decrese_max_value_for_request_time_test() ->
+%     test_helper(fun() -> 
+%         ?MODULE:update({max, {httpd, request_time}, 500}),
+%         ?MODULE:update({max, {httpd, request_time}, 400}),
+%         ?assertEqual(500, ?MODULE:get({max, {httpd, request_time}}))
+%     end).
+% 
+% should_decrese_min_value_for_request_time_test() ->
+%     test_helper(fun() -> 
+%         ?MODULE:update({min, {httpd, request_time}, 400}),
+%         ?MODULE:update({min, {httpd, request_time}, 200}),
+%         ?assertEqual(200, ?MODULE:get({min, {httpd, request_time}}))
+%     end).
 

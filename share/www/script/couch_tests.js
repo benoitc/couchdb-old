@@ -406,21 +406,21 @@ var tests = {
       'should return the mean': function(name) {
         CouchDB.request("GET", "/");
 
-        var mean = parseInt(CouchDB.requestStats("httpd", "mean_requests"));
+        var mean = parseInt(CouchDB.requestStats("httpd", "requests", "mean"));
 
         T(mean >= 0, name);
       },
       'should return the maximum': function(name) {
         CouchDB.request("GET", "/");
 
-        var maximum = parseInt(CouchDB.requestStats("httpd", "max_requests"));
+        var maximum = parseInt(CouchDB.requestStats("httpd", "requests","max"));
 
         T(maximum >= 0, name);
       },
       'should return the minimum': function(name) {
         CouchDB.request("GET", "/");
 
-        var minimum = parseInt(CouchDB.requestStats("httpd", "min_requests"));
+        var minimum = parseInt(CouchDB.requestStats("httpd", "requests", "min"));
 
         T(minimum >= 0, name);
       },

@@ -70,25 +70,14 @@ init(_) ->
 
 handle_call({get, {ModuleBinary, Key}, Options}, _, State) ->
     Module = b2a(ModuleBinary),
-    Value = 
-    case a2b(Key) of
-        <<"mean_",CollectorKey/binary>> ->
-            number_to_binary(queue_extract_mean(get_queue({Module, b2a(CollectorKey)}, Options)));
-        <<"max_",CollectorKey/binary>> ->
-            number_to_binary(queue_extract_max(get_queue({Module, b2a(CollectorKey)}, Options)));
-        <<"min_",CollectorKey/binary>> ->
-            number_to_binary(queue_extract_min(get_queue({Module, b2a(CollectorKey)}, Options)));
-        <<"stddev_",CollectorKey/binary>> ->
-            number_to_binary(queue_extract_stddev(get_queue({Module, b2a(CollectorKey)}, Options)));
-        <<"aggregate_",CollectorKey/binary>> ->
-            get_aggregate({Module, b2a(Key)}, State);
-        _ -> 
-            % get the raw counter value
-            number_to_binary(?COLLECTOR:get({Module, b2a(Key)}))
-    end,
-    
+    Value = number_to_binary(?COLLECTOR:get({Module, b2a(Key)})),
     {reply, Value, State};
 
+handle_call({get, {ModuleBinary, Key, AggType}, Options}, _, State) ->
+    Module = b2a(ModuleBinary),
+    Value = get_aggregate_type(b2a(AggType), Module, b2a(Key), Options, State),
+    {reply, Value, State};
+    
 handle_call({set, Key, Value}, _, State) ->
     #state{absolute_aggregates=Stats} = State,
     NewState = update_aggregates(Key, Value, State),
@@ -115,6 +104,19 @@ handle_call(stop, _, State) ->
 
 
 % PRIVATE API
+
+% ye' old case statment
+get_aggregate_type(mean, Module, Key, Options, _State) ->
+    number_to_binary(queue_extract_mean(get_queue({Module, Key}, Options)));
+get_aggregate_type(max, Module, Key, Options, _State) ->
+    number_to_binary(queue_extract_max(get_queue({Module, Key}, Options)));   
+get_aggregate_type(min, Module, Key, Options, _State) ->
+    number_to_binary(queue_extract_min(get_queue({Module, Key}, Options)));   
+get_aggregate_type(stddev, Module, Key, Options, _State) ->
+    number_to_binary(queue_extract_stddev(get_queue({Module, Key}, Options)));   
+    % _State is only used by this one. this smell suggests that knuth-style aggs will get their own module.
+get_aggregate_type(aggregate, Module, Key, Options, State) ->
+    get_aggregate({Module, Key}, State).
 
 get_aggregate(Key, #state{absolute_aggregates=Stats}) ->
     Aggregates = case proplists:lookup(Key, Stats) of
