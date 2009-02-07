@@ -22,7 +22,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
         terminate/2, code_change/3]).
 
--export([start/0, stop/0, get/1, get/2, set/2, time_passed/0, all/0]).
+-export([start/0, stop/0, get/1, get/2, record/2, time_passed/0, all/0]).
 
 -record(state, {
     absolute_aggregates = []
@@ -32,6 +32,7 @@
     min=0,
     max=0,
     mean=0.0,
+    variance = 0.0,
     stddev=0.0,
     count=0
 }).
@@ -52,8 +53,8 @@ get(Key) ->
 get(Key, Options) ->
     gen_server:call(?MODULE, {get, Key, Options}).
 
-set(Key, Value) ->
-    gen_server:call(?MODULE, {set, Key, Value}).
+record(Key, Value) ->
+    gen_server:call(?MODULE, {record, Key, Value}).
 
 time_passed() ->
     gen_server:call(?MODULE, time_passed).
@@ -78,7 +79,7 @@ handle_call({get, {ModuleBinary, Key, AggType}, Options}, _, State) ->
     Value = get_aggregate_type(b2a(AggType), Module, b2a(Key), Options, State),
     {reply, Value, State};
     
-handle_call({set, Key, Value}, _, State) ->
+handle_call({record, Key, Value}, _, State) ->
     #state{absolute_aggregates=Stats} = State,
     NewState = update_aggregates(Key, Value, State),
     {reply, ok, NewState};
@@ -145,27 +146,31 @@ get_start_time() ->
             calendar:time_to_seconds(httpd_util:convert_request_date(Date))
     end.
 
-update_aggregates(Key, Value, #state{absolute_aggregates=Stats}) ->
+update_aggregates(Key, Value, #state{absolute_aggregates=Stats}=State) ->
     NewValues = case proplists:lookup(Key, Stats) of
         none -> #aggregates{
             min=Value,
             max=Value,
             mean=Value,
+            variance=0,
             stddev=0,
             count=1
         };
         % Knuth, The Art of Computer Programming, vol. 2, p. 232. 
-        [#aggregates{min=Min,max=Max,mean=Mean,stddev=Stddev,count=Count}] ->
-            NewMean = Mean + (Value - Mean) / Count, % Count is never 0.
+        {_Key, #aggregates{min=Min,max=Max,mean=Mean,variance=Variance,stddev=Stddev,count=Count}} ->
+            NewCount = Count + 1,
+            NewMean = Mean + (Value - Mean) / (NewCount), % Count is never 0.
+            NewVariance = Variance + (Value - Mean) * (Value - NewMean),
             #aggregates{
                 min=lists:min([Value, Min]),
                 max=lists:max([Value, Max]),
                 mean=NewMean,
-                stddev=Stddev = (Value - Mean) * (Value - NewMean),
-                count=Count + 1
+                variance = NewVariance,
+                stddev= math:sqrt(NewVariance / NewCount),
+                count=NewCount
             }
     end,
-    #state{absolute_aggregates=proplists:compact([{Key, NewValues} | Stats])}.
+    #state{absolute_aggregates=[{Key, NewValues} | proplists:delete(Key, Stats)]}.
 
 get_stats({{Module, Key}, Count}) ->
     {[
@@ -346,7 +351,7 @@ should_return_the_mean_over_the_last_minute_test() ->
             ?COLLECTOR:increment({httpd, request_count}),
             ?MODULE:time_passed()
         end, lists:seq(1, 60)),
-        ?assertEqual(<<"3.00">>, ?MODULE:get({httpd, mean_request_count}))
+        ?assertEqual(<<"3.00">>, ?MODULE:get({httpd, request_count, mean}))
     end).
 
 should_return_the_max_value_per_second_over_time_test() ->
@@ -359,7 +364,7 @@ should_return_the_max_value_per_second_over_time_test() ->
         ?COLLECTOR:increment({httpd, request_count}),
         ?MODULE:time_passed(), % seconds
 
-        Result = ?MODULE:get({httpd, max_request_count}, [{"timeframe", 60}]),
+        Result = ?MODULE:get({httpd, request_count, max}, [{"timeframe", 60}]),
         ?assertEqual(<<"3">>, Result)
     end).
 
@@ -377,7 +382,7 @@ should_return_the_min_value_per_second_over_time_test() ->
         ?COLLECTOR:increment({httpd, request_count}),
         ?MODULE:time_passed(), % seconds
 
-        Result = ?MODULE:get({httpd, min_request_count}, [{"timeframe", 60}]),
+        Result = ?MODULE:get({httpd, request_count, min}, [{"timeframe", 60}]),
         ?assertEqual(<<"2">>, Result)
     end).
 
@@ -395,7 +400,7 @@ should_return_the_max_value_per_second_over_the_given_time_period_only_test() ->
         ?COLLECTOR:increment({httpd, request_count}),
         ?MODULE:time_passed(), % seconds
 
-        Result = ?MODULE:get({httpd, max_request_count}, [{"timeframe", 1}]),
+        Result = ?MODULE:get({httpd, request_count, max}, [{"timeframe", 1}]),
         ?assertEqual(<<"2">>, Result)
     end).
     
@@ -412,7 +417,7 @@ should_return_the_stddev_value_per_second_test() ->
         ?COLLECTOR:increment({httpd, request_count}),
         ?MODULE:time_passed(), % seconds
 
-        Result = ?MODULE:get({httpd, stddev_request_count}),
+        Result = ?MODULE:get({httpd, request_count, stddev}),
         ?assertEqual(<<"1.00">>, Result)
     end).
 
@@ -437,22 +442,44 @@ should_not_sample_more_than_QUEUE_MAX_LENGTH_seconds_test() ->
             ?MODULE:time_passed()
         end, lists:seq(1, 900)),
 
-        Result = ?MODULE:get({httpd, mean_request_count}, [{"timeframe", 1000}]),
+        Result = ?MODULE:get({httpd, request_count, mean}, [{"timeframe", 1000}]),
         ?assertEqual(<<"1.00">>, Result)
     end).
 
 should_return_zero_if_nothing_has_been_counted_yet_test() ->
     test_helper(fun() ->
-        Result = ?MODULE:get({httpd, mean_request_count}),
+        Result = ?MODULE:get({httpd, request_count, mean}),
         ?assertEqual(<<"0.00">>, Result)
     end).
 
-should_set_aggregate_counter_test() ->
+should_return_min_aggregate_counter_test() ->
     test_helper(fun() -> 
-        ?MODULE:set({couchdb, aggregate_request_time}, 20),
-
-        #aggregates{min=Min} = ?MODULE:get({couchdb, aggregate_request_time}),
+        ?MODULE:record({couchdb, request_time}, 20),
+        ?MODULE:record({couchdb, request_time}, 30),
+        #aggregates{min=Min} = ?MODULE:get({couchdb, request_time, aggregate}),
         ?assertEqual(20, Min)
     end).
-
     
+should_return_max_aggregate_counter_test() ->
+    test_helper(fun() -> 
+        ?MODULE:record({couchdb, request_time}, 20),
+        ?MODULE:record({couchdb, request_time}, 30),
+        #aggregates{max=Max} = ?MODULE:get({couchdb, request_time, aggregate}),
+        ?assertEqual(30, Max)
+    end).
+
+should_return_mean_aggregate_value_test() ->
+    test_helper(fun() ->
+        ?MODULE:record({couchdb, request_time}, 20),
+        ?MODULE:record({couchdb, request_time}, 30),
+        #aggregates{mean=Mean} = ?MODULE:get({couchdb, request_time, aggregate}),
+        ?assertEqual(25.0, Mean)
+	end).
+
+should_return_stddev_aggregate_value_test() ->
+    test_helper(fun() ->
+        ?MODULE:record({couchdb, request_time}, 20),
+        ?MODULE:record({couchdb, request_time}, 30),
+        #aggregates{stddev=Stddev} = ?MODULE:get({couchdb, request_time, aggregate}),
+        ?assertEqual(5.0, Stddev)
+	end).
