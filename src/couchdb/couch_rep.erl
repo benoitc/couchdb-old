@@ -71,8 +71,11 @@ replicate2(Source, DbSrc, Target, DbTgt, Options) ->
     
     ReplicationStartTime = httpd_util:rfc1123_date(),
     
-    {ok, SrcInstanceStartTime} = get_db_info(DbSrc),
-    {ok, TgtInstanceStartTime} = get_db_info(DbTgt),
+    {ok, InfoSrc} = get_db_info(DbSrc),
+    {ok, InfoTgt} = get_db_info(DbTgt),
+    
+    SrcInstanceStartTime = proplists:get_value(instance_start_time, InfoSrc),
+    TgtInstanceStartTime = proplists:get_value(instance_start_time, InfoTgt),
     
     case proplists:get_value(full, Options, false)
         orelse proplists:get_value("full", Options, false) of
@@ -125,7 +128,6 @@ replicate2(Source, DbSrc, Target, DbTgt, Options) ->
         
         {ok, SrcInstanceStartTime2} = ensure_full_commit(DbSrc),
         {ok, TgtInstanceStartTime2} = ensure_full_commit(DbTgt),
-        
         RecordSeqNum =
         if SrcInstanceStartTime2 == SrcInstanceStartTime andalso
                 TgtInstanceStartTime2 == TgtInstanceStartTime ->
@@ -210,7 +212,7 @@ do_http_request(Url, Action, Headers, JsonBody, Retries) ->
 save_docs_buffer(DbTarget, DocsBuffer, []) ->
     receive
     {Src, shutdown} ->
-        ok = update_docs(DbTarget, lists:reverse(DocsBuffer), [], false),
+        ok = update_docs(DbTarget, lists:reverse(DocsBuffer), [], replicated_changes),
         Src ! {done, self(), [{<<"docs_written">>, length(DocsBuffer)}]}
     end;
 save_docs_buffer(DbTarget, DocsBuffer, UpdateSequences) ->
@@ -224,14 +226,14 @@ save_docs_buffer(DbTarget, DocsBuffer, UpdateSequences) ->
         case couch_util:should_flush() of
             true ->
                 ok = update_docs(DbTarget, lists:reverse(Docs++DocsBuffer), [], 
-                    false),
+                    replicated_changes),
                 save_docs_buffer(DbTarget, [], Rest);
             false ->
                 save_docs_buffer(DbTarget, Docs++DocsBuffer, Rest)
         end;
         {Src, shutdown} ->
         ?LOG_ERROR("received shutdown while waiting for more update_seqs", []),
-        ok = update_docs(DbTarget, lists:reverse(DocsBuffer), [], false),
+        ok = update_docs(DbTarget, lists:reverse(DocsBuffer), [], replicated_changes),
         Src ! {done, self(), [{<<"docs_written">>, length(DocsBuffer)}]}
     end.
 
@@ -338,12 +340,12 @@ get_doc_info_list(#http_db{uri=DbUrl, headers=Headers}, StartSeq) ->
         {RowValueProps} = proplists:get_value(<<"value">>, RowInfoList),
         #doc_info{
             id=proplists:get_value(<<"id">>, RowInfoList),
-            rev=proplists:get_value(<<"rev">>, RowValueProps),
+            rev=couch_doc:parse_rev(proplists:get_value(<<"rev">>, RowValueProps)),
             update_seq = proplists:get_value(<<"key">>, RowInfoList),
             conflict_revs =
-                proplists:get_value(<<"conflicts">>, RowValueProps, []),
+                couch_doc:parse_revs(proplists:get_value(<<"conflicts">>, RowValueProps, [])),
             deleted_conflict_revs =
-                proplists:get_value(<<"deleted_conflicts">>, RowValueProps, []),
+                couch_doc:parse_revs(proplists:get_value(<<"deleted_conflicts">>, RowValueProps, [])),
             deleted = proplists:get_value(<<"deleted">>, RowValueProps, false)
         }
     end, proplists:get_value(<<"rows">>, Results));
@@ -399,10 +401,12 @@ enum_docs_since(DbSource, DbTarget, StartSeq, InAcc) ->
     end.
 
 get_missing_revs(#http_db{uri=DbUrl, headers=Headers}, DocIdRevsList) ->
+    DocIdRevsList2 = [{Id, couch_doc:to_rev_strs(Revs)} || {Id, Revs} <- DocIdRevsList],
     {ResponseMembers} = do_http_request(DbUrl ++ "_missing_revs", post, Headers,
-            {DocIdRevsList}),
+            {DocIdRevsList2}),
     {DocMissingRevsList} = proplists:get_value(<<"missing_revs">>, ResponseMembers),
-    {ok, DocMissingRevsList};
+    DocMissingRevsList2 = [{Id, couch_doc:parse_revs(MissingRevStrs)} || {Id, MissingRevStrs} <- DocMissingRevsList],
+    {ok, DocMissingRevsList2};
 get_missing_revs(Db, DocId) ->
     couch_db:get_missing_revs(Db, DocId).
 
@@ -412,22 +416,23 @@ update_doc(#http_db{uri=DbUrl, headers=Headers}, #doc{id=DocId}=Doc, Options) ->
     Url = DbUrl ++ url_encode(DocId),
     {ResponseMembers} = do_http_request(Url, put, Headers,
             couch_doc:to_json_obj(Doc, [revs,attachments])),
-    RevId = proplists:get_value(<<"_rev">>, ResponseMembers),
-    {ok, RevId};
+    Rev = proplists:get_value(<<"rev">>, ResponseMembers),
+    {ok, couch_doc:parse_rev(Rev)};
 update_doc(Db, Doc, Options) ->
     couch_db:update_doc(Db, Doc, Options).
 
 update_docs(_, [], _, _) ->
     ok;
-update_docs(#http_db{uri=DbUrl, headers=Headers}, Docs, [], NewEdits) ->
+update_docs(#http_db{uri=DbUrl, headers=Headers}, Docs, [], UpdateType) ->
+    NewEdits = UpdateType == interactive_edit,
     JsonDocs = [couch_doc:to_json_obj(Doc, [revs,attachments]) || Doc <- Docs],
     {Returned} =
         do_http_request(DbUrl ++ "_bulk_docs", post, Headers,
                 {[{new_edits, NewEdits}, {docs, JsonDocs}]}),
     true = proplists:get_value(<<"ok">>, Returned),
     ok;
-update_docs(Db, Docs, Options, NewEdits) ->
-    couch_db:update_docs(Db, Docs, Options, NewEdits).
+update_docs(Db, Docs, Options, UpdateType) ->
+    couch_db:update_docs(Db, Docs, Options, UpdateType).
 
 
 open_doc(#http_db{uri=DbUrl, headers=Headers}, DocId, Options) ->
@@ -442,7 +447,8 @@ open_doc(Db, DocId, Options) ->
     couch_db:open_doc(Db, DocId, Options).
 
 
-open_doc_revs(#http_db{uri=DbUrl, headers=Headers}, DocId, Revs, Options) ->
+open_doc_revs(#http_db{uri=DbUrl, headers=Headers}, DocId, Revs0, Options) ->
+    Revs = couch_doc:to_rev_strs(Revs0),
     QueryOptionStrs =
     lists:map(fun(latest) ->
             % latest is only option right now
@@ -475,7 +481,7 @@ open_doc_revs(#http_db{uri=DbUrl, headers=Headers}, DocId, Revs, Options) ->
     Results =
     lists:map(
         fun({[{<<"missing">>, Rev}]}) ->
-            {{not_found, missing}, Rev};
+            {{not_found, missing}, couch_doc:parse_rev(Rev)};
         ({[{<<"ok">>, JsonDoc}]}) ->
             {ok, couch_doc:from_json_obj(JsonDoc)}
         end, JsonResults),

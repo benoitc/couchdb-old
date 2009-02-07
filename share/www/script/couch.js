@@ -269,9 +269,10 @@ CouchDB.getVersion = function() {
   return JSON.parse(CouchDB.last_req.responseText).version;
 }
 
-CouchDB.replicate = function(source, target) {
+CouchDB.replicate = function(source, target, options) {
+  options = options || {};
   CouchDB.last_req = CouchDB.request("POST", "/_replicate", {
-    body: JSON.stringify({source: source, target: target})
+    body: JSON.stringify({source: source, target: target, "options": options})
   });
   CouchDB.maybeThrowError(CouchDB.last_req);
   return JSON.parse(CouchDB.last_req.responseText);

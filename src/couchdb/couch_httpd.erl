@@ -269,8 +269,8 @@ body(#httpd{mochi_req=MochiReq}) ->
 json_body(Httpd) ->
     ?JSON_DECODE(body(Httpd)).
 
-doc_etag(#doc{revs=[DiskRev|_]}) ->
-    "\"" ++ binary_to_list(DiskRev) ++ "\"".
+doc_etag(#doc{revs={Start, [DiskRev|_]}}) ->
+    "\"" ++ ?b2l(couch_doc:to_rev_str({Start, DiskRev})) ++ "\"".
 
 make_etag(Term) ->
     <<SigInt:128/integer>> = erlang:md5(term_to_binary(Term)),
@@ -370,8 +370,8 @@ send_error(Req, not_found) ->
     send_error(Req, 404, <<"not_found">>, <<"Missing">>);
 send_error(Req, {not_found, Reason}) ->
     send_error(Req, 404, <<"not_found">>, Reason);
-send_error(Req, conflict) ->
-    send_error(Req, 409, <<"conflict">>, <<"Document update conflict.">>);
+send_error(Req, {conflict, Rev}) ->
+    send_error(Req, 409, <<"conflict">>, Rev);
 send_error(Req, {forbidden, Msg}) ->
     send_json(Req, 403,
         {[{<<"error">>,  <<"forbidden">>},

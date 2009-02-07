@@ -22,8 +22,8 @@
 
 -record(doc_query_args, {
     options = [],
-    rev = "",
-    open_revs = ""
+    rev = nil,
+    open_revs = []
 }).
     
 % Database request handlers
@@ -79,13 +79,13 @@ db_req(#httpd{method='GET',path_parts=[_DbName]}=Req, Db) ->
 db_req(#httpd{method='POST',path_parts=[DbName]}=Req, Db) ->
     Doc = couch_doc:from_json_obj(couch_httpd:json_body(Req)),
     DocId = couch_util:new_uuid(),
-    {ok, NewRev} = couch_db:update_doc(Db, Doc#doc{id=DocId, revs=[]}, []),
+    {ok, NewRev} = couch_db:update_doc(Db, Doc#doc{id=DocId}, []),
     DocUrl = absolute_uri(Req, 
         binary_to_list(<<"/",DbName/binary,"/",DocId/binary>>)),
     send_json(Req, 201, [{"Location", DocUrl}], {[
         {ok, true},
         {id, DocId},
-        {rev, NewRev}
+        {rev, couch_doc:to_rev_str(NewRev)}
     ]});
 
 db_req(#httpd{path_parts=[_DbName]}=Req, _Db) ->
@@ -119,19 +119,22 @@ db_req(#httpd{method='POST',path_parts=[_,<<"_bulk_docs">>]}=Req, Db) ->
                     <<>> -> couch_util:new_uuid();
                     Id0 -> Id0
                 end,
-                Revs = case proplists:get_value(<<"_rev">>, ObjProps) of
-                    undefined -> [];
-                    Rev  -> [Rev]
+                case proplists:get_value(<<"_rev">>, ObjProps) of
+                undefined ->
+                    Revs = {0, []};
+                Rev  ->
+                    {Pos, RevId} = couch_doc:parse_rev(Rev),
+                    Revs = {Pos, [RevId]}
                 end,
                 Doc#doc{id=Id,revs=Revs}
             end,
             DocsArray),
-        {ok, ResultRevs} = couch_db:update_docs(Db, Docs, Options),
+        {ok, ResultRevs, _Conflicts} = couch_db:update_docs(Db, Docs, Options),
 
         % output the results
         DocResults = lists:zipwith(
             fun(Doc, NewRev) ->
-                {[{<<"id">>, Doc#doc.id}, {<<"rev">>, NewRev}]}
+                {[{<<"id">>, Doc#doc.id}, {<<"rev">>, couch_doc:to_rev_str(NewRev)}]}
             end,
             Docs, ResultRevs),
         send_json(Req, 201, {[
@@ -141,7 +144,7 @@ db_req(#httpd{method='POST',path_parts=[_,<<"_bulk_docs">>]}=Req, Db) ->
 
     false ->
         Docs = [couch_doc:from_json_obj(JsonObj) || JsonObj <- DocsArray],
-        ok = couch_db:update_docs(Db, Docs, Options, false),
+        ok = couch_db:update_docs(Db, Docs, Options, replicated_changes),
         send_json(Req, 201, {[
             {ok, true}
         ]})
@@ -158,12 +161,12 @@ db_req(#httpd{path_parts=[_,<<"_compact">>]}=Req, _Db) ->
 
 db_req(#httpd{method='POST',path_parts=[_,<<"_purge">>]}=Req, Db) ->
     {IdsRevs} = couch_httpd:json_body(Req),
-    % validate the json input
-    [{_Id, [_|_]=_Revs} = IdRevs || IdRevs <- IdsRevs],
+    IdsRevs2 = [{Id, couch_doc:parse_revs(Revs)} || {Id, Revs} <- IdsRevs],
     
-    case couch_db:purge_docs(Db, IdsRevs) of
+    case couch_db:purge_docs(Db, IdsRevs2) of
     {ok, PurgeSeq, PurgedIdsRevs} ->
-        send_json(Req, 200, {[{<<"purge_seq">>, PurgeSeq}, {<<"purged">>, {PurgedIdsRevs}}]});
+        PurgedIdsRevs2 = [{Id, couch_doc:to_rev_strs(Revs)} || {Id, Revs} <- PurgedIdsRevs],
+        send_json(Req, 200, {[{<<"purge_seq">>, PurgeSeq}, {<<"purged">>, {PurgedIdsRevs2}}]});
     Error ->
         throw(Error)
     end;
@@ -214,14 +217,14 @@ db_req(#httpd{method='GET',path_parts=[_,<<"_all_docs_by_seq">>]}=Req, Db) ->
                 deleted_conflict_revs=DelConflictRevs
             } = DocInfo,
             Json = {
-                [{<<"rev">>, Rev}] ++
+                [{<<"rev">>, couch_doc:to_rev_str(Rev)}] ++
                 case ConflictRevs of
                     []  ->  [];
-                    _   ->  [{<<"conflicts">>, ConflictRevs}]
+                    _   ->  [{<<"conflicts">>, couch_doc:to_rev_strs(ConflictRevs)}]
                 end ++
                 case DelConflictRevs of
                     []  ->  [];
-                    _   ->  [{<<"deleted_conflicts">>, DelConflictRevs}]
+                    _   ->  [{<<"deleted_conflicts">>, couch_doc:to_rev_strs(DelConflictRevs)}]
                 end ++
                 case Deleted of
                     true -> [{<<"deleted">>, true}];
@@ -237,9 +240,11 @@ db_req(#httpd{path_parts=[_,<<"_all_docs_by_seq">>]}=Req, _Db) ->
 
 db_req(#httpd{method='POST',path_parts=[_,<<"_missing_revs">>]}=Req, Db) ->
     {JsonDocIdRevs} = couch_httpd:json_body(Req),
-    {ok, Results} = couch_db:get_missing_revs(Db, JsonDocIdRevs),
+    JsonDocIdRevs2 = [{Id, [couch_doc:parse_rev(RevStr) || RevStr <- RevStrs]} || {Id, RevStrs} <- JsonDocIdRevs],
+    {ok, Results} = couch_db:get_missing_revs(Db, JsonDocIdRevs2),
+    Results2 = [{Id, [couch_doc:to_rev_str(Rev) || Rev <- Revs]} || {Id, Revs} <- Results],
     send_json(Req, {[
-        {missing_revs, {Results}}
+        {missing_revs, {Results2}}
     ]});
 
 db_req(#httpd{path_parts=[_,<<"_missing_revs">>]}=Req, _Db) ->
@@ -318,7 +323,7 @@ all_docs_view(Req, Db, Keys) ->
         AdapterFun = fun(#full_doc_info{id=Id}=FullDocInfo, Offset, Acc) ->
             case couch_doc:to_doc_info(FullDocInfo) of
             #doc_info{deleted=false, rev=Rev} ->
-                FoldlFun({{Id, Id}, {[{rev, Rev}]}}, Offset, Acc);
+                FoldlFun({{Id, Id}, {[{rev, couch_doc:to_rev_str(Rev)}]}}, Offset, Acc);
             #doc_info{deleted=true} ->
                 {ok, Acc}
             end
@@ -342,9 +347,9 @@ all_docs_view(Req, Db, Keys) ->
                 DocInfo = (catch couch_db:get_doc_info(Db, Key)),
                 Doc = case DocInfo of
                 {ok, #doc_info{id=Id, rev=Rev, deleted=false}} = DocInfo ->
-                    {{Id, Id}, {[{rev, Rev}]}};
+                    {{Id, Id}, {[{rev, couch_doc:to_rev_str(Rev)}]}};
                 {ok, #doc_info{id=Id, rev=Rev, deleted=true}} = DocInfo ->
-                    {{Id, Id}, {[{rev, Rev}, {deleted, true}]}};
+                    {{Id, Id}, {[{rev, couch_doc:to_rev_str(Rev)}, {deleted, true}]}};
                 not_found ->
                     {{Key, error}, not_found};
                 _ ->
@@ -364,20 +369,12 @@ all_docs_view(Req, Db, Keys) ->
 
 
 
-
-
 db_doc_req(#httpd{method='DELETE'}=Req, Db, DocId) ->
-    case extract_header_rev(Req, couch_httpd:qs_value(Req, "rev")) of
-    missing_rev ->
-        couch_httpd:send_error(Req, 409, <<"missing_rev">>,
-            <<"Document rev/etag must be specified to delete">>);
-    RevToDelete ->
-        {ok, NewRev} = couch_db:delete_doc(Db, DocId, [RevToDelete]),
-        send_json(Req, 200, {[
-            {ok, true},
-            {id, DocId},
-            {rev, NewRev}
-            ]})
+    case couch_httpd:qs_value(Req, "rev") of
+    undefined ->
+        update_doc(Req, Db, DocId, {[{<<"_deleted">>,true}]});
+    Rev ->
+        update_doc(Req, Db, DocId, {[{<<"_rev">>, ?l2b(Rev)},{<<"_deleted">>,true}]})
     end;
 
 db_doc_req(#httpd{method='GET'}=Req, Db, DocId) ->
@@ -423,7 +420,7 @@ db_doc_req(#httpd{method='GET'}=Req, Db, DocId) ->
 
 db_doc_req(#httpd{method='POST'}=Req, Db, DocId) ->
     Form = couch_httpd:parse_form(Req),
-    Rev = list_to_binary(proplists:get_value("_rev", Form)),
+    Rev = couch_doc:parse_rev(proplists:get_value("_rev", Form)),
     Doc = case couch_db:open_doc_revs(Db, DocId, [Rev], []) of
         {ok, [{ok, Doc0}]}  -> Doc0#doc{revs=[Rev]};
         {ok, [Error]}       -> throw(Error)
@@ -447,55 +444,30 @@ db_doc_req(#httpd{method='POST'}=Req, Db, DocId) ->
     ]});
 
 db_doc_req(#httpd{method='PUT'}=Req, Db, DocId) ->
-    Json = couch_httpd:json_body(Req),
-    Doc = couch_doc:from_json_obj(Json),
-    ExplicitRev =
-    case Doc#doc.revs of
-        [Rev0|_] -> Rev0;
-        [] -> undefined
-    end,
-    case couch_httpd:header_value(Req, "X-Couch-Full-Commit", "false") of
-    "true" ->
-        Options = [full_commit];
-    _ ->
-        Options = []
-    end,
-    case extract_header_rev(Req, ExplicitRev) of
-    missing_rev ->
-        Revs = [];
-    Rev ->
-        Revs = [Rev]
-    end,
-    {ok, NewRev} = couch_db:update_doc(Db, Doc#doc{id=DocId, revs=Revs}, Options),
-    send_json(Req, 201, [{"Etag", <<"\"", NewRev/binary, "\"">>}], {[
-        {ok, true},
-        {id, DocId},
-        {rev, NewRev}
-    ]});
+    update_doc(Req, Db, DocId, couch_httpd:json_body(Req));
 
 db_doc_req(#httpd{method='COPY'}=Req, Db, SourceDocId) ->
     SourceRev =
     case extract_header_rev(Req, couch_httpd:qs_value(Req, "rev")) of
-        missing_rev -> [];
+        missing_rev -> nil;
         Rev -> Rev
     end,
 
-    {TargetDocId, TargetRev} = parse_copy_destination_header(Req),
+    {TargetDocId, TargetRevs} = parse_copy_destination_header(Req),
 
     % open revision Rev or Current  
     Doc = couch_doc_open(Db, SourceDocId, SourceRev, []),
-
     % save new doc
-    {ok, NewTargetRev} = couch_db:update_doc(Db, Doc#doc{id=TargetDocId, revs=TargetRev}, []),
+    {ok, NewTargetRev} = couch_db:update_doc(Db, Doc#doc{id=TargetDocId, revs=TargetRevs}, []),
 
-    send_json(Req, 201, [{"Etag", "\"" ++ binary_to_list(NewTargetRev) ++ "\""}], {[
+    send_json(Req, 201, [{"Etag", "\"" ++ ?b2l(couch_doc:to_rev_str(NewTargetRev)) ++ "\""}], {[
         {ok, true},
         {id, TargetDocId},
-        {rev, NewTargetRev}
+        {rev, couch_doc:to_rev_str(NewTargetRev)}
     ]});
 
 db_doc_req(#httpd{method='MOVE'}=Req, Db, SourceDocId) ->
-    SourceRev =
+    SourceRev = {SourceRevPos, SourceRevId} =
     case extract_header_rev(Req, couch_httpd:qs_value(Req, "rev")) of
     missing_rev -> 
         throw({bad_request, "MOVE requires a specified rev parameter"
@@ -503,21 +475,21 @@ db_doc_req(#httpd{method='MOVE'}=Req, Db, SourceDocId) ->
     Rev -> Rev
     end,
 
-    {TargetDocId, TargetRev} = parse_copy_destination_header(Req),
+    {TargetDocId, TargetRevs} = parse_copy_destination_header(Req),
     % open revision Rev or Current
     Doc = couch_doc_open(Db, SourceDocId, SourceRev, []),
 
     % save new doc & delete old doc in one operation
     Docs = [
-        Doc#doc{id=TargetDocId, revs=TargetRev},
-        #doc{id=SourceDocId, revs=[SourceRev], deleted=true}
+        Doc#doc{id=TargetDocId, revs=TargetRevs},
+        #doc{id=SourceDocId, revs={SourceRevPos, [SourceRevId]}, deleted=true}
         ],
 
-    {ok, ResultRevs} = couch_db:update_docs(Db, Docs, []),
+    {ok, ResultRevs, _} = couch_db:update_docs(Db, Docs, []),
 
     DocResults = lists:zipwith(
         fun(FDoc, NewRev) ->
-            {[{id, FDoc#doc.id}, {rev, NewRev}]}
+            {[{id, FDoc#doc.id}, {rev, couch_doc:to_rev_str(NewRev)}]}
         end,
         Docs, ResultRevs),
     send_json(Req, 201, {[
@@ -528,13 +500,42 @@ db_doc_req(#httpd{method='MOVE'}=Req, Db, SourceDocId) ->
 db_doc_req(Req, _Db, _DocId) ->
     send_method_not_allowed(Req, "DELETE,GET,HEAD,POST,PUT,COPY,MOVE").
 
+
+update_doc(Req, Db, DocId, Json) ->
+    #doc{deleted=Deleted} = Doc = couch_doc:from_json_obj(Json),
+    ExplicitDocRev =
+    case Doc#doc.revs of
+        {Start,[RevId|_]} -> {Start, RevId};
+        _ -> undefined
+    end,
+    case extract_header_rev(Req, ExplicitDocRev) of
+    missing_rev ->
+        Revs = {0, []};
+    {Pos, Rev} ->
+        Revs = {Pos, [Rev]}
+    end,
+    
+    case couch_httpd:header_value(Req, "X-Couch-Full-Commit", "false") of
+    "true" ->
+        Options = [full_commit];
+    _ ->
+        Options = []
+    end,
+    {ok, NewRev} = couch_db:update_doc(Db, Doc#doc{id=DocId, revs=Revs}, Options),
+    NewRevStr = couch_doc:to_rev_str(NewRev),
+    send_json(Req, if Deleted -> 200; true -> 201 end,
+        [{"Etag", <<"\"", NewRevStr/binary, "\"">>}], {[
+            {ok, true},
+            {id, DocId},
+            {rev, NewRevStr}]}).
+
 % Useful for debugging
 % couch_doc_open(Db, DocId) ->
 %   couch_doc_open(Db, DocId, [], []).
 
 couch_doc_open(Db, DocId, Rev, Options) ->
     case Rev of
-    "" -> % open most recent rev
+    nil -> % open most recent rev
         case couch_db:open_doc(Db, DocId, Options) of
         {ok, Doc} ->
             Doc;
@@ -555,13 +556,13 @@ couch_doc_open(Db, DocId, Rev, Options) ->
 db_attachment_req(#httpd{method='GET'}=Req, Db, DocId, FileNameParts) ->
     FileName = list_to_binary(mochiweb_util:join(lists:map(fun binary_to_list/1, FileNameParts),"/")),
     case couch_db:open_doc(Db, DocId, []) of
-    {ok, #doc{attachments=Attachments, revs=[LastRev|_OldRevs]}} ->
+    {ok, #doc{attachments=Attachments}=Doc} ->
         case proplists:get_value(FileName, Attachments) of
         undefined ->
             throw({not_found, "Document is missing attachment"});
         {Type, Bin} ->
             {ok, Resp} = start_chunked_response(Req, 200, [
-                {"ETag", binary_to_list(LastRev)},
+                {"ETag", couch_httpd:doc_etag(Doc)},
                 {"Cache-Control", "must-revalidate"},
                 {"Content-Type", binary_to_list(Type)}%,
                 % My understanding of http://www.faqs.org/rfcs/rfc2616.html
@@ -607,7 +608,7 @@ db_attachment_req(#httpd{method=Method}=Req, Db, DocId, FileNameParts)
             #doc{id=DocId};
         Rev ->
             case couch_db:open_doc_revs(Db, DocId, [Rev], []) of
-            {ok, [{ok, Doc0}]}  -> Doc0#doc{revs=[Rev]};
+            {ok, [{ok, Doc0}]}  -> Doc0;
             {ok, [Error]}       -> throw(Error)
             end
     end,
@@ -620,7 +621,7 @@ db_attachment_req(#httpd{method=Method}=Req, Db, DocId, FileNameParts)
     send_json(Req, case Method of 'DELETE' -> 200; _ -> 201 end, {[
         {ok, true},
         {id, DocId},
-        {rev, UpdatedRev}
+        {rev, couch_doc:to_rev_str(UpdatedRev)}
     ]});
 
 db_attachment_req(Req, _Db, _DocId, _FileNameParts) ->
@@ -649,26 +650,26 @@ parse_doc_query(Req) ->
             Options = [deleted_conflicts | Args#doc_query_args.options],
             Args#doc_query_args{options=Options};
         {"rev", Rev} ->
-            Args#doc_query_args{rev=list_to_binary(Rev)};
+            Args#doc_query_args{rev=couch_doc:parse_rev(Rev)};
         {"open_revs", "all"} ->
             Args#doc_query_args{open_revs=all};
         {"open_revs", RevsJsonStr} ->
             JsonArray = ?JSON_DECODE(RevsJsonStr),
-            Args#doc_query_args{open_revs=JsonArray};
+            Args#doc_query_args{open_revs=[couch_doc:parse_rev(Rev) || Rev <- JsonArray]};
         _Else -> % unknown key value pair, ignore.
             Args
         end
     end, #doc_query_args{}, couch_httpd:qs(Req)).
 
 
-
-extract_header_rev(Req, ExplicitRev) when is_list(ExplicitRev)->
-    extract_header_rev(Req, list_to_binary(ExplicitRev));
+extract_header_rev(Req, ExplicitRev) when is_binary(ExplicitRev) or is_list(ExplicitRev)->
+    extract_header_rev(Req, couch_doc:parse_rev(ExplicitRev));
 extract_header_rev(Req, ExplicitRev) ->
     Etag = case couch_httpd:header_value(Req, "If-Match") of
         undefined -> undefined;
-        Value -> list_to_binary(string:strip(Value, both, $"))
+        Value -> couch_doc:parse_rev(string:strip(Value, both, $"))
     end,
+
     case {ExplicitRev, Etag} of
     {undefined, undefined} -> missing_rev;
     {_, undefined} -> ExplicitRev;
@@ -683,10 +684,11 @@ parse_copy_destination_header(Req) ->
     Destination = couch_httpd:header_value(Req, "Destination"),
     case regexp:match(Destination, "\\?") of
     nomatch -> 
-        {list_to_binary(Destination), []};
+        {list_to_binary(Destination), {0, []}};
     {match, _, _} ->
         {ok, [DocId, RevQueryOptions]} = regexp:split(Destination, "\\?"),
         {ok, [_RevQueryKey, Rev]} = regexp:split(RevQueryOptions, "="),
-        {list_to_binary(DocId), [list_to_binary(Rev)]}
+        {Pos, RevId} = couch_doc:parse_rev(Rev),
+        {list_to_binary(DocId), {Pos, [RevId]}}
     end.
 

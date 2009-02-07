@@ -67,7 +67,7 @@
 -record(doc,
     {
     id = <<"">>,
-    revs = [],
+    revs = {0, []},
 
     % the json body object.
     body = {[]},

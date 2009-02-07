@@ -27,10 +27,10 @@ handle_doc_show_req(#httpd{
         path_parts=[_, _, DesignName, ShowName, Docid]
     }=Req, Db) ->
     DesignId = <<"_design/", DesignName/binary>>,
-    #doc{body={Props}} = couch_httpd_db:couch_doc_open(Db, DesignId, [], []),
+    #doc{body={Props}} = couch_httpd_db:couch_doc_open(Db, DesignId, nil, []),
     Lang = proplists:get_value(<<"language">>, Props, <<"javascript">>),
     ShowSrc = get_nested_json_value({Props}, [<<"shows">>, ShowName]),
-    Doc = couch_httpd_db:couch_doc_open(Db, Docid, [], []),
+    Doc = couch_httpd_db:couch_doc_open(Db, Docid, nil, []),
     send_doc_show_response(Lang, ShowSrc, Doc, Req, Db);
 
 handle_doc_show_req(#httpd{
@@ -38,7 +38,7 @@ handle_doc_show_req(#httpd{
         path_parts=[_, _, DesignName, ShowName]
     }=Req, Db) ->
     DesignId = <<"_design/", DesignName/binary>>,
-    #doc{body={Props}} = couch_httpd_db:couch_doc_open(Db, DesignId, [], []),
+    #doc{body={Props}} = couch_httpd_db:couch_doc_open(Db, DesignId, nil, []),
     Lang = proplists:get_value(<<"language">>, Props, <<"javascript">>),
     ShowSrc = get_nested_json_value({Props}, [<<"shows">>, ShowName]),
     send_doc_show_response(Lang, ShowSrc, nil, Req, Db);
@@ -51,7 +51,7 @@ handle_doc_show_req(Req, _Db) ->
 
 handle_view_list_req(#httpd{method='GET',path_parts=[_, _, DesignName, ListName, ViewName]}=Req, Db) ->
     DesignId = <<"_design/", DesignName/binary>>,
-    #doc{body={Props}} = couch_httpd_db:couch_doc_open(Db, DesignId, [], []),
+    #doc{body={Props}} = couch_httpd_db:couch_doc_open(Db, DesignId, nil, []),
     Lang = proplists:get_value(<<"language">>, Props, <<"javascript">>),
     ListSrc = get_nested_json_value({Props}, [<<"lists">>, ListName]),
     send_view_list_response(Lang, ListSrc, ViewName, DesignId, Req, Db);
@@ -181,12 +181,12 @@ send_doc_show_response(Lang, ShowSrc, nil, #httpd{mochi_req=MReq}=Req, Db) ->
         couch_httpd_external:send_external_response(Req, JsonResp)
     end);
 
-send_doc_show_response(Lang, ShowSrc, #doc{revs=[DocRev|_]}=Doc, #httpd{mochi_req=MReq}=Req, Db) ->
+send_doc_show_response(Lang, ShowSrc, #doc{revs=Revs}=Doc, #httpd{mochi_req=MReq}=Req, Db) ->
     % calculate the etag
     Headers = MReq:get(headers),
     Hlist = mochiweb_headers:to_list(Headers),
     Accept = proplists:get_value('Accept', Hlist),
-    CurrentEtag = couch_httpd:make_etag({Lang, ShowSrc, DocRev, Accept}),
+    CurrentEtag = couch_httpd:make_etag({Lang, ShowSrc, Revs, Accept}),
     % We know our etag now    
     couch_httpd:etag_respond(Req, CurrentEtag, fun() -> 
         ExternalResp = couch_query_servers:render_doc_show(Lang, ShowSrc, 

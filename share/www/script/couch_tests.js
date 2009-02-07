@@ -968,7 +968,7 @@ var tests = {
     var xhr = CouchDB.request("GET", "/test_suite_db/bin_doc/foo.txt");
     T(xhr.responseText == "This is a base64 encoded text");
     T(xhr.getResponseHeader("Content-Type") == "text/plain");
-    T(xhr.getResponseHeader("Etag") == save_response.rev);
+    T(xhr.getResponseHeader("Etag") == '"' + save_response.rev + '"');
 
     // empty attachment
     var binAttDoc2 = {
@@ -2044,20 +2044,7 @@ var tests = {
 
     var doc = {integer: 1, string: "1", array: [1, 2, 3]};
     T(db.save(doc).ok);
-/*
-    // make sure that attempting to change the document throws an error
-    var results = db.query(function(doc) {
-      doc.integer = 2;
-      emit(null, doc);
-    });
-    T(results.total_rows == 0);
-
-    var results = db.query(function(doc) {
-      doc.array[0] = 0;
-      emit(null, doc);
-    });
-    T(results.total_rows == 0);
-*/
+    
     // make sure that a view cannot invoke interpreter internals such as the
     // garbage collector
     var results = db.query(function(doc) {
@@ -2166,7 +2153,7 @@ var tests = {
           };
         },
       
-       deletes_test: new function () {
+        deletes_test: new function () {
           this.init = function(dbA, dbB) {
             T(dbA.save({_id:"foo1",value:"a"}).ok);
           };
@@ -2850,7 +2837,10 @@ var tests = {
     
     /*
      purge is not to be confused with a document deletion.  It removes the
-     document and all edit history from the local instance of the database.
+     document and all edit history from the local instance of the database,
+     but the purge does not replicate. If not also purged on other nodes,
+     it is possible the same document will replicate back to the purge db
+     just like it was never purged.
     */
 
     var numDocs = 10;
@@ -3016,118 +3006,203 @@ var tests = {
     if (debug) debugger;
     
     run_on_modified_server(
-      [{section: "httpd",
-        key: "authentication_handler",
-        value: "{couch_httpd, special_test_authentication_handler}"},
-      {section:"httpd",
-        key: "WWW-Authenticate",
-        value:  "X-Couch-Test-Auth"}],
-        
-      function () {
-    
-        // try saving document usin the wrong credentials
-        var wrongPasswordDb = new CouchDB("test_suite_db",
-          {"WWW-Authenticate": "X-Couch-Test-Auth Damien Katz:foo"}
-        );
-    
-        try {
-          wrongPasswordDb.save({foo:1,author:"Damien Katz"});
-          T(false && "Can't get here. Should have thrown an error 1");
-        } catch (e) {
-          T(e.error == "unauthorized");
-          T(wrongPasswordDb.last_req.status == 401);
-        }
-        
-        
-        // Create the design doc that will run custom validation code
-        var designDoc = {
-          _id:"_design/test",
-          language: "javascript",
-          validate_doc_update: "(" + (function (newDoc, oldDoc, userCtx) {
-            // docs should have an author field.
-            if (!newDoc._deleted && !newDoc.author) {
-              throw {forbidden:
-                  "Documents must have an author field"};
-            }
-            if (oldDoc && oldDoc.author != userCtx.name) {
-                throw {unauthorized:
-                    "You are not the author of this document. You jerk."};
-            }
-          }).toString() + ")"
-        }
+    [{section: "httpd",
+      key: "authentication_handler",
+      value: "{couch_httpd, special_test_authentication_handler}"},
+     {section:"httpd",
+      key: "WWW-Authenticate",
+      value:  "X-Couch-Test-Auth"}],
+      
+    function () {
+    // try saving document usin the wrong credentials
+    var wrongPasswordDb = new CouchDB("test_suite_db",
+      {"WWW-Authenticate": "X-Couch-Test-Auth Damien Katz:foo"}
+    );
 
-        // Save a document normally
-        var userDb = new CouchDB("test_suite_db",
-          {"WWW-Authenticate": "X-Couch-Test-Auth Damien Katz:pecan pie"}
-        );
-        
-        T(userDb.save({_id:"testdoc", foo:1, author:"Damien Katz"}).ok);
-        
-        // Attempt to save the design as a non-admin
-        try {
-          userDb.save(designDoc);
-          T(false && "Can't get here. Should have thrown an error on design doc");
-        } catch (e) {
-          T(e.error == "unauthorized");
-          T(userDb.last_req.status == 401);
-        }
-        
-        // add user as admin
-        db.setAdmins(["Damien Katz"]);
-        
-        T(userDb.save(designDoc).ok);
+    try {
+      wrongPasswordDb.save({foo:1,author:"Damien Katz"});
+      T(false && "Can't get here. Should have thrown an error 1");
+    } catch (e) {
+      T(e.error == "unauthorized");
+      T(wrongPasswordDb.last_req.status == 401);
+    }
     
-        // update the document
-        var doc = userDb.open("testdoc");
-        doc.foo=2;
-        T(userDb.save(doc).ok);
-        
-        // Save a document that's missing an author field.
-        try {
-          userDb.save({foo:1});
-          T(false && "Can't get here. Should have thrown an error 2");
-        } catch (e) {
-          T(e.error == "forbidden");
-          T(userDb.last_req.status == 403);
-        }
     
-        // Now attempt to update the document as a different user, Jan 
-        var user2Db = new CouchDB("test_suite_db",
-          {"WWW-Authenticate": "X-Couch-Test-Auth Jan Lehnardt:apple"}
-        );
+    // Create the design doc that will run custom validation code
+    var designDoc = {
+      _id:"_design/test",
+      language: "javascript",
+      validate_doc_update: "(" + (function (newDoc, oldDoc, userCtx) {
+        // docs should have an author field.
+        if (!newDoc._deleted && !newDoc.author) {
+          throw {forbidden:
+              "Documents must have an author field"};
+        }
+        if (oldDoc && oldDoc.author != userCtx.name) {
+            throw {unauthorized:
+                "You are not the author of this document. You jerk."};
+        }
+      }).toString() + ")"
+    }
+
+    // Save a document normally
+    var userDb = new CouchDB("test_suite_db",
+      {"WWW-Authenticate": "X-Couch-Test-Auth Damien Katz:pecan pie"}
+    );
     
-        var doc = user2Db.open("testdoc");
-        doc.foo=3;
-        try {
-          user2Db.save(doc);
-          T(false && "Can't get here. Should have thrown an error 3");
-        } catch (e) {
-          T(e.error == "unauthorized");
-          T(user2Db.last_req.status == 401);
-        }
+    T(userDb.save({_id:"testdoc", foo:1, author:"Damien Katz"}).ok);
+    
+    // Attempt to save the design as a non-admin
+    try {
+      userDb.save(designDoc);
+      T(false && "Can't get here. Should have thrown an error on design doc");
+    } catch (e) {
+      T(e.error == "unauthorized");
+      T(userDb.last_req.status == 401);
+    }
+    
+    // add user as admin
+    db.setAdmins(["Damien Katz"]);
+    
+    T(userDb.save(designDoc).ok);
+
+    // update the document
+    var doc = userDb.open("testdoc");
+    doc.foo=2;
+    T(userDb.save(doc).ok);
+    
+    // Save a document that's missing an author field.
+    try {
+      userDb.save({foo:1});
+      T(false && "Can't get here. Should have thrown an error 2");
+    } catch (e) {
+      T(e.error == "forbidden");
+      T(userDb.last_req.status == 403);
+    }
+
+    // Now attempt to update the document as a different user, Jan 
+    var user2Db = new CouchDB("test_suite_db",
+      {"WWW-Authenticate": "X-Couch-Test-Auth Jan Lehnardt:apple"}
+    );
+
+    var doc = user2Db.open("testdoc");
+    doc.foo=3;
+    try {
+      user2Db.save(doc);
+      T(false && "Can't get here. Should have thrown an error 3");
+    } catch (e) {
+      T(e.error == "unauthorized");
+      T(user2Db.last_req.status == 401);
+    }
+    
+    // Now have Damien change the author to Jan
+    doc = userDb.open("testdoc");
+    doc.author="Jan Lehnardt";
+    T(userDb.save(doc).ok);
+    
+    // Now update the document as Jan
+    doc = user2Db.open("testdoc");
+    doc.foo = 3;
+    T(user2Db.save(doc).ok);
+    
+    // Damien can't delete it
+    try {
+      userDb.deleteDoc(doc);
+      T(false && "Can't get here. Should have thrown an error 4");
+    } catch (e) {
+      T(e.error == "unauthorized");
+      T(userDb.last_req.status == 401);
+    }
+    
+    // Now delete document
+    T(user2Db.deleteDoc(doc).ok);
+    var AuthHeaders = {"WWW-Authenticate": "X-Couch-Test-Auth Christopher Lenz:dog food"};
+    var host = CouchDB.host;
+    var dbPairs = [
+      {source:"test_suite_db_a",
+        target:"test_suite_db_b",
+        options:{}},
         
-        // Now have Damien change the author to Jan
-        doc = userDb.open("testdoc");
-        doc.author="Jan Lehnardt";
-        T(userDb.save(doc).ok);
-        
-        // Now update the document as Jan
-        doc = user2Db.open("testdoc");
-        doc.foo = 3;
-        T(user2Db.save(doc).ok);
-        
-        // Damien can't delete it
-        try {
-          userDb.deleteDoc(doc);
-          T(false && "Can't get here. Should have thrown an error 4");
-        } catch (e) {
-          T(e.error == "unauthorized");
-          T(userDb.last_req.status == 401);
-        }
-        
-        // Now delete document
-        T(user2Db.deleteDoc(doc).ok);
-      });
+      {source:"test_suite_db_a",
+        target:"http://" + host + "/test_suite_db_b",
+        options: {target_headers: AuthHeaders}},
+            
+      {source:"http://" + host + "/test_suite_db_a",
+        target:"test_suite_db_b",
+        options: {source_headers: AuthHeaders}},
+            
+      {source:"http://" + host + "/test_suite_db_a",
+        target:"http://" + host + "/test_suite_db_b",
+        options:{source_headers: AuthHeaders, target_headers: AuthHeaders}},
+    ]
+    var adminDbA = new CouchDB("test_suite_db_a");
+    var adminDbB = new CouchDB("test_suite_db_b");
+    var dbA = new CouchDB("test_suite_db_a",
+        {"WWW-Authenticate": "X-Couch-Test-Auth Christopher Lenz:dog food"});
+    var dbB = new CouchDB("test_suite_db_b",
+        {"WWW-Authenticate": "X-Couch-Test-Auth Christopher Lenz:dog food"});
+    var numDocs = 10;
+    var xhr;
+    for (var testPair = 0; testPair < dbPairs.length; testPair++) {
+      var A = dbPairs[testPair].source
+      var B = dbPairs[testPair].target
+      var Options = dbPairs[testPair].options
+
+      adminDbA.deleteDb();
+      adminDbA.createDb();
+      adminDbB.deleteDb();
+      adminDbB.createDb();
+      
+      // save and replicate a documents that will and will not pass our design
+      // doc validation function.
+      dbA.save({_id:"foo1",value:"a",author:"Noah Slater"});
+      dbA.save({_id:"foo2",value:"a",author:"Christopher Lenz"});
+      dbA.save({_id:"bad1",value:"a"});
+
+      T(CouchDB.replicate(A, B).ok);
+      T(CouchDB.replicate(B, A).ok);
+
+      T(dbA.open("foo1"));
+      T(dbB.open("foo1"));
+      T(dbA.open("foo2"));
+      T(dbB.open("foo2"));
+      
+      // save the design doc to dbA
+      delete designDoc._rev; // clear rev from previous saves
+      adminDbA.save(designDoc);
+
+      // no affect on already saved docs
+      T(dbA.open("bad1"));
+      
+      // Update some docs on dbB. Since the design hasn't replicated, anything
+      // is allowed.
+      
+      // this edit will fail validation on replication to dbA (no author)
+      T(dbB.save({_id:"bad2",value:"a"}).ok);
+      
+      // this edit will fail security on replication to dbA (wrong author
+      //  replicating the change)
+      var foo1 = dbB.open("foo1");
+      foo1.value = "b";
+      dbB.save(foo1);
+      
+      // this is a legal edit
+      var foo2 = dbB.open("foo2");
+      foo2.value = "b";
+      dbB.save(foo2);
+      
+      T(CouchDB.replicate(B, A).ok);
+      
+      // bad2 should not be on dbA
+      T(dbA.open("bad2") == null);
+      
+      // The edit to foo1 should not have replicated.
+      T(dbA.open("foo1").value == "a");
+      
+      // The edit to foo2 should have replicated.
+      T(dbA.open("foo2").value == "a");
+    }
+    });
   },
   
   

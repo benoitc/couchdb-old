@@ -84,23 +84,20 @@ handle_replicate_req(#httpd{user_ctx=UserCtx,method='POST'}=Req) ->
     Source = proplists:get_value(<<"source">>, Props),
     Target = proplists:get_value(<<"target">>, Props),
     
-    {SrcOpts} = proplists:get_value(<<"source_options">>, Props, {[]}),
-    {SrcHeadersBinary} = proplists:get_value(<<"headers">>, SrcOpts, {[]}),
-    SrcHeaders = [{?b2l(K),(V)} || {K,V} <- SrcHeadersBinary],
-    
-    {TgtOpts} = proplists:get_value(<<"target_options">>, Props, {[]}),
-    {TgtHeadersBinary} = proplists:get_value(<<"headers">>, TgtOpts, {[]}),
-    TgtHeaders = [{?b2l(K),(V)} || {K,V} <- TgtHeadersBinary],
-    
     {Options} = proplists:get_value(<<"options">>, Props, {[]}),
-    Options2 = [{source_options,
-                    [{headers, SrcHeaders},
-                    {user_ctx, UserCtx}]},
-                {target_options,
-                    [{headers, TgtHeaders},
-                    {user_ctx, UserCtx}]}
-                | Options],
-    {ok, {JsonResults}} = couch_rep:replicate(Source, Target, Options2),
+    {SrcHeadersJson} = proplists:get_value(<<"source_headers">>, Options, {[]}),
+    SrcHeaders = [{?b2l(K),(V)} || {K,V} <- SrcHeadersJson],
+    
+    {TgtHeadersJson} = proplists:get_value(<<"target_headers">>, Options, {[]}),
+    TgtHeaders = [{?b2l(K),(V)} || {K,V} <- TgtHeadersJson],
+    
+    {ok, {JsonResults}} = couch_rep:replicate(Source, Target,
+            [{source_options,   % Only one of following is used by api
+                [{headers, SrcHeaders}, % Headers used when src DB is URI
+                {user_ctx, UserCtx}]},  % Ctx used when src DB is local.
+            {target_options,
+                [{headers, TgtHeaders},
+                {user_ctx, UserCtx}]}]),
     send_json(Req, {[{ok, true} | JsonResults]});
 handle_replicate_req(Req) ->
     send_method_not_allowed(Req, "POST").

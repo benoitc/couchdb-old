@@ -15,7 +15,7 @@
 
 -export([open/2,close/1,create/2,start_compact/1,get_db_info/1]).
 -export([open_ref_counted/2,num_refs/1,monitor/1,count_changes_since/2]).
--export([update_doc/3,update_docs/4,update_docs/2,update_docs/3,delete_doc/3]).
+-export([update_doc/3,update_docs/4,update_docs/2,update_docs/3]).
 -export([get_doc_info/2,open_doc/2,open_doc/3,open_doc_revs/4]).
 -export([get_missing_revs/2,name/1,doc_to_tree/1,get_update_seq/1,get_committed_update_seq/1]).
 -export([enum_docs/4,enum_docs/5,enum_docs_since/4,enum_docs_since/5]).
@@ -83,11 +83,6 @@ monitor(#db{main_pid=MainPid}) ->
 
 start_compact(#db{update_pid=Pid}) ->
     gen_server:cast(Pid, start_compact).
-
-delete_doc(Db, Id, Revisions) ->
-    DeletedDocs = [#doc{id=Id, revs=[Rev], deleted=true} || Rev <- Revisions],
-    {ok, [Result]} = update_docs(Db, DeletedDocs, []),
-    {ok, Result}.
 
 open_doc(Db, IdOrDocInfo) ->
     open_doc(Db, IdOrDocInfo, []).
@@ -197,8 +192,12 @@ name(#db{name=Name}) ->
     Name.
     
 update_doc(Db, Doc, Options) ->
-    {ok, [NewRev]} = update_docs(Db, [Doc], Options),
-    {ok, NewRev}.
+    case update_docs(Db, [Doc], Options) of
+    {ok, [NewRev], _} ->
+        {ok, NewRev};
+    {conflicts, [ConflictRev]} ->
+        throw({conflict, ConflictRev})
+    end.
 
 update_docs(Db, Docs) ->
     update_docs(Db, Docs, []).
@@ -252,117 +251,186 @@ validate_doc_update(#db{name=DbName,user_ctx=Ctx}=Db, Doc, GetDiskDocFun) ->
     Doc.
 
 
-prep_and_validate_new_edit(Db, #doc{id=Id,revs=[NewRev|PrevRevs]}=Doc,
+prep_and_validate_update(Db, #doc{id=Id,revs={RevStart, [_NewRev|PrevRevs]}}=Doc,
         OldFullDocInfo, LeafRevsDict) ->
+    NilDocFun = fun() -> nil end,
     case PrevRevs of
     [PrevRev|_] ->
-        case dict:find(PrevRev, LeafRevsDict) of
-        {ok, {Deleted, Sp, DiskRevs}} ->
-            Doc2 = Doc#doc{revs=[NewRev|DiskRevs]},
-            case couch_doc:has_stubs(Doc2) of
+        case dict:find({RevStart-1, PrevRev}, LeafRevsDict) of
+        {ok, {Deleted, DiskSp, DiskRevs}} ->
+            case couch_doc:has_stubs(Doc) of
             true ->
-                DiskDoc = make_doc(Db, Id, Deleted, Sp, DiskRevs),
-                Doc3 = couch_doc:merge_stubs(Doc2, DiskDoc),
-                validate_doc_update(Db, Doc3, fun() -> DiskDoc end);
+                DiskDoc = make_doc(Db, Id, Deleted, DiskSp, DiskRevs),
+                Doc2 = couch_doc:merge_stubs(Doc, DiskDoc),
+                {ok, validate_doc_update(Db, Doc2, fun() -> DiskDoc end)};
             false ->
-                LoadDiskDoc = fun() -> make_doc(Db,Id,Deleted,Sp,DiskRevs) end,
-                validate_doc_update(Db, Doc2, LoadDiskDoc)
+                LoadDiskDoc = fun() -> make_doc(Db,Id,Deleted,DiskSp,DiskRevs) end,
+                {ok, validate_doc_update(Db, Doc, LoadDiskDoc)}
             end;
         error ->
-            throw(conflict)
+            {conflict, validate_doc_update(Db, Doc, NilDocFun)}
         end;
     [] ->
         % new doc, and we have existing revs.
         if OldFullDocInfo#full_doc_info.deleted ->
             % existing docs are deletions
-            validate_doc_update(Db, Doc, nil);
+            {ok, validate_doc_update(Db, Doc, NilDocFun)};
         true ->
-            throw(conflict)
+            {conflict, validate_doc_update(Db, Doc, NilDocFun)}
         end
     end.
 
-update_docs(#db{update_pid=UpdatePid}=Db, Docs, Options) ->
-    update_docs(#db{update_pid=UpdatePid}=Db, Docs, Options, true).
 
-update_docs(Db, Docs, Options, false) ->
-    DocBuckets = group_alike_docs(Docs),
-    Ids = [Id || [#doc{id=Id}|_] <- DocBuckets],
-    
-    ExistingDocs = get_full_doc_infos(Db, Ids),
-    
-    DocBuckets2 = lists:zipwith(
-        fun(Bucket, not_found) ->
-            [validate_doc_update(Db, Doc, fun()-> nil end) || Doc <- Bucket];
-        (Bucket, {ok, #full_doc_info{rev_tree=OldRevTree}}) ->
-            NewTree = lists:foldl(
-                fun(Doc, RevTreeAcc) ->
-                    couch_key_tree:merge(RevTreeAcc, doc_to_tree(Doc))
-                end,
-                OldRevTree, Bucket),
-            Leafs = couch_key_tree:get_all_leafs_full(NewTree),
-            LeafRevsFullDict = dict:from_list( [{Rev, FullPath} || [{Rev, _}|_]=FullPath <- Leafs]),
-            lists:flatmap(
-                fun(#doc{revs=[Rev|_]}=Doc) ->
-                    case dict:find(Rev, LeafRevsFullDict) of
-                    {ok, [{Rev, #doc{id=Id}}|_]=Path} ->
-                        % our unflushed doc is a leaf node. Go back on the path 
-                        % to find the previous rev that's on disk.
-                        LoadPrevRev = fun() ->
-                            make_first_doc_on_disk(Db, Id, Path)
-                        end,
-                        [validate_doc_update(Db, Doc, LoadPrevRev)];
-                    _ ->
-                        % this doc isn't a leaf or is already exists in the tree. ignore
-                        []
-                    end
-                end, Bucket)
+
+prep_and_validate_updates(_Db, [], [], AccPrepped, AccConflicts) ->
+   {AccPrepped, AccConflicts};
+prep_and_validate_updates(Db, [DocBucket|RestBuckets], [not_found|RestLookups], AccPrepped, AccConflicts) ->
+    % no existing revs are known, make sure no old revs specified.
+    AccConflicts2 = [Doc || #doc{revs=[_NewRev,_OldRev|_]=Doc} <- DocBucket] ++ AccConflicts,
+    AccPrepped2 = [[validate_doc_update(Db, Doc, fun()-> nil end) || Doc <- DocBucket] | AccPrepped],
+    prep_and_validate_updates(Db, RestBuckets, RestLookups, AccPrepped2, AccConflicts2);
+prep_and_validate_updates(Db, [DocBucket|RestBuckets],
+        [{ok, #full_doc_info{rev_tree=OldRevTree}=OldFullDocInfo}|RestLookups],
+        AccPrepped, AccConflicts) ->
+    Leafs = couch_key_tree:get_all_leafs(OldRevTree),
+    LeafRevsDict = dict:from_list([{{Start, RevId}, {Deleted, Sp, Revs}} ||
+            {{Deleted, Sp}, {Start, [RevId|_]}=Revs} <- Leafs]),
+    {Prepped, AccConflicts2} = lists:foldl(
+        fun(Doc, {Docs2Acc, Conflicts2Acc}) ->
+            case prep_and_validate_update(Db, Doc, OldFullDocInfo,
+                    LeafRevsDict) of
+            {ok, Doc} ->
+                {[Doc | Docs2Acc], Conflicts2Acc};
+            {conflict, Doc} ->
+                {[Doc | Docs2Acc], [Doc|Conflicts2Acc]}
+            end
         end,
-        DocBuckets, ExistingDocs),
-    write_and_commit(Db, DocBuckets2, Options);
+        {[], AccConflicts}, DocBucket),
+    prep_and_validate_updates(Db, RestBuckets, RestLookups, [Prepped | AccPrepped], AccConflicts2).
+
+
+update_docs(#db{update_pid=UpdatePid}=Db, Docs, Options) ->
+    update_docs(#db{update_pid=UpdatePid}=Db, Docs, Options, interactive_edit).
     
-update_docs(Db, Docs, Options, true) ->
-        % go ahead and generate the new revision ids for the documents.
+should_validate(Db, Docs) ->
+    % true if our db has validation funs, there are design docs,
+    % or we have attachments.
+    (Db#db.validate_doc_funs /= []) orelse
+        lists:any(
+            fun(#doc{id= <<?DESIGN_DOC_PREFIX, _/binary>>}) ->
+                true;
+            (#doc{attachments=Atts}) ->
+                Atts /= []
+            end, Docs).
+
+
+update_docs(Db, Docs, Options, replicated_changes) ->
+    DocBuckets = group_alike_docs(Docs),
+    
+    case should_validate(Db, Docs) of
+    true ->
+        Ids = [Id || [#doc{id=Id}|_] <- DocBuckets],
+        ExistingDocs = get_full_doc_infos(Db, Ids),
+    
+        DocBuckets2 = lists:zipwith(
+            fun(Bucket, not_found) ->
+                [validate_doc_update(Db, Doc, fun()-> nil end) || Doc <- Bucket];
+            (Bucket, {ok, #full_doc_info{rev_tree=OldTree}}) ->
+                NewRevTree = lists:foldl(
+                    fun(NewDoc, AccTree) ->
+                        {NewTree, _} = couch_key_tree:merge(AccTree, [couch_db:doc_to_tree(NewDoc)]),
+                        NewTree
+                    end,
+                    OldTree, Bucket),
+                Leafs = couch_key_tree:get_all_leafs_full(NewRevTree),
+                LeafRevsFullDict = dict:from_list( [{{Start, RevId}, FullPath} || {Start, [{RevId, _}|_]}=FullPath <- Leafs]),
+                lists:flatmap(
+                    fun(#doc{id=Id,revs={Pos, [RevId|_]}}=Doc) ->
+                        case dict:find({Pos, RevId}, LeafRevsFullDict) of
+                        {ok, {Start, Path}} ->
+                            % our unflushed doc is a leaf node. Go back on the path 
+                            % to find the previous rev that's on disk.
+                            LoadPrevRev = fun() ->
+                                make_first_doc_on_disk(Db, Id, Start - 1, lists:tail(Path))
+                            end,
+                            [validate_doc_update(Db, Doc, LoadPrevRev)];
+                        _ ->
+                            % this doc isn't a leaf or already exists in the tree. ignore
+                            []
+                        end
+                    end, Bucket)
+            end,
+            DocBuckets, ExistingDocs),
+        DocBuckets3 = [Bucket || [_|_]=Bucket <- DocBuckets2]; % remove empty buckets
+    false ->
+        DocBuckets3 = DocBuckets
+    end,
+    {ok, _} = write_and_commit(Db, DocBuckets3, [merge_conflicts | Options]),
+    ok;
+    
+update_docs(Db, Docs, Options, interactive_edit) ->
+    % go ahead and generate the new revision ids for the documents.
     Docs2 = lists:map(
-        fun(#doc{id=Id,revs=Revs}=Doc) ->
+        fun(#doc{id=Id,revs={Start, RevIds}}=Doc) ->
             case Id of
             <<?LOCAL_DOC_PREFIX, _/binary>> ->
-                Rev = case Revs of [] -> 0; [Rev0|_] -> list_to_integer(binary_to_list(Rev0)) end,
-                Doc#doc{revs=[list_to_binary(integer_to_list(Rev + 1))]};
+                Rev = case RevIds of [] -> 0; [Rev0|_] -> list_to_integer(?b2l(Rev0)) end,
+                Doc#doc{revs={Start, [?l2b(integer_to_list(Rev + 1))]}};
             _ ->
-                Doc#doc{revs=[list_to_binary(integer_to_list(couch_util:rand32())) | Revs]}
+                Doc#doc{revs={Start+1, [?l2b(integer_to_list(couch_util:rand32())) | RevIds]}}
             end
         end, Docs),
     DocBuckets = group_alike_docs(Docs2),
-    Ids = [Id || [#doc{id=Id}|_] <- DocBuckets],
     
-    % lookup the doc by id and get the most recent
+    case ((Db#db.validate_doc_funs /= []) orelse
+            lists:any(fun(#doc{id= <<?DESIGN_DOC_PREFIX, _/binary>>}) -> true;
+                            (Doc) -> couch_doc:has_stubs(Doc) end, Docs)) of
+    true ->
+        % lookup the doc by id and get the most recent
+        Ids = [Id || [#doc{id=Id}|_] <- DocBuckets],
+        ExistingDocInfos = get_full_doc_infos(Db, Ids),
     
-    ExistingDocs = get_full_doc_infos(Db, Ids),
+        {DocBuckets2, PreConflicts} = prep_and_validate_updates(Db, DocBuckets, ExistingDocInfos, [], []),
     
-    DocBuckets2 = lists:zipwith(
-        fun(Bucket, not_found) ->
-            % no existing revs on disk, make sure no old revs specified.
-            [throw(conflict) || #doc{revs=[_NewRev, _OldRev | _]} <- Bucket],
-            [validate_doc_update(Db, Doc, fun()-> nil end) || Doc <- Bucket];
-        (Bucket, {ok, #full_doc_info{rev_tree=OldRevTree}=OldFullDocInfo}) ->
-            Leafs = couch_key_tree:get_all_leafs(OldRevTree),
-            LeafRevsDict = dict:from_list([{Rev, {Deleted, Sp, Revs}} || {Rev, {Deleted, Sp}, Revs} <- Leafs]),
-            [prep_and_validate_new_edit(Db, Doc, OldFullDocInfo, LeafRevsDict) || Doc <- Bucket]
-        end,
-        DocBuckets, ExistingDocs),
-    ok = write_and_commit(Db, DocBuckets2, [new_edits | Options]),
-    {ok, [NewRev ||#doc{revs=[NewRev|_]} <- Docs2]}.
+        case PreConflicts of
+        [] ->
+            Continue = ok;
+        _ ->
+            case lists:member(merge_conflicts, Options) of
+            true -> Continue = ok;
+            false -> Continue = {conflicts, PreConflicts}
+            end
+        end;
+    false ->
+        Continue = ok,
+        DocBuckets2 = DocBuckets
+    end,
+    if Continue == ok ->
+        case write_and_commit(Db, DocBuckets2, Options) of
+        {ok, SavedConflicts} ->
+            {ok, docs_to_revs(Docs2), SavedConflicts};
+        {conflicts, Conflicts} ->
+            {conflicts, Conflicts}
+        end;
+    true ->
+        Continue
+    end.
+    
 
+docs_to_revs([]) ->
+    [];
+docs_to_revs([#doc{revs={Start,[RevId|_]}} | Rest]) ->
+    [{Start, RevId} | docs_to_revs(Rest)].
 
 % Returns the first available document on disk. Input list is a full rev path
 % for the doc.
-make_first_doc_on_disk(_Db, _Id, []) ->
+make_first_doc_on_disk(_Db, _Id, _Pos, []) ->
     nil;
-make_first_doc_on_disk(Db, Id, [{_Rev, ?REV_MISSING}|RestPath]) ->
-    make_first_doc_on_disk(Db, Id, RestPath);
-make_first_doc_on_disk(Db, Id, [{_Rev, {IsDel, Sp}} |_]=DocPath) ->
+make_first_doc_on_disk(Db, Id, Pos, [{_Rev, ?REV_MISSING}|RestPath]) ->
+    make_first_doc_on_disk(Db, Id, Pos - 1, RestPath);
+make_first_doc_on_disk(Db, Id, Pos, [{_Rev, {IsDel, Sp}} |_]=DocPath) ->
     Revs = [Rev || {Rev, _} <- DocPath],
-    make_doc(Db, Id, IsDel, Sp, Revs).
+    make_doc(Db, Id, IsDel, Sp, {Pos, Revs}).
 
 
 write_and_commit(#db{update_pid=UpdatePid, user_ctx=Ctx}=Db, DocBuckets,
@@ -370,20 +438,20 @@ write_and_commit(#db{update_pid=UpdatePid, user_ctx=Ctx}=Db, DocBuckets,
     % flush unwritten binaries to disk.
     DocBuckets2 = [[doc_flush_binaries(Doc, Db#db.fd) || Doc <- Bucket] || Bucket <- DocBuckets],
     case gen_server:call(UpdatePid, {update_docs, DocBuckets2, Options}, infinity) of
-    ok -> ok;
+    {ok, SavedConflicts} -> {ok, SavedConflicts};
+    {conflicts, Conflicts} -> {conflicts, Conflicts};
     retry ->
         % This can happen if the db file we wrote to was swapped out by
-        % compaction. Retry writing to the current file
+        % compaction. Retry by reopening the db and writing to the current file
         {ok, Db2} = open_ref_counted(Db#db.main_pid, Ctx),
         DocBuckets3 = [[doc_flush_binaries(Doc, Db2#db.fd) || Doc <- Bucket] || Bucket <- DocBuckets],
         % We only retry once
         close(Db2),
         case gen_server:call(UpdatePid, {update_docs, DocBuckets3, Options}, infinity) of
-        ok -> ok;
+        {ok, SavedConflicts} -> {ok, SavedConflicts};
+        {conflicts, Conflicts} -> {conflicts, Conflicts};
         Else -> throw(Else)
-        end;
-    Else->
-        throw(Else)
+        end
     end.
 
 
@@ -467,7 +535,7 @@ enum_docs_reduce_to_count(Reds) ->
     {Count, _DelCount} = couch_btree:final_reduce(
             fun couch_db_updater:btree_by_id_reduce/2, Reds),
     Count.
-
+    
 count_changes_since(Db, SinceSeq) ->
     {ok, Changes} = 
     couch_btree:fold_reduce(Db#db.docinfo_by_seq_btree,
@@ -479,7 +547,7 @@ count_changes_since(Db, SinceSeq) ->
         end,
         ok),
     Changes.
-    
+
 enum_docs_since(Db, SinceSeq, Direction, InFun, Ctx) ->
     couch_btree:fold(Db#db.docinfo_by_seq_btree, SinceSeq + 1, Direction, InFun, Ctx).
 
@@ -550,11 +618,11 @@ open_doc_revs_int(Db, IdRevs, Options) ->
                     end
                 end,
                 FoundResults =
-                lists:map(fun({Rev, Value, FoundRevPath}) ->
+                lists:map(fun({Value, {Pos, [Rev|_]}=FoundRevPath}) ->
                     case Value of
                     ?REV_MISSING ->
                         % we have the rev in our list but know nothing about it
-                        {{not_found, missing}, Rev};
+                        {{not_found, missing}, {Pos, Rev}};
                     {IsDeleted, SummaryPtr} ->
                         {ok, make_doc(Db, Id, IsDeleted, SummaryPtr, FoundRevPath)}
                     end
@@ -572,18 +640,18 @@ open_doc_revs_int(Db, IdRevs, Options) ->
 open_doc_int(Db, <<?LOCAL_DOC_PREFIX, _/binary>> = Id, _Options) ->
     case couch_btree:lookup(Db#db.local_docs_btree, [Id]) of
     [{ok, {_, {Rev, BodyData}}}] ->
-        {ok, #doc{id=Id, revs=[list_to_binary(integer_to_list(Rev))], body=BodyData}};
+        {ok, #doc{id=Id, revs={0, [list_to_binary(integer_to_list(Rev))]}, body=BodyData}};
     [not_found] ->
         {not_found, missing}
     end;
-open_doc_int(Db, #doc_info{id=Id,rev=Rev,deleted=IsDeleted,summary_pointer=Sp}=DocInfo, Options) ->
-    Doc = make_doc(Db, Id, IsDeleted, Sp, [Rev]),
+open_doc_int(Db, #doc_info{id=Id,rev={Pos,RevId},deleted=IsDeleted,summary_pointer=Sp}=DocInfo, Options) ->
+    Doc = make_doc(Db, Id, IsDeleted, Sp, {Pos,[RevId]}),
     {ok, Doc#doc{meta=doc_meta_info(DocInfo, [], Options)}};
 open_doc_int(Db, #full_doc_info{id=Id,rev_tree=RevTree}=FullDocInfo, Options) ->
     #doc_info{deleted=IsDeleted,rev=Rev,summary_pointer=Sp} = DocInfo =
         couch_doc:to_doc_info(FullDocInfo),
-    {[{_Rev,_Value, Revs}], []} = couch_key_tree:get(RevTree, [Rev]),
-    Doc = make_doc(Db, Id, IsDeleted, Sp, Revs),
+    {[{_, RevPath}], []} = couch_key_tree:get(RevTree, [Rev]),
+    Doc = make_doc(Db, Id, IsDeleted, Sp, RevPath),
     {ok, Doc#doc{meta=doc_meta_info(DocInfo, RevTree, Options)}};
 open_doc_int(Db, Id, Options) ->
     case get_full_doc_info(Db, Id) of
@@ -597,9 +665,10 @@ doc_meta_info(DocInfo, RevTree, Options) ->
     case lists:member(revs_info, Options) of
     false -> [];
     true ->
-        {[RevPath],[]} = 
+        {[{Pos, RevPath}],[]} = 
             couch_key_tree:get_full_key_paths(RevTree, [DocInfo#doc_info.rev]),
-        [{revs_info, lists:map(
+        
+        [{revs_info, Pos, lists:map(
             fun({Rev, {true, _Sp}}) -> 
                 {Rev, deleted};
             ({Rev, {false, _Sp}}) ->
@@ -626,13 +695,15 @@ doc_meta_info(DocInfo, RevTree, Options) ->
     end.
 
 
-doc_to_tree(Doc) ->
-    doc_to_tree(Doc, lists:reverse(Doc#doc.revs)).
+doc_to_tree(#doc{revs={Start, RevIds}}=Doc) ->
+    [Tree] = doc_to_tree_simple(Doc, lists:reverse(RevIds)),
+    {Start - length(RevIds) + 1, Tree}.
 
-doc_to_tree(Doc, [RevId]) ->
+
+doc_to_tree_simple(Doc, [RevId]) ->
     [{RevId, Doc, []}];
-doc_to_tree(Doc, [RevId | Rest]) ->
-    [{RevId, ?REV_MISSING, doc_to_tree(Doc, Rest)}].
+doc_to_tree_simple(Doc, [RevId | Rest]) ->
+    [{RevId, ?REV_MISSING, doc_to_tree_simple(Doc, Rest)}].
 
 make_doc(Db, FullDocInfo) ->
     {#doc_info{id=Id,deleted=Deleted,summary_pointer=Sp}, RevPath}
