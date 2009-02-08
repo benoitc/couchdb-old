@@ -240,7 +240,9 @@ path(#httpd{mochi_req=MochiReq}) ->
     MochiReq:get(path).
 
 absolute_uri(#httpd{mochi_req=MochiReq}, Path) ->
-    Host = case MochiReq:get_header_value("Host") of
+    MHost = MochiReq:get_header_value("Host"),
+    ?LOG_ERROR("MHost ~p",[MHost]),
+    Host = case MHost of
         undefined ->
             {ok, {Address, Port}} = inet:sockname(MochiReq:get(socket)),
             inet_parse:ntoa(Address) ++ ":" ++ integer_to_list(Port);
@@ -427,6 +429,7 @@ send_error(Req, Code, Error, Msg) ->
 send_redirect(Req, Path) ->
     Headers = [{"Location", couch_httpd:absolute_uri(Req, Path)}],
     send_response(Req, 301, Headers, <<>>).
+
 
 negotiate_content_type(#httpd{mochi_req=MochiReq}) ->
     %% Determine the appropriate Content-Type header for a JSON response
