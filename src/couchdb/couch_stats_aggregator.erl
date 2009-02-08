@@ -206,7 +206,6 @@ queue_append(Queue, Key, Value) ->
     NewQueue = queue_truncate(queue:in(Value, Queue)),
     ets:insert(?MODULE, {Key, NewQueue}).
 
-
 queue_truncate(Queue) ->
     case queue:len(Queue) > ?QUEUE_MAX_LENGTH of
         true -> 
@@ -291,8 +290,8 @@ timer(Time, Fun) ->
 number_to_binary(Integer) when is_integer(Integer)  ->
     list_to_binary(integer_to_list(Integer));
 number_to_binary(Float) when is_float(Float) ->
-	[List|_Tail] = (io_lib:fwrite("~.2f", [Float])),
-	list_to_binary(List).
+    [List|_Tail] = (io_lib:fwrite("~.2f", [Float])),
+    list_to_binary(List).
 
 b2a(Binary) when is_atom(Binary)->
     Binary;
@@ -459,7 +458,7 @@ should_return_min_aggregate_counter_test() ->
         #aggregates{min=Min} = ?MODULE:get({couchdb, request_time, aggregate}),
         ?assertEqual(20, Min)
     end).
-    
+
 should_return_max_aggregate_counter_test() ->
     test_helper(fun() -> 
         ?MODULE:record({couchdb, request_time}, 20),
@@ -474,7 +473,7 @@ should_return_mean_aggregate_value_test() ->
         ?MODULE:record({couchdb, request_time}, 30),
         #aggregates{mean=Mean} = ?MODULE:get({couchdb, request_time, aggregate}),
         ?assertEqual(25.0, Mean)
-	end).
+    end).
 
 should_return_stddev_aggregate_value_test() ->
     test_helper(fun() ->
@@ -482,4 +481,4 @@ should_return_stddev_aggregate_value_test() ->
         ?MODULE:record({couchdb, request_time}, 30),
         #aggregates{stddev=Stddev} = ?MODULE:get({couchdb, request_time, aggregate}),
         ?assertEqual(5.0, Stddev)
-	end).
+    end).
