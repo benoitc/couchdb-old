@@ -152,6 +152,7 @@ respondWith = function(req, responders) {
     var bestMime = Mimeparse.bestMatch(provides, accept);
     bestKey = keysByMime[bestMime];
   }
+  log("besyKey "+bestKey);
   var rFunc = responders[bestKey || responders.fallback || "html"];
   if (rFunc) {      
     var resp = maybeWrapResponse(rFunc());
