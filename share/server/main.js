@@ -149,7 +149,7 @@ respondWith = function(req, responders) {
         provides = provides.concat(mimesByKey[key]);        
       }
     }
-    var bestMime = Mimeparse.bestMatch(provides.reverse(), accept);
+    var bestMime = Mimeparse.bestMatch(provides, accept);
     bestKey = keysByMime[bestMime];
   }
   log("besyKey "+bestKey);
