@@ -70,15 +70,17 @@ handle_temp_view_req(#httpd{method='POST'}=Req, Db) ->
     end,
     {Props} = couch_httpd:json_body(Req),
     Language = proplists:get_value(<<"language">>, Props, <<"javascript">>),
+    {DesignOptions} = proplists:get_value(<<"options">>, Props, {[]}),
     MapSrc = proplists:get_value(<<"map">>, Props),
     Keys = proplists:get_value(<<"keys">>, Props, nil),
     case proplists:get_value(<<"reduce">>, Props, null) of
     null ->
-        {ok, View} = couch_view:get_temp_map_view(Db, Language, MapSrc),
+        {ok, View} = couch_view:get_temp_map_view(Db, Language, 
+            DesignOptions, MapSrc),
         output_map_view(Req, View, Db, QueryArgs, Keys);
     RedSrc ->
-        {ok, View} = couch_view:get_temp_reduce_view(Db, Language, MapSrc,
-                RedSrc),
+        {ok, View} = couch_view:get_temp_reduce_view(Db, Language, 
+            DesignOptions, MapSrc, RedSrc),
         output_reduce_view(Req, View, QueryArgs, Keys)
     end;
 
@@ -328,6 +330,9 @@ parse_view_query(Req, Keys, IsReduce) ->
                 Msg1 = "Bad URL query value for 'include_docs' expected \"true\" or \"false\".",
                 throw({query_parse_error, Msg1})
             end;
+        {"format", _} ->
+            % we just ignore format, so that JS can have it
+            Args;
         _ -> % unknown key
             Msg = lists:flatten(io_lib:format(
                 "Bad URL query key:~s", [Key])),

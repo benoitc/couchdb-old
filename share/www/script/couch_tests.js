@@ -491,7 +491,7 @@ var tests = {
     // bug COUCHDB-100: DELETE on non-existent DB returns 500 instead of 404
     db.deleteDb();
     
-    db.createDb();
+db.createDb();
 
     // PUT on existing DB should return 412 instead of 500
     xhr = CouchDB.request("PUT", "/test_suite_db/");
@@ -1232,6 +1232,58 @@ var tests = {
     }
   },
 
+  design_options: function(debug) {
+    var db = new CouchDB("test_suite_db");
+    db.deleteDb();
+    db.createDb();
+    if (debug) debugger;
+
+    //// test the includes_design option
+    var map = "function (doc) {emit(null, doc._id);}";
+
+    // we need a design doc even to test temp views with it
+    var designDoc = {
+      _id:"_design/fu",
+      language: "javascript",
+      options: {
+        include_design: true        
+      },
+      views: {
+        data: {"map": map}
+      }
+    };
+    T(db.save(designDoc).ok);
+
+    // should work for temp views
+    var rows = db.query(map, null, {options:{include_design: true}}).rows;
+    T(rows.length == 1);
+    T(rows[0].value == "_design/fu");
+
+    rows = db.query(map).rows;
+    T(rows.length == 0);
+
+    // when true, should include design docs in views
+    rows = db.view("fu/data").rows;
+    T(rows.length == 1);
+    T(rows[0].value == "_design/fu");
+
+    // when false, should not
+    designDoc.options.include_design = false;
+    delete designDoc._rev;
+    designDoc._id = "_design/bingo";
+    T(db.save(designDoc).ok);
+    rows = db.view("bingo/data").rows;
+    T(rows.length == 0);
+
+    // should default to false
+    delete designDoc.options;
+    delete designDoc._rev;
+    designDoc._id = "_design/bango";
+    T(db.save(designDoc).ok);
+    rows = db.view("bango/data").rows;
+    T(rows.length == 0);
+  },
+
   multiple_rows: function(debug) {
     var db = new CouchDB("test_suite_db");
     db.deleteDb();
@@ -1898,71 +1950,71 @@ var tests = {
     // NOTE, the values are already in their correct sort order. Consider this
     // a specification of collation of json types.
 
-    var values = []
+    var values = [];
 
     // special values sort before all other types
-    values.push(null)
-    values.push(false)
-    values.push(true)
+    values.push(null);
+    values.push(false);
+    values.push(true);
 
     // then numbers
-    values.push(1)
-    values.push(2)
-    values.push(3.0)
-    values.push(4)
+    values.push(1);
+    values.push(2);
+    values.push(3.0);
+    values.push(4);
 
     // then text, case sensitive
-    values.push("a")
-    values.push("A")
-    values.push("aa")
-    values.push("b")
-    values.push("B")
-    values.push("ba")
-    values.push("bb")
+    values.push("a");
+    values.push("A");
+    values.push("aa");
+    values.push("b");
+    values.push("B");
+    values.push("ba");
+    values.push("bb");
 
     // then arrays. compared element by element until different.
     // Longer arrays sort after their prefixes
-    values.push(["a"])
-    values.push(["b"])
-    values.push(["b","c"])
-    values.push(["b","c", "a"])
-    values.push(["b","d"])
-    values.push(["b","d", "e"])
+    values.push(["a"]);
+    values.push(["b"]);
+    values.push(["b","c"]);
+    values.push(["b","c", "a"]);
+    values.push(["b","d"]);
+    values.push(["b","d", "e"]);
 
     // then object, compares each key value in the list until different.
     // larger objects sort after their subset objects.
-    values.push({a:1})
-    values.push({a:2})
-    values.push({b:1})
-    values.push({b:2})
-    values.push({b:2, a:1}) // Member order does matter for collation.
-                            // CouchDB preserves member order
-                            // but doesn't require that clients will.
-                            // (this test might fail if used with a js engine
-                            // that doesn't preserve order)
-    values.push({b:2, c:2})
+    values.push({a:1});
+    values.push({a:2});
+    values.push({b:1});
+    values.push({b:2});
+    values.push({b:2, a:1}); // Member order does matter for collation.
+                             // CouchDB preserves member order
+                             // but doesn't require that clients will.
+                             // (this test might fail if used with a js engine
+                             // that doesn't preserve order)
+    values.push({b:2, c:2});
 
     for (var i=0; i<values.length; i++) {
       db.save({_id:(i).toString(), foo:values[i]});
     }
 
-    var queryFun = function(doc) { emit(doc.foo, null); }
+    var queryFun = function(doc) { emit(doc.foo, null); };
     var rows = db.query(queryFun).rows;
     for (i=0; i<values.length; i++) {
-      T(equals(rows[i].key, values[i]))
+      T(equals(rows[i].key, values[i]));
     }
 
     // everything has collated correctly. Now to check the descending output
-    rows = db.query(queryFun, null, {descending: true}).rows
+    rows = db.query(queryFun, null, {descending: true}).rows;
     for (i=0; i<values.length; i++) {
-      T(equals(rows[i].key, values[values.length - 1 -i]))
+      T(equals(rows[i].key, values[values.length - 1 -i]));
     }
 
     // now check the key query args
     for (i=1; i<values.length; i++) {
-      var queryOptions = {key:values[i]}
+      var queryOptions = {key:values[i]};
       rows = db.query(queryFun, null, queryOptions).rows;
-      T(rows.length == 1 && equals(rows[0].key, values[i]))
+      T(rows.length == 1 && equals(rows[0].key, values[i]));
     }
   },
 
@@ -2723,7 +2775,7 @@ var tests = {
     T(xhr.status == 201);
 
     // extract the ETag header values
-    var etag = xhr.getResponseHeader("etag")
+    var etag = xhr.getResponseHeader("etag");
 
     // get the doc and verify the headers match
     xhr = CouchDB.request("GET", "/test_suite_db/1");
@@ -2744,13 +2796,13 @@ var tests = {
 
     // extract the new ETag value
     var etagOld= etag;
-    etag = xhr.getResponseHeader("etag")
+    etag = xhr.getResponseHeader("etag");
 
     // fail to replace a doc
     xhr = CouchDB.request("PUT", "/test_suite_db/1", {
       body: "{}"
     });
-    T(xhr.status == 409)
+    T(xhr.status == 409);
 
     // verify get w/Etag
     xhr = CouchDB.request("GET", "/test_suite_db/1", {
@@ -2772,7 +2824,7 @@ var tests = {
     xhr = CouchDB.request("DELETE", "/test_suite_db/1", {
       headers: {"if-match": etag}
     });
-    T(xhr.status == 200)
+    T(xhr.status == 200);
   },
 
    show_documents: function(debug) {
@@ -3084,10 +3136,14 @@ var tests = {
         }
       },
       lists: {
-        simpleForm: stringFun(function(head, row, req) {
+        simpleForm: stringFun(function(head, row, req, row_info) {
           if (row) {
             // we ignore headers on rows and tail
-            return {body : '\n<li>Key: '+row.key+' Value: '+row.value+'</li>'};
+            return {
+                    body : '\n<li>Key: '+row.key
+                    +' Value: '+row.value
+                    +' LineNo: '+row_info.row_number+'</li>'
+            };
           } else if (head) {
             // we return an object (like those used by external and show)
             // so that we can specify headers
@@ -3099,10 +3155,12 @@ var tests = {
             };
           } else {
             // tail
-            return {body : '</ul>'};
+            return {body : '</ul>'+
+                '<p>FirstKey: '+row_info.first_key+ 
+                ' LastKey: '+row_info.prev_key+'</p>'};
           }
         }),
-        acceptSwitch: stringFun(function(head, row, req) {
+        acceptSwitch: stringFun(function(head, row, req, row_info) {
           return respondWith(req, {
             html : function() {
               // If you're outputting text and you're not setting
@@ -3111,9 +3169,11 @@ var tests = {
                 return "HTML <ul>";
               } else if (row) {
                 return '\n<li>Key: '
-                  +row.key+' Value: '+row.value+'</li>';
+                  +row.key+' Value: '+row.value
+                  +' LineNo: '+row_info.row_number+'</li>';
               } else { // tail
-                return "</ul>";
+                return '</ul>';
+
               }
             },
             xml : function() {
@@ -3154,12 +3214,23 @@ var tests = {
     T(xhr.status == 200);
     T(/Total Rows/.test(xhr.responseText));
     T(/Key: 1/.test(xhr.responseText));
-    
+    T(/LineNo: 0/.test(xhr.responseText));
+    T(/LineNo: 5/.test(xhr.responseText));
+    T(/FirstKey: 0/.test(xhr.responseText));
+    T(/LastKey: 9/.test(xhr.responseText));
+
+
+    var lines = xhr.responseText.split('\n');
+    T(/LineNo: 5/.test(lines[6]));
+
     // get with query params
     var xhr = CouchDB.request("GET", "/test_suite_db/_list/lists/simpleForm/basicView?startkey=3");
     T(xhr.status == 200);
     T(/Total Rows/.test(xhr.responseText));
     T(!(/Key: 1/.test(xhr.responseText)));
+    T(/FirstKey: 3/.test(xhr.responseText));
+    T(/LastKey: 9/.test(xhr.responseText));
+
     
     // with 0 rows
     var xhr = CouchDB.request("GET", "/test_suite_db/_list/lists/simpleForm/basicView?startkey=30");
@@ -3371,7 +3442,8 @@ var tests = {
     
     // test that settings can be altered
     xhr = CouchDB.request("PUT", "/_config/test/foo",{
-      body : JSON.stringify("bar")
+      body : JSON.stringify("bar"),
+      headers: {"X-Couch-Persist": "false"}
     });
     T(xhr.status == 200);
     xhr = CouchDB.request("GET", "/_config/test");

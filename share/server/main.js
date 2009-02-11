@@ -13,6 +13,7 @@
 var cmd;
 var funs = [];        // holds functions used for computation
 var map_results = []; // holds temporary emitted values during doc map
+var row_line = {}; // holds row number in list per func
 
 var sandbox = null;
 
@@ -141,7 +142,7 @@ var Mimeparse = (function() {
 // this function provides a shortcut for managing responses by Accept header
 respondWith = function(req, responders) {
   var bestKey = null, accept = req.headers["Accept"];
-  if (accept) {
+  if (accept && !req.query.format) {
     var provides = [];
     for (key in responders) {
       if (mimesByKey[key]) {
@@ -150,6 +151,8 @@ respondWith = function(req, responders) {
     }
     var bestMime = Mimeparse.bestMatch(provides, accept);
     bestKey = keysByMime[bestMime];
+  } else {
+    bestKey = req.query.format;
   }
   var rFunc = responders[bestKey || responders.fallback || "html"];
   if (rFunc) {      
@@ -184,7 +187,8 @@ registerType = function() {
 
 registerType("all", "*/*");
 registerType("text", "text/plain", "txt");
-registerType("html", "text/html", "application/xhtml+xml", "xhtml");
+registerType("html", "text/html");
+registerType("xhtml", "application/xhtml+xml", "xhtml");
 registerType("xml", "application/xml", "text/xml", "application/x-xml");
 // http://www.ietf.org/rfc/rfc4627.txt
 registerType("json", "application/json", "text/x-json");
@@ -350,18 +354,32 @@ while (cmd = eval(readline())) {
         var listFun = funs[0];
         var head = cmd[1];
         var req = cmd[2];
-        runRenderFunction(listFun, [head, null, req]);
+        row_line[listFun] = { first_key: null, row_number: 0, prev_key: null };
+        runRenderFunction(listFun, [head, null, req, null]);
         break;
       case "list_row":
         var listFun = funs[0];
         var row = cmd[1];
         var req = cmd[2];
-        runRenderFunction(listFun, [null, row, req]);
+        var row_info = row_line[listFun];
+        runRenderFunction(listFun, [null, row, req, row_info]);
+        if (row_info.first_key == null) {
+            row_info.first_key = row.key;
+        } else {
+            row_info.prev_key = row.key;
+        }
+        row_info.row_number++;
+        row_line[listFun] = row_info;
         break;
       case "list_tail":
         var listFun = funs[0];
         var req = cmd[1];
-        runRenderFunction(listFun, [null, null, req]);
+        var row_info = null;
+        try {
+            row_info = row_line[listFun];
+            delete row_line[listFun];
+        } catch (e) {}
+        runRenderFunction(listFun, [null, null, req, row_info]);
         break;
       default:
         print(toJSON({error: "query_server_error",
