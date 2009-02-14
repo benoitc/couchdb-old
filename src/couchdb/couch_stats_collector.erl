@@ -23,9 +23,15 @@
         terminate/2, code_change/3]).
 
 
--export([start/0, stop/0, get/1, increment/1, decrement/1, update/1, all/0]).
+-export([start/0, stop/0, get/1, 
+        increment/1, decrement/1,
+        record/2, clear/1,
+        all/0, all/1]).
 
 -record(state, {}).
+
+-define(ABSOLUTE_VALUE_COUNTER_TABLE, abs_table).
+-define(HIT_COUNTER_TABLE, hit_table).
 
 
 % PUBLIC API
@@ -47,51 +53,72 @@ increment(Key) ->
 decrement(Key) ->
     gen_server:call(?MODULE, {decrement, Key}).
 
-update(Args) ->
-    gen_server:call(?MODULE, {update, Args}).
+record(Key, Value) ->
+    gen_server:call(?MODULE, {record, Key, Value}).
 
 all() ->
     gen_server:call(?MODULE, all).
+    
+all(Type) ->
+    gen_server:call(?MODULE, {all, Type}).
+
+clear(Key) ->
+    gen_server:call(?MODULE, {clear, Key}).
 
 % GEN_SERVER
-    
+
+
 init(_) ->
-    ets:new(?MODULE, [named_table, set, protected]),
+    ets:new(?HIT_COUNTER_TABLE, [named_table, set, protected]),
+    ets:new(?ABSOLUTE_VALUE_COUNTER_TABLE, [named_table, duplicate_bag, protected]),
     {ok, #state{}}.
 
 handle_call({get, Key}, _, State) ->
-    Result = case ets:lookup(?MODULE, Key) of
-        [] -> 0;
+    
+    Result = case ets:lookup(?HIT_COUNTER_TABLE, Key) of
+        [] -> 
+            case ets:lookup(?ABSOLUTE_VALUE_COUNTER_TABLE, Key) of
+                [] -> 
+                    0;
+                Result2 -> extract_value_from_ets_result(Key, Result2)
+            end;
         [{_,Result1}] -> Result1
     end,
     {reply, Result, State};
     
 handle_call({increment, Key}, _, State) ->
-    case catch ets:update_counter(?MODULE, Key, 1) of
-        {'EXIT', {badarg, _}} -> ets:insert(?MODULE, {Key, 1});
+    case catch ets:update_counter(?HIT_COUNTER_TABLE, Key, 1) of
+        {'EXIT', {badarg, _}} -> ets:insert(?HIT_COUNTER_TABLE, {Key, 1});
         _ -> ok
     end,
     {reply, ok, State};
     
 handle_call({decrement, Key}, _, State) ->
-    case catch ets:update_counter(?MODULE, Key, -1) of
-        {'EXIT', {badarg, _}} -> ets:insert(?MODULE, {Key, -1});
+    case catch ets:update_counter(?HIT_COUNTER_TABLE, Key, -1) of
+        {'EXIT', {badarg, _}} -> ets:insert(?HIT_COUNTER_TABLE, {Key, -1});
         _ -> ok
     end,
     {reply, ok, State};
     
-handle_call({update, {max, Key, Value}}, _, State) ->
-    OldValue = get_value({max, Key}, 0),
-    insert_if(Value > OldValue, {max, Key}, Value),
+handle_call({record, Key, Value}, _, State) ->
+    ets:insert(?ABSOLUTE_VALUE_COUNTER_TABLE, {Key, Value}),
     {reply, ok, State};
-    
-handle_call({update, {min, Key, Value}}, _, State) ->
-    OldValue = get_value({min, Key}, infinity),
-    insert_if(Value < OldValue, {min, Key}, Value),
+
+handle_call({clear, Key}, _, State) ->
+    true = ets:delete(?ABSOLUTE_VALUE_COUNTER_TABLE, Key),
     {reply, ok, State};
 
 handle_call(all, _, State) ->
-    {reply, ets:tab2list(?MODULE), State};
+    {reply, 
+        lists:append(ets:tab2list(?HIT_COUNTER_TABLE), 
+        ets:tab2list(?ABSOLUTE_VALUE_COUNTER_TABLE)),
+    State};
+
+handle_call({all, Type}, _, State) ->
+    case Type of
+        incremental -> {reply, ets:tab2list(?HIT_COUNTER_TABLE), State};
+        absolute -> {reply, ets:tab2list(?ABSOLUTE_VALUE_COUNTER_TABLE), State}
+    end;
 
 handle_call(stop, _, State) ->
     {stop, normal, stopped, State}.
@@ -99,18 +126,9 @@ handle_call(stop, _, State) ->
 
 % PRIVATE API
 
-insert_if(Condition, Key, Value) ->
-    case Condition of
-        true ->
-            ets:insert(?MODULE, {Key, Value});
-        _other -> ok
-    end.
+extract_value_from_ets_result(_Key, Result) ->
+    lists:map(fun({_, Value}) -> Value end, Result).
 
-get_value(Key, Default) ->
-    case ets:lookup(?MODULE, Key) of
-        [] -> Default;
-        [{_Key, Other}] -> Other
-    end.
 
 % Unused gen_server behaviour API functions that we need to declare.
   
@@ -184,25 +202,58 @@ should_restart_module_should_create_new_pid_test() ->
         ?assertNot(whereis(?MODULE) =:= OldPid)
     end).
 
-% update is pushed to knuth stuff
-% should_increse_max_value_for_request_time_test() ->
-%     test_helper(fun() -> 
-%         ?MODULE:update({max, {httpd, request_time}, 200}),
-%         ?MODULE:update({max, {httpd, request_time}, 400}),
-%         ?assertEqual(400, ?MODULE:get({max, {httpd, request_time}}))
-%     end).
-% 
-% should_not_decrese_max_value_for_request_time_test() ->
-%     test_helper(fun() -> 
-%         ?MODULE:update({max, {httpd, request_time}, 500}),
-%         ?MODULE:update({max, {httpd, request_time}, 400}),
-%         ?assertEqual(500, ?MODULE:get({max, {httpd, request_time}}))
-%     end).
-% 
-% should_decrese_min_value_for_request_time_test() ->
-%     test_helper(fun() -> 
-%         ?MODULE:update({min, {httpd, request_time}, 400}),
-%         ?MODULE:update({min, {httpd, request_time}, 200}),
-%         ?assertEqual(200, ?MODULE:get({min, {httpd, request_time}}))
-%     end).
+should_store_absoulte_value_counter_test() ->
+    test_helper(fun() ->
+        % record hit
+        ?MODULE:record({couchdb, request_time}, 20),
 
+        % see if it got into the counter
+        List = ?MODULE:all(),
+        ?assertEqual(1, length(List))
+    end).
+
+should_store_absoulte_value_counter_two_hits_test() ->
+    test_helper(fun() ->
+        % record hit
+        ?MODULE:record({couchdb, request_time}, 20),
+        ?MODULE:record({couchdb, request_time}, 30),
+
+        % see if it got into the counter
+        List = ?MODULE:all(),
+        ?assertEqual(2, length(List))
+    end).
+
+should_store_absolute_values_for_different_keys_test() ->
+    test_helper(fun() ->
+        % record hit
+        ?MODULE:record({couchdb, request_time}, 20),
+        ?MODULE:record({couchdb, request_time}, 20),
+        ?MODULE:record({couchdb, request_size}, 30),
+
+        % see if it got into the counter
+        Time = ?MODULE:get({couchdb, request_time}),
+        ?assertEqual([20, 20], Time),
+
+        Size = ?MODULE:get({couchdb, request_size}),
+        ?assertEqual([30], Size)
+    end).
+
+should_clear_absolute_values_for_a_key_test() ->
+    test_helper(fun() ->
+        % record hit
+        ?MODULE:record({couchdb, request_time}, 20),
+        ?MODULE:clear({couchdb, request_time}),
+        List = ?MODULE:all(),
+        ?assertEqual(0, length(List))
+    end).
+
+should_clear_absolute_values_for_a_key_but_not_for_other_key_test() ->
+    test_helper(fun() ->
+        % record hit
+        ?MODULE:record({couchdb, request_time}, 20),
+        ?MODULE:record({couchdb, request_size}, 30),
+        ?MODULE:clear({couchdb, request_time}),
+        List = ?MODULE:all(),
+        ?assertEqual(1, length(List))
+    end).
+    

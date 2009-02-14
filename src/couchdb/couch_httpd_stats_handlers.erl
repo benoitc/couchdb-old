@@ -26,7 +26,7 @@ handle_stats_req(#httpd{method='GET', path_parts=[_Stats, Module, Key]}=Req) ->
     Options = couch_httpd:qs(Req),
 
     Stats = couch_stats_aggregator:get({Module, Key}, Options),
-    Response = {[{Module, {[{Key, Stats}]}}]},
+    Response = {[{Module, {[{Key, couch_stats_aggregator:aggregator_to_json_term(Stats)}]}}]},
     send_json(Req, Response);
 handle_stats_req(#httpd{method='GET', path_parts=[_Stats, Module, Key, AggType]}=Req) ->
     Options = couch_httpd:qs(Req),
