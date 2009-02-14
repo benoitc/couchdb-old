@@ -43,39 +43,7 @@ stop() ->
     gen_server:call(?MODULE, stop).
 
 get(Key) ->
-    gen_server:call(?MODULE, {get, Key}).
-
-increment({Module, Key}) when is_integer(Key) ->
-    gen_server:call(?MODULE, {increment, {Module, list_to_atom(integer_to_list(Key))}});
-increment(Key) ->
-    gen_server:call(?MODULE, {increment, Key}).
-
-decrement(Key) ->
-    gen_server:call(?MODULE, {decrement, Key}).
-
-record(Key, Value) ->
-    gen_server:call(?MODULE, {record, Key, Value}).
-
-all() ->
-    gen_server:call(?MODULE, all).
-    
-all(Type) ->
-    gen_server:call(?MODULE, {all, Type}).
-
-clear(Key) ->
-    gen_server:call(?MODULE, {clear, Key}).
-
-% GEN_SERVER
-
-
-init(_) ->
-    ets:new(?HIT_COUNTER_TABLE, [named_table, set, protected]),
-    ets:new(?ABSOLUTE_VALUE_COUNTER_TABLE, [named_table, duplicate_bag, protected]),
-    {ok, #state{}}.
-
-handle_call({get, Key}, _, State) ->
-    
-    Result = case ets:lookup(?HIT_COUNTER_TABLE, Key) of
+    case ets:lookup(?HIT_COUNTER_TABLE, Key) of
         [] -> 
             case ets:lookup(?ABSOLUTE_VALUE_COUNTER_TABLE, Key) of
                 [] -> 
@@ -83,42 +51,47 @@ handle_call({get, Key}, _, State) ->
                 Result2 -> extract_value_from_ets_result(Key, Result2)
             end;
         [{_,Result1}] -> Result1
-    end,
-    {reply, Result, State};
-    
-handle_call({increment, Key}, _, State) ->
+    end.
+
+increment({Module, Key}) when is_integer(Key) ->
+    increment({Module, list_to_atom(integer_to_list(Key))});
+increment(Key) ->
     case catch ets:update_counter(?HIT_COUNTER_TABLE, Key, 1) of
         {'EXIT', {badarg, _}} -> ets:insert(?HIT_COUNTER_TABLE, {Key, 1});
         _ -> ok
-    end,
-    {reply, ok, State};
+    end.
     
-handle_call({decrement, Key}, _, State) ->
+decrement(Key) ->
     case catch ets:update_counter(?HIT_COUNTER_TABLE, Key, -1) of
         {'EXIT', {badarg, _}} -> ets:insert(?HIT_COUNTER_TABLE, {Key, -1});
         _ -> ok
-    end,
-    {reply, ok, State};
+    end.
     
-handle_call({record, Key, Value}, _, State) ->
-    ets:insert(?ABSOLUTE_VALUE_COUNTER_TABLE, {Key, Value}),
-    {reply, ok, State};
+record(Key, Value) ->
+    ets:insert(?ABSOLUTE_VALUE_COUNTER_TABLE, {Key, Value}).
 
-handle_call({clear, Key}, _, State) ->
-    true = ets:delete(?ABSOLUTE_VALUE_COUNTER_TABLE, Key),
-    {reply, ok, State};
+clear(Key) ->
+    true = ets:delete(?ABSOLUTE_VALUE_COUNTER_TABLE, Key).
 
-handle_call(all, _, State) ->
-    {reply, 
-        lists:append(ets:tab2list(?HIT_COUNTER_TABLE), 
-        ets:tab2list(?ABSOLUTE_VALUE_COUNTER_TABLE)),
-    State};
+all() ->
+    lists:append(ets:tab2list(?HIT_COUNTER_TABLE), 
+        ets:tab2list(?ABSOLUTE_VALUE_COUNTER_TABLE)).
 
-handle_call({all, Type}, _, State) ->
+all(Type) ->
     case Type of
-        incremental -> {reply, ets:tab2list(?HIT_COUNTER_TABLE), State};
-        absolute -> {reply, ets:tab2list(?ABSOLUTE_VALUE_COUNTER_TABLE), State}
-    end;
+        incremental -> ets:tab2list(?HIT_COUNTER_TABLE);
+        absolute -> ets:tab2list(?ABSOLUTE_VALUE_COUNTER_TABLE)
+    end.
+
+
+% GEN_SERVER
+
+
+init(_) ->
+    ets:new(?HIT_COUNTER_TABLE, [named_table, set, public]),
+    ets:new(?ABSOLUTE_VALUE_COUNTER_TABLE, [named_table, duplicate_bag, public]),
+    {ok, #state{}}.
+
 
 handle_call(stop, _, State) ->
     {stop, normal, stopped, State}.
@@ -162,26 +135,26 @@ should_return_value_from_store_test() ->
 
 should_increment_value_test() ->
     test_helper(fun() ->
-        ?assert(?MODULE:increment({couch_db, open_databases}) =:= ok),
+        ?MODULE:increment({couch_db, open_databases}),
         ?assertEqual(1, ?MODULE:get({couch_db, open_databases}))
     end).
 
 should_decrement_value_test() ->
     test_helper(fun() ->
-        ?assert(?MODULE:decrement({couch_db, open_databases}) =:= ok),
+        ?MODULE:decrement({couch_db, open_databases}),
         ?assertEqual(-1, ?MODULE:get({couch_db, open_databases}))
     end).
 
 should_increment_and_decrement_value_test() ->
     test_helper(fun() ->
-        ?assert(?MODULE:increment({couch_db, open_databases}) =:= ok),
-        ?assert(?MODULE:decrement({couch_db, open_databases}) =:= ok),
+        ?MODULE:increment({couch_db, open_databases}),
+        ?MODULE:decrement({couch_db, open_databases}),
         ?assertEqual(0, ?MODULE:get({couch_db, open_databases}))
     end).
 
 should_reset_counter_value_test() ->
     test_helper(fun() ->
-        ?assert(?MODULE:increment({couch_db, open_databases}) =:= ok),
+        ?MODULE:increment({couch_db, open_databases}),
         ?MODULE:stop(),
         ?MODULE:start(),
         ?assertEqual(0, ?MODULE:get({couch_db, open_databases}))

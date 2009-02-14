@@ -10,6 +10,10 @@
 % License for the specific language governing permissions and limitations under
 % the License.
 
+% TODO: 
+%  - nicer code
+%  - comments
+
 -module(couch_stats_aggregator).
 
 -define(TEST, true).
@@ -22,7 +26,9 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
         terminate/2, code_change/3]).
 
--export([start/0, stop/0, get/1, time_passed/0, all/0]).
+-export([start/0, stop/0, 
+         get/1, get/2, all/0,
+         time_passed/0, clear_aggregates/1]).
 
 -record(state, {
     aggregates = []
@@ -51,9 +57,14 @@ stop() ->
 
 get(Key) ->
     gen_server:call(?MODULE, {get, Key}).
+get(Key, Time) ->
+    gen_server:call(?MODULE, {get, Key, Time}).
 
 time_passed() ->
     gen_server:call(?MODULE, time_passed).
+
+clear_aggregates(Time) ->
+    gen_server:call(?MODULE, {clear_aggregates, Time}).
 
 all() ->
     gen_server:call(?MODULE, all).
@@ -65,27 +76,39 @@ init(_) ->
     init_counter(),
     {ok, #state{}}.
 
-handle_call({get, {Module, Key}}, _, State) ->
-    Value = get_aggregate({Module, Key}, State),
+handle_call({get, Key}, _, State) ->
+    Value = get_aggregate(Key, State),
     {reply, Value, State};
 
-% update all counters that match `Time` = int()
+handle_call({get, Key, Time}, _, State) ->
+    Value = get_aggregate(Key, State, Time),
+    {reply, Value, State};
+
 handle_call(time_passed, _, OldState) ->
-    % minmax
+
+    % the foldls below could probably be refactored into a less code-duping form
+
+    % update aggregates on incremental counters
     NextState = lists:foldl(fun(Counter, State) -> 
         {Key, Value} = Counter,
         update_aggregates_loop(Key, Value, State, incremental)
     end, OldState, ?COLLECTOR:all(incremental)),
 
+    % update aggregates on absolute value counters
     NewState = lists:foldl(fun(Counter, State) -> 
         {Key, Value} = Counter,
+        % clear the counter, we've got the important bits in State
+        ?COLLECTOR:clear(Key),
         update_aggregates_loop(Key, Value, State, absolute)
     end, NextState, ?COLLECTOR:all(absolute)),
 
     {reply, ok, NewState};
 
+handle_call({clear_aggregates, Time}, _, State) ->
+    {reply, ok, do_clear_aggregates(Time, State)};
+
 handle_call(all, _ , State) ->
-    Results = convert(?COLLECTOR:all(), State),
+    Results = convert(ets:tab2list(?MODULE), State),
     {reply, Results, State};
 
 handle_call(stop, _, State) ->
@@ -94,25 +117,72 @@ handle_call(stop, _, State) ->
 
 % PRIVATE API
 
-get_aggregate(Key, #state{aggregates=Stats}) ->
-    Aggregates = case proplists:lookup(Key, Stats) of
+%% clear the aggregats record for a specific Time = 60 | 300 | 900
+do_clear_aggregates(Time, #state{aggregates=Stats}) ->
+    NewStats = lists:foldl(fun({Key, Stat}, _Acc) ->
+         case proplists:lookup(Key, Stat) of
+            % do have stats for this key, if we don't, return Stats unmodified
+            none -> Stat;
+            % there are stats, let's unset the Time one
+            {Key, Stat} ->
+                [{Time, empty} | proplists:delete(Time, Stat)]
+        end
+    end, 0, Stats),
+    #state{aggregates=NewStats}.
+
+%% default Time is 0, which is when CouchDB started
+get_aggregate(Key, StatsList) ->
+    get_aggregate(Key, StatsList, '0').
+get_aggregate(Key, #state{aggregates=StatsList}, Time) ->
+    Aggregates = case proplists:lookup(Key, StatsList) of
+        % if we don't have any data here, return an empty record
         none -> #aggregates{};
-        {Key, Other} -> Other
+        {Key, Stats} ->
+            case proplists:lookup(Time, Stats) of
+                none -> #aggregates{}; % empty record again
+                {Time, Stat} -> Stat
+            end
     end,
     Aggregates.
 
-update_aggregates_loop(Key, Values, OldState, CounterType) when is_list(Values) ->
-    lists:foldl(fun(Value, State) ->
-        update_aggregates(Key, Value, State, CounterType)
-    end, OldState, Values);
-update_aggregates_loop(Key, Value, State, CounterType) ->
-    update_aggregates(Key, Value, State, CounterType).
+%% updates all aggregates for Key
+update_aggregates_loop(Key, Values, State, CounterType) ->
+    #state{aggregates=AllStats} = State,
+    % if we don't have any aggregates yet, put a list of empty atoms in
+    % so we can loop over them in update_aggregates().
+    [{Key, StatsList}] = case AllStats of
+        [] -> [{Key, [
+                {'0', empty}, 
+                {'60', empty},
+                {'300', empty},
+                {'900', empty}
+             ]}];
+        _ -> AllStats
+    end,
 
-update_aggregates(Key, Value, #state{aggregates=Stats}, CounterType) ->
-    % ?debugFmt("Value: '~p'~n", [Value]),
-    % ?debugFmt("OldStats: '~p'~n", [Stats]),
-    NewStats = case proplists:lookup(Key, Stats) of
-        none -> #aggregates{
+    % if we get called with a single value, wrap in in a list
+    ValuesList = case is_list(Values) of
+        false -> [Values];
+        _True -> Values
+    end,
+    % loop over all Time's
+    NewStats = lists:map(fun({Time, Stats}) ->
+        % loop over all values for Key
+        lists:foldl(fun(Value, Stat) ->
+            {Time, update_aggregates(Value, Stat, CounterType)}
+        end, Stats, ValuesList)
+    end, StatsList),
+
+    % put the newly calculated aggregates into State and delete the previous
+    % entry
+    #state{aggregates=[{Key, NewStats} | proplists:delete(Key, AllStats)]}.
+
+% does the actual updating of the aggregate record
+update_aggregates(Value, Stat, CounterType) ->
+    case Stat of
+        % the first time this is called, we don't have to calculate anything
+        % we just populate the record with Value
+        empty -> #aggregates{
             min=Value,
             max=Value,
             mean=Value,
@@ -121,7 +191,8 @@ update_aggregates(Key, Value, #state{aggregates=Stats}, CounterType) ->
             count=1,
             last=Value
         };
-        {_Key, StatsRecord} ->
+        % this sure could look nicer -- any ideas?
+        StatsRecord ->
             #aggregates{
                 min=Min,
                 max=Max,
@@ -149,11 +220,12 @@ update_aggregates(Key, Value, #state{aggregates=Stats}, CounterType) ->
                 count=NewCount,
                 last=Value
             }
-    end,
-    % ?debugFmt("'~p'~n", [NewStats]),
-    #state{aggregates=[{Key, NewStats} | proplists:delete(Key, Stats)]}.
+    end.
 
+% extracts stats for Key from Stats
+% bonus points for making this look nicer
 get_stats(Key, Stats) ->
+    % if we don't have any stats, return an empty record in JSON-erlang-terms 
     case proplists:lookup(Key, Stats) of
         none -> {[
             {current, 0},
@@ -181,6 +253,8 @@ get_stats(Key, Stats) ->
         ]}
     end.
 
+% convert ets2list() list into JSON-erlang-terms.
+% Thanks to Paul Davis
 convert(In, Stats) ->
     [{LastMod, LastVals} | LastRestMods] = lists:foldl(fun({{Module, Key}, _Count}, AccIn) ->
         case AccIn of
@@ -197,8 +271,13 @@ convert(In, Stats) ->
 
 % TIMER
 
+% Every second, pull counter stats from ?COLLECTOR and aggregte them.
+% Every 60, 300, 900 seconds, reset aggregates for the timeframe.
 init_counter() ->
-    start_timer(1, fun() -> ?MODULE:time_passed() end). % fire every second
+    start_timer(1, fun() -> ?MODULE:time_passed() end),
+    start_timer(60, fun() -> ?MODULE:clear_aggregates(60) end),
+    start_timer(300, fun() -> ?MODULE:clear_aggregates(300) end),
+    start_timer(900, fun() -> ?MODULE:clear_aggregates(900) end).
 
 start_timer(Time, Fun) ->
     spawn(fun() -> timer(Time * 1000, Fun) end).
@@ -266,7 +345,7 @@ should_return_the_mean_over_the_last_minute_test() ->
         #aggregates{mean=Mean} = ?MODULE:get({httpd, request_count}),
         ?assert(Mean - 3.00 < 0.1)
     end).
-    
+
 should_return_the_stddev_value_per_second_test() ->
     test_helper(fun() ->
         ?COLLECTOR:increment({httpd, request_count}),
@@ -296,4 +375,23 @@ should_return_max_aggregate_counter_test() ->
         ?MODULE:time_passed(),
         #aggregates{max=Max} = ?MODULE:get({couchdb, request_time}),
         ?assertEqual(30, Max)
+    end).
+
+should_return_aggregate_value_for_timerange_test() ->
+    test_helper(fun() -> 
+        ?COLLECTOR:record({couchdb, request_time}, 20),
+        ?COLLECTOR:record({couchdb, request_time}, 30),
+        ?MODULE:time_passed(),
+        #aggregates{max=Max} = ?MODULE:get({couchdb, request_time}, '300'),
+        ?assertEqual(30, Max)
+    end).
+
+should_clear_aggregates_on_timeout_test() ->
+    test_helper(fun() -> 
+        ?COLLECTOR:record({couchdb, request_time}, 20),
+        ?COLLECTOR:record({couchdb, request_time}, 30),
+        ?MODULE:time_passed(),
+        ?MODULE:clear_aggregates(60),
+        #aggregates{max=Max} = ?MODULE:get({couchdb, request_time}, '60'),
+        ?assertEqual(0, Max)
     end).
