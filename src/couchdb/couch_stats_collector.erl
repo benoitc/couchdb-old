@@ -10,6 +10,10 @@
 % License for the specific language governing permissions and limitations under
 % the License.
 
+% todo
+% - remove existance check on increment(), decrement() and record(). have
+%   modules initialize counters on startup.
+
 -module(couch_stats_collector).
 
 -define(TEST, true).
