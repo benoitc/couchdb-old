@@ -15,8 +15,8 @@
 %  - comments
 
 -module(couch_stats_aggregator).
+-include("stats.hrl").
 
--define(TEST, true).
 -ifdef(TEST).
   -include_lib("eunit/include/eunit.hrl").
 -endif.
@@ -32,16 +32,6 @@
 
 -record(state, {
     aggregates = []
-}).
-
--record(aggregates, {
-    min=0,
-    max=0,
-    mean=0.0,
-    variance = 0.0,
-    stddev=0.0,
-    count=0,
-    last=0
 }).
 
 -define(COLLECTOR, couch_stats_collector).
@@ -305,93 +295,3 @@ terminate(_Reason, _State) -> ok.
 
 %% @doc Unused
 code_change(_OldVersion, State, _Extra) -> {ok, State}.
-
-% TESTS
-
-test_helper(Fun) ->
-    catch ?MODULE:stop(),
-    ?MODULE:start(),
-    ?COLLECTOR:start(),
-
-    Fun(),
-
-    ?MODULE:stop(),
-    ?COLLECTOR:stop().
-
-should_return_value_from_collector_test() ->
-    test_helper(fun() ->
-        #aggregates{count=Result} = ?MODULE:get({couch_db, open_databases}),
-        ?assertEqual(0, Result)
-    end).
-
-should_handle_multiple_key_value_pairs_test() ->
-    test_helper(fun() ->
-        ?COLLECTOR:increment({couch_db, open_databases}),
-        ?MODULE:time_passed(),
-        #aggregates{count=OpenDbs} = ?MODULE:get({couch_db, open_databases}),
-        ?assertEqual(1, OpenDbs),
-        #aggregates{count=RequestCount} = ?MODULE:get({couch_db, request_count}),
-        ?assertEqual(0, RequestCount)
-    end).
-
-should_return_the_mean_over_the_last_minute_test() ->
-    test_helper(fun() ->
-        lists:map(fun(_) ->
-            ?COLLECTOR:increment({httpd, request_count}),
-            ?COLLECTOR:increment({httpd, request_count}),
-            ?COLLECTOR:increment({httpd, request_count}),
-            ?MODULE:time_passed() % one second passed
-        end, lists:seq(1, 2)),
-        #aggregates{mean=Mean} = ?MODULE:get({httpd, request_count}),
-        ?assert(Mean - 3.00 < 0.1)
-    end).
-
-should_return_the_stddev_value_per_second_test() ->
-    test_helper(fun() ->
-        ?COLLECTOR:increment({httpd, request_count}),
-        ?COLLECTOR:increment({httpd, request_count}),
-        ?COLLECTOR:increment({httpd, request_count}),
-        ?MODULE:time_passed(), % one second passed
-        ?COLLECTOR:increment({httpd, request_count}),
-        ?MODULE:time_passed(), % one second passed
-
-        #aggregates{stddev=Stddev} = ?MODULE:get({httpd, request_count}),
-        ?assertEqual(1.0, Stddev)
-    end).
-
-should_return_min_aggregate_counter_test() ->
-    test_helper(fun() -> 
-        ?COLLECTOR:record({couchdb, request_time}, 20),
-        ?COLLECTOR:record({couchdb, request_time}, 30),
-        ?MODULE:time_passed(),
-        #aggregates{min=Min} = ?MODULE:get({couchdb, request_time}),
-        ?assertEqual(20, Min)
-    end).
-
-should_return_max_aggregate_counter_test() ->
-    test_helper(fun() -> 
-        ?COLLECTOR:record({couchdb, request_time}, 20),
-        ?COLLECTOR:record({couchdb, request_time}, 30),
-        ?MODULE:time_passed(),
-        #aggregates{max=Max} = ?MODULE:get({couchdb, request_time}),
-        ?assertEqual(30, Max)
-    end).
-
-should_return_aggregate_value_for_timerange_test() ->
-    test_helper(fun() -> 
-        ?COLLECTOR:record({couchdb, request_time}, 20),
-        ?COLLECTOR:record({couchdb, request_time}, 30),
-        ?MODULE:time_passed(),
-        #aggregates{max=Max} = ?MODULE:get({couchdb, request_time}, '300'),
-        ?assertEqual(30, Max)
-    end).
-
-should_clear_aggregates_on_timeout_test() ->
-    test_helper(fun() -> 
-        ?COLLECTOR:record({couchdb, request_time}, 20),
-        ?COLLECTOR:record({couchdb, request_time}, 30),
-        ?MODULE:time_passed(),
-        ?MODULE:clear_aggregates(60),
-        #aggregates{max=Max} = ?MODULE:get({couchdb, request_time}, '60'),
-        ?assertEqual(0, Max)
-    end).

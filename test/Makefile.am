@@ -10,12 +10,20 @@
 ## License for the specific language governing permissions and limitations
 ## under the License.
 
-dist_TESTS = runner.sh
+#dist_TESTS = runner.sh
 
-CLEANFILES = runner.beam test.ini
+# CLEANFILES = runner.beam test.ini
+# 
+# EXTRA_DIST = \
+#     couch_config_test.erl \
+#     couch_config_writer_test.erl \
+#     runner.erl \
+#     test.js
 
-EXTRA_DIST = \
-    couch_config_test.erl \
-    couch_config_writer_test.erl \
-    runner.erl \
-    test.js
+test:
+	rm ../src/couchdb/*.beam
+	cd ../ && TEST=EUNIT_TESTS make -j2 all && cd test
+	$(ERLC) -o ../src/couchdb/tests/ ../src/couchdb/tests/*.erl
+	@erl -noshell -pa ../src/couchdb/ -pa ../src/couchdb/tests/ \
+	-eval "eunit:test([couch_stats_collector,couch_stats_aggregator])" \
+	-s init stop

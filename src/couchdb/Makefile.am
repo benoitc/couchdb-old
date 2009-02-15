@@ -156,7 +156,11 @@ couch.app: couch.app.tpl
 # $(ERL) -noshell -run edoc_run files [\"$<\"]
 
 %.beam: %.erl couch_db.hrl
-	$(ERLC) -D$TEST $<
+	if test -n "${TEST}"; then \
+	  $(ERLC) -DTEST $<; \
+	else \
+	  $(ERLC) $<; \
+	fi
 
 install-data-hook:
 	if test -f "$(DESTDIR)/$(couchprivlibdir)/couch_erl_driver"; then \
