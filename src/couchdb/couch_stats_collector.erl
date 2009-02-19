@@ -120,3 +120,12 @@ terminate(_Reason, _State) -> ok.
 
 %% @doc Unused
 code_change(_OldVersion, State, _Extra) -> {ok, State}.
+
+
+%% Tests
+
+-ifdef(TEST).
+% Internal API unit tests go here
+
+
+-endif.

@@ -102,6 +102,7 @@ stop() ->
     
 
 handle_request(MochiReq, UrlHandlers, DbUrlHandlers) ->
+    statistics(runtime), % prepare request_time counter, see end of function
     AuthenticationFun = make_arity_1_fun(
             couch_config:get("httpd", "authentication_handler")),
     % for the path, use the raw path with the query string and fragment
@@ -169,6 +170,8 @@ handle_request(MochiReq, UrlHandlers, DbUrlHandlers) ->
         RawUri,
         Resp:get(code)
     ]),
+    {_TotalRuntime, RequestTime} = statistics(runtime),
+    couch_stats_collector:record({couchdb, request_time}, RequestTime),
     couch_stats_collector:increment({httpd, requests}),
     {ok, Resp}.
 
