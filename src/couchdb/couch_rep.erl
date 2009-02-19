@@ -71,8 +71,11 @@ replicate2(Source, DbSrc, Target, DbTgt, Options) ->
     
     ReplicationStartTime = httpd_util:rfc1123_date(),
     
-    {ok, SrcInstanceStartTime} = get_db_info(DbSrc),
-    {ok, TgtInstanceStartTime} = get_db_info(DbTgt),
+    {ok, InfoSrc} = get_db_info(DbSrc),
+    {ok, InfoTgt} = get_db_info(DbTgt),
+    
+    SrcInstanceStartTime = proplists:get_value(instance_start_time, InfoSrc),
+    TgtInstanceStartTime = proplists:get_value(instance_start_time, InfoTgt),
     
     case proplists:get_value(full, Options, false)
         orelse proplists:get_value("full", Options, false) of
@@ -179,10 +182,12 @@ do_http_request(Url, Action, Headers, JsonBody, Retries) ->
     _ ->
         iolist_to_binary(?JSON_ENCODE(JsonBody))
     end,
-    Options = [
+    Options = case Action of
+        get -> [];
+        _ -> [{transfer_encoding, {chunked, 65535}}]
+    end ++ [
         {content_type, "application/json; charset=utf-8"},
-        {max_pipeline_size, 101},
-        {transfer_encoding, {chunked, 65535}}
+        {max_pipeline_size, 101}
     ],
     case ibrowse:send_req(Url, Headers, Action, Body, Options) of
     {ok, Status, ResponseHeaders, ResponseBody} ->

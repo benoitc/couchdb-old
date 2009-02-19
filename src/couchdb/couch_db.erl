@@ -14,7 +14,7 @@
 -behaviour(gen_server).
 
 -export([open/2,close/1,create/2,start_compact/1,get_db_info/1]).
--export([open_ref_counted/2,num_refs/1,monitor/1,count_changes_since/2]).
+-export([open_ref_counted/2,is_idle/1,monitor/1,count_changes_since/2]).
 -export([update_doc/3,update_docs/4,update_docs/2,update_docs/3,delete_doc/3]).
 -export([get_doc_info/2,open_doc/2,open_doc/3,open_doc_revs/4]).
 -export([get_missing_revs/2,name/1,doc_to_tree/1,get_update_seq/1,get_committed_update_seq/1]).
@@ -23,7 +23,6 @@
 -export([increment_update_seq/1,get_purge_seq/1,purge_docs/2,get_last_purged/1]).
 -export([start_link/3,make_doc/2,set_admins/2,get_admins/1,ensure_full_commit/1]).
 -export([init/1,terminate/2,handle_call/3,handle_cast/2,code_change/3,handle_info/2]).
-
 
 -include("couch_db.hrl").
 
@@ -68,15 +67,15 @@ ensure_full_commit(#db{update_pid=UpdatePid,instance_start_time=StartTime}) ->
     ok = gen_server:call(UpdatePid, full_commit, infinity),
     {ok, StartTime}.
 
-close(#db{fd=Fd}) ->
-    couch_file:drop_ref(Fd).
+close(#db{fd_ref_counter=RefCntr}) ->
+    couch_ref_counter:drop(RefCntr).
 
 open_ref_counted(MainPid, UserCtx) ->
-    {ok, Db} = gen_server:call(MainPid, {open_ref_counted_instance, self()}),
+    {ok, Db} = gen_server:call(MainPid, {open_ref_count, self()}),
     {ok, Db#db{user_ctx=UserCtx}}.
 
-num_refs(MainPid) ->
-    gen_server:call(MainPid, num_refs).
+is_idle(MainPid) ->
+    gen_server:call(MainPid, is_idle).
 
 monitor(#db{main_pid=MainPid}) ->
     erlang:monitor(process, MainPid).
@@ -400,8 +399,14 @@ doc_flush_binaries(Doc, Fd) ->
                 % written to a different file
                 SizeAcc + Len;
             {_Key, {_Type, Bin}} when is_binary(Bin) ->
+                % we have a new binary to write
                 SizeAcc + size(Bin);
+            {_Key, {_Type, {Fun, undefined}}} when is_function(Fun) ->
+                % function without a known length
+                % we'll have to alloc as we go with this one, for now, nothing
+                SizeAcc;
             {_Key, {_Type, {Fun, Len}}} when is_function(Fun) ->
+                % function to yield binary data with known length
                 SizeAcc + Len
             end
         end,
@@ -409,7 +414,6 @@ doc_flush_binaries(Doc, Fd) ->
 
     {ok, OutputStream} = couch_stream:open(Fd),
     ok = couch_stream:ensure_buffer(OutputStream, PreAllocSize),
-
     NewBins = lists:map(
         fun({Key, {Type, BinValue}}) ->
             NewBinValue =
@@ -436,6 +440,17 @@ doc_flush_binaries(Doc, Fd) ->
             Bin when is_binary(Bin) ->
                 {ok, StreamPointer} = couch_stream:write(OutputStream, Bin),
                 {Fd, StreamPointer, size(Bin)};
+            {StreamFun, undefined} when is_function(StreamFun) ->
+                % max_attachment_chunk_size control the max we buffer in memory
+                MaxChunkSize = list_to_integer(couch_config:get("couchdb", 
+                    "max_attachment_chunk_size","4294967296")),
+                WriterFun = make_writer_fun(OutputStream),
+                % StreamFun(MaxChunkSize, WriterFun) 
+                % will call our WriterFun
+                % once for each chunk of the attachment.
+                {ok, {TotalLength, NewStreamPointer}} = 
+                    StreamFun(MaxChunkSize, WriterFun, {0, nil}),
+                {Fd, NewStreamPointer, TotalLength};                
             {Fun, Len} when is_function(Fun) ->
                 {ok, StreamPointer} =
                         write_streamed_attachment(OutputStream, Fun, Len, nil),
@@ -445,8 +460,27 @@ doc_flush_binaries(Doc, Fd) ->
         end, Bins),
 
     {ok, _FinalPos} = couch_stream:close(OutputStream),
-
     Doc#doc{attachments = NewBins}.
+
+
+make_writer_fun(Stream) ->
+    % WriterFun({Length, Binary}, State)
+    % WriterFun({0, _Footers}, State)
+    % Called with Length == 0 on the last time.
+    % WriterFun returns NewState.
+    fun
+        ({0, _Footers}, {FinalLen, SpFin}) ->
+            % last block, return the final tuple
+            {ok, {FinalLen, SpFin}};
+        ({Length, Bin}, {Total, nil}) ->
+            % save StreamPointer 
+            {ok, StreamPointer} = couch_stream:write(Stream, Bin),
+            {Total+Length, StreamPointer};
+        ({Length, Bin}, {Total, SpAcc}) ->
+            % write the Bin to disk 
+            {ok, _Sp} = couch_stream:write(Stream, Bin),
+            {Total+Length, SpAcc}
+    end.
     
 write_streamed_attachment(_Stream, _F, 0, SpAcc) ->
     {ok, SpAcc};
@@ -496,23 +530,28 @@ enum_docs(Db, StartId, InFun, Ctx) ->
 
 init({DbName, Filepath, Fd, Options}) ->
     {ok, UpdaterPid} = gen_server:start_link(couch_db_updater, {self(), DbName, Filepath, Fd, Options}, []),
-    ok = couch_file:add_ref(Fd),
-    gen_server:call(UpdaterPid, get_db).
+    {ok, #db{fd_ref_counter=RefCntr}=Db} = gen_server:call(UpdaterPid, get_db),
+    couch_ref_counter:add(RefCntr),
+    {ok, Db}.
 
 terminate(_Reason, _Db) ->
     ok.
     
-handle_call({open_ref_counted_instance, OpenerPid}, _From, #db{fd=Fd}=Db) ->
-    ok = couch_file:add_ref(Fd, OpenerPid),
+handle_call({open_ref_count, OpenerPid}, _, #db{fd_ref_counter=RefCntr}=Db) ->
+    ok = couch_ref_counter:add(RefCntr, OpenerPid),
     {reply, {ok, Db}, Db};
-handle_call(num_refs, _From, #db{fd=Fd}=Db) ->
-    {reply, couch_file:num_refs(Fd) - 1, Db};
-handle_call({db_updated, #db{fd=NewFd}=NewDb}, _From, #db{fd=OldFd}) ->
-    case NewFd == OldFd of
+handle_call(is_idle, _From,
+        #db{fd_ref_counter=RefCntr, compactor_pid=Compact}=Db) ->
+    % Idle means no referrers. Unless in the middle of a compaction file switch, 
+    % there are always at least 2 referrers, couch_db_updater and us.
+    {reply, (Compact == nil) and (couch_ref_counter:count(RefCntr) == 2), Db};
+handle_call({db_updated, #db{fd_ref_counter=NewRefCntr}=NewDb}, _From,
+        #db{fd_ref_counter=OldRefCntr}) ->
+    case NewRefCntr == OldRefCntr of
     true -> ok;
     false ->
-        couch_file:add_ref(NewFd),
-        couch_file:drop_ref(OldFd)
+        couch_ref_counter:add(NewRefCntr),
+        couch_ref_counter:drop(OldRefCntr)
     end,
     {reply, ok, NewDb}.
 
