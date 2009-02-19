@@ -25,6 +25,7 @@ function loadTest(file) {
   loadScript("script/test/"+file);
 };
 
+loadTest("stats.js");
 loadTest("basics.js");
 loadTest("delayed_commits.js");
 loadTest("all_docs.js");
