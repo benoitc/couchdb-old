@@ -1,3 +1,5 @@
+*.stdout
+*.stderr
 bin/*.1
 *.beam
 *~
