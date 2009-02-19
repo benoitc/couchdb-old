@@ -257,18 +257,15 @@ aggregate_to_json_term(#aggregates{min=Min,max=Max,mean=Mean,stddev=Stddev,count
     ]}.
 
 get_stats(Key, State) ->
-    io:format("Key: '~p'~n", [Key]),
     aggregate_to_json_term(get_aggregate(Key, State)).
 
 % convert ets2list() list into JSON-erlang-terms.
 % Thanks to Paul Davis
 do_get_all(#state{aggregates=Stats}=State) ->
-    io:format("Stats: '~p'~n", [Stats]),
     case Stats of
         [] -> {[{ok, no_stats_yet}]};
         _ ->
         [{LastMod, LastVals} | LastRestMods] = lists:foldl(fun({{Module, Key}, _Count}, AccIn) ->
-              io:format("AccIn: '~p'~n", [AccIn]),
               case AccIn of
                   [] ->
                       [{Module, [{Key, get_stats({Module, Key}, State)}]}];
