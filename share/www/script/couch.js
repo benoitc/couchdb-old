@@ -102,11 +102,11 @@ function CouchDB(name, httpHeaders) {
       body: JSON.stringify({"docs": docs})
     });
     CouchDB.maybeThrowError(this.last_req);
-    var result = JSON.parse(this.last_req.responseText);
+    var results = JSON.parse(this.last_req.responseText);
     for (var i = 0; i < docs.length; i++) {
-        docs[i]._rev = result.new_revs[i].rev;
+        docs[i]._rev = results[i].rev;
     }
-    return result;
+    return results;
   }
   
   this.ensureFullCommit = function() {

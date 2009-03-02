@@ -193,10 +193,10 @@ name(#db{name=Name}) ->
     
 update_doc(Db, Doc, Options) ->
     case update_docs(Db, [Doc], Options) of
-    {ok, [NewRev], _} ->
+    {ok, [{ok, NewRev}]} ->
         {ok, NewRev};
-    {conflicts, [ConflictRev]} ->
-        throw({conflict, ConflictRev})
+    {ok, [Error]} ->
+        throw(Error)
     end.
 
 update_docs(Db, Docs) ->
@@ -225,35 +225,38 @@ group_alike_docs([Doc|Rest], [Bucket|RestBuckets]) ->
 
 
 validate_doc_update(#db{user_ctx=UserCtx, admins=Admins},
-        #doc{id= <<"_design/",_/binary>>}=Doc, _GetDiskDocFun) ->
+        #doc{id= <<"_design/",_/binary>>}, _GetDiskDocFun) ->
     UserNames = [UserCtx#user_ctx.name | UserCtx#user_ctx.roles],
     % if the user is a server admin or db admin, allow the save
     case length(UserNames -- [<<"_admin">> | Admins]) == length(UserNames) of
     true ->
         % not an admin
-        throw({unauthorized, <<"You are not a server or database admin.">>});
+        {unauthorized, <<"You are not a server or database admin.">>};
     false ->
-        Doc
+        ok
     end;
-validate_doc_update(#db{validate_doc_funs=[]}, Doc, _GetDiskDocFun) ->
-    Doc;
-validate_doc_update(_Db, #doc{id= <<"_local/",_/binary>>}=Doc, _GetDiskDocFun) ->
-    Doc;
+validate_doc_update(#db{validate_doc_funs=[]}, _Doc, _GetDiskDocFun) ->
+    ok;
+validate_doc_update(_Db, #doc{id= <<"_local/",_/binary>>}, _GetDiskDocFun) ->
+    ok;
 validate_doc_update(#db{name=DbName,user_ctx=Ctx}=Db, Doc, GetDiskDocFun) ->
     DiskDoc = GetDiskDocFun(),
     JsonCtx =  {[{<<"db">>, DbName},
             {<<"name">>,Ctx#user_ctx.name},
             {<<"roles">>,Ctx#user_ctx.roles}]},
-    [case Fun(Doc, DiskDoc, JsonCtx) of
-        ok -> ok;
-        Error -> throw(Error)
-    end || Fun <- Db#db.validate_doc_funs],
-    Doc.
+    try [case Fun(Doc, DiskDoc, JsonCtx) of
+            ok -> ok;
+            Error -> throw(Error)
+        end || Fun <- Db#db.validate_doc_funs],
+        ok
+    catch
+        throw:Error ->
+            Error
+    end.
 
 
 prep_and_validate_update(Db, #doc{id=Id,revs={RevStart, [_NewRev|PrevRevs]}}=Doc,
         OldFullDocInfo, LeafRevsDict) ->
-    NilDocFun = fun() -> nil end,
     case PrevRevs of
     [PrevRev|_] ->
         case dict:find({RevStart-1, PrevRev}, LeafRevsDict) of
@@ -262,58 +265,76 @@ prep_and_validate_update(Db, #doc{id=Id,revs={RevStart, [_NewRev|PrevRevs]}}=Doc
             true ->
                 DiskDoc = make_doc(Db, Id, Deleted, DiskSp, DiskRevs),
                 Doc2 = couch_doc:merge_stubs(Doc, DiskDoc),
-                {ok, validate_doc_update(Db, Doc2, fun() -> DiskDoc end)};
+                {validate_doc_update(Db, Doc2, fun() -> DiskDoc end), Doc2};
             false ->
                 LoadDiskDoc = fun() -> make_doc(Db,Id,Deleted,DiskSp,DiskRevs) end,
-                {ok, validate_doc_update(Db, Doc, LoadDiskDoc)}
+                {validate_doc_update(Db, Doc, LoadDiskDoc), Doc}
             end;
         error ->
-            {conflict, validate_doc_update(Db, Doc, NilDocFun)}
+            {conflict, Doc}
         end;
     [] ->
         % new doc, and we have existing revs.
         if OldFullDocInfo#full_doc_info.deleted ->
             % existing docs are deletions
-            {ok, validate_doc_update(Db, Doc, NilDocFun)};
+            {validate_doc_update(Db, Doc, fun() -> nil end), Doc};
         true ->
-            {conflict, validate_doc_update(Db, Doc, NilDocFun)}
+            {conflict, Doc}
         end
     end.
 
 
 
-prep_and_validate_updates(_Db, [], [], AccPrepped, AccConflicts) ->
-   {AccPrepped, AccConflicts};
-prep_and_validate_updates(Db, [DocBucket|RestBuckets], [not_found|RestLookups], AccPrepped, AccConflicts) ->
-    % no existing revs are known, make sure no old revs specified.
-    AccConflicts2 = [Doc || #doc{revs=[_NewRev,_OldRev|_]=Doc} <- DocBucket] ++ AccConflicts,
-    AccPrepped2 = [[validate_doc_update(Db, Doc, fun()-> nil end) || Doc <- DocBucket] | AccPrepped],
-    prep_and_validate_updates(Db, RestBuckets, RestLookups, AccPrepped2, AccConflicts2);
+prep_and_validate_updates(_Db, [], [], AccPrepped, AccFatalErrors) ->
+   {AccPrepped, AccFatalErrors};
+prep_and_validate_updates(Db, [DocBucket|RestBuckets], [not_found|RestLookups], AccPrepped, AccErrors) ->
+    [#doc{id=Id}|_]=DocBucket,
+    % no existing revs are known,
+    {PreppedBucket, AccErrors3} = lists:foldl(
+        fun(#doc{revs=Revs}=Doc, {AccBucket, AccErrors2}) ->
+            case Revs of
+            {Pos, [NewRev,_OldRev|_]} ->
+                % old revs specified but none exist, a conflict
+                {AccBucket, [{{Id, {Pos, NewRev}}, conflict} | AccErrors2]};
+            {Pos, [NewRev]} ->
+                case validate_doc_update(Db, Doc, fun() -> nil end) of
+                ok ->
+                    {[Doc | AccBucket], AccErrors2};
+                Error ->
+                    {AccBucket, [{{Id, {Pos, NewRev}}, Error} | AccErrors2]}
+                end
+            end
+        end,
+        {[], AccErrors}, DocBucket),
+
+    prep_and_validate_updates(Db, RestBuckets, RestLookups,
+            [PreppedBucket | AccPrepped], AccErrors3);
 prep_and_validate_updates(Db, [DocBucket|RestBuckets],
         [{ok, #full_doc_info{rev_tree=OldRevTree}=OldFullDocInfo}|RestLookups],
-        AccPrepped, AccConflicts) ->
+        AccPrepped, AccErrors) ->
     Leafs = couch_key_tree:get_all_leafs(OldRevTree),
     LeafRevsDict = dict:from_list([{{Start, RevId}, {Deleted, Sp, Revs}} ||
             {{Deleted, Sp}, {Start, [RevId|_]}=Revs} <- Leafs]),
-    {Prepped, AccConflicts2} = lists:foldl(
-        fun(Doc, {Docs2Acc, Conflicts2Acc}) ->
+    {PreppedBucket, AccErrors3} = lists:foldl(
+        fun(Doc, {Docs2Acc, AccErrors2}) ->
             case prep_and_validate_update(Db, Doc, OldFullDocInfo,
                     LeafRevsDict) of
             {ok, Doc} ->
-                {[Doc | Docs2Acc], Conflicts2Acc};
-            {conflict, Doc} ->
-                {[Doc | Docs2Acc], [Doc|Conflicts2Acc]}
+                {[Doc | Docs2Acc], AccErrors2};
+            {Error, #doc{id=Id,revs={Pos, [NewRev|_]}}} ->
+                % Record the error
+                {Docs2Acc, [{{Id, {Pos, NewRev}}, Error} |AccErrors2]}
             end
         end,
-        {[], AccConflicts}, DocBucket),
-    prep_and_validate_updates(Db, RestBuckets, RestLookups, [Prepped | AccPrepped], AccConflicts2).
+        {[], AccErrors}, DocBucket),
+    prep_and_validate_updates(Db, RestBuckets, RestLookups, [PreppedBucket | AccPrepped], AccErrors3).
 
 
 update_docs(#db{update_pid=UpdatePid}=Db, Docs, Options) ->
     update_docs(#db{update_pid=UpdatePid}=Db, Docs, Options, interactive_edit).
     
 should_validate(Db, Docs) ->
-    % true if our db has validation funs, there are design docs,
+    % true if our db has validation funs, we have design docs,
     % or we have attachments.
     (Db#db.validate_doc_funs /= []) orelse
         lists:any(
@@ -323,6 +344,58 @@ should_validate(Db, Docs) ->
                 Atts /= []
             end, Docs).
 
+validate_replicated_updates(_Db, [], [], AccPrepped, AccErrors) ->
+    Errors2 = [{{Id, {Pos, Rev}}, Error} || 
+            {#doc{id=Id,revs={Pos,[Rev|_]}}, Error} <- AccErrors],
+    {lists:reverse(AccPrepped), lists:reverse(Errors2)};
+validate_replicated_updates(Db, [Bucket|RestBuckets], [OldInfo|RestOldInfo], AccPrepped, AccErrors) ->
+    case OldInfo of
+    not_found ->
+        {ValidatedBucket, AccErrors3} = lists:foldl(
+            fun(Doc, {AccPrepped2, AccErrors2}) ->
+                case validate_doc_update(Db, Doc, fun() -> nil end) of
+                ok ->
+                    {[Doc | AccPrepped2], AccErrors2};
+                Error ->
+                    {AccPrepped2, [{Doc, Error} | AccErrors2]}
+                end
+            end,
+            {[], AccErrors}, Bucket),
+        validate_replicated_updates(Db, RestBuckets, RestOldInfo, [ValidatedBucket | AccPrepped], AccErrors3);
+    {ok, #full_doc_info{rev_tree=OldTree}} ->
+        NewRevTree = lists:foldl(
+            fun(NewDoc, AccTree) ->
+                {NewTree, _} = couch_key_tree:merge(AccTree, [couch_db:doc_to_tree(NewDoc)]),
+                NewTree
+            end,
+            OldTree, Bucket),
+        Leafs = couch_key_tree:get_all_leafs_full(NewRevTree),
+        LeafRevsFullDict = dict:from_list( [{{Start, RevId}, FullPath} || {Start, [{RevId, _}|_]}=FullPath <- Leafs]),
+        {ValidatedBucket, AccErrors3} =
+        lists:foldl(
+            fun(#doc{id=Id,revs={Pos, [RevId|_]}}=Doc, {AccValidated, AccErrors2}) ->
+                case dict:find({Pos, RevId}, LeafRevsFullDict) of
+                {ok, {Start, Path}} ->
+                    % our unflushed doc is a leaf node. Go back on the path 
+                    % to find the previous rev that's on disk.
+                    LoadPrevRev = fun() ->
+                        make_first_doc_on_disk(Db, Id, Start - 1, tl(Path))
+                    end,
+                    case validate_doc_update(Db, Doc, LoadPrevRev) of
+                    ok ->
+                        {[Doc | AccValidated], AccErrors2};
+                    Error ->
+                        {AccValidated, [{Doc, Error} | AccErrors2]}
+                    end;
+                _ ->
+                    % this doc isn't a leaf or already exists in the tree.
+                    % ignore but consider it a success.
+                    {AccValidated, AccErrors2}
+                end
+            end,
+            {[], []}, Bucket),
+        validate_replicated_updates(Db, RestBuckets, RestOldInfo, [ValidatedBucket | AccPrepped], AccErrors3)
+    end.
 
 update_docs(Db, Docs, Options, replicated_changes) ->
     DocBuckets = group_alike_docs(Docs),
@@ -332,41 +405,15 @@ update_docs(Db, Docs, Options, replicated_changes) ->
         Ids = [Id || [#doc{id=Id}|_] <- DocBuckets],
         ExistingDocs = get_full_doc_infos(Db, Ids),
     
-        DocBuckets2 = lists:zipwith(
-            fun(Bucket, not_found) ->
-                [validate_doc_update(Db, Doc, fun()-> nil end) || Doc <- Bucket];
-            (Bucket, {ok, #full_doc_info{rev_tree=OldTree}}) ->
-                NewRevTree = lists:foldl(
-                    fun(NewDoc, AccTree) ->
-                        {NewTree, _} = couch_key_tree:merge(AccTree, [couch_db:doc_to_tree(NewDoc)]),
-                        NewTree
-                    end,
-                    OldTree, Bucket),
-                Leafs = couch_key_tree:get_all_leafs_full(NewRevTree),
-                LeafRevsFullDict = dict:from_list( [{{Start, RevId}, FullPath} || {Start, [{RevId, _}|_]}=FullPath <- Leafs]),
-                lists:flatmap(
-                    fun(#doc{id=Id,revs={Pos, [RevId|_]}}=Doc) ->
-                        case dict:find({Pos, RevId}, LeafRevsFullDict) of
-                        {ok, {Start, Path}} ->
-                            % our unflushed doc is a leaf node. Go back on the path 
-                            % to find the previous rev that's on disk.
-                            LoadPrevRev = fun() ->
-                                make_first_doc_on_disk(Db, Id, Start - 1, lists:tail(Path))
-                            end,
-                            [validate_doc_update(Db, Doc, LoadPrevRev)];
-                        _ ->
-                            % this doc isn't a leaf or already exists in the tree. ignore
-                            []
-                        end
-                    end, Bucket)
-            end,
-            DocBuckets, ExistingDocs),
+        {DocBuckets2, DocErrors} =
+                validate_replicated_updates(Db, DocBuckets, ExistingDocs, [], []),
         DocBuckets3 = [Bucket || [_|_]=Bucket <- DocBuckets2]; % remove empty buckets
     false ->
+        DocErrors = [],
         DocBuckets3 = DocBuckets
     end,
-    {ok, _} = write_and_commit(Db, DocBuckets3, [merge_conflicts | Options]),
-    ok;
+    {ok, []} = write_and_commit(Db, DocBuckets3, [merge_conflicts | Options]),
+    {ok, DocErrors};
     
 update_docs(Db, Docs, Options, interactive_edit) ->
     % go ahead and generate the new revision ids for the documents.
@@ -390,37 +437,25 @@ update_docs(Db, Docs, Options, interactive_edit) ->
         Ids = [Id || [#doc{id=Id}|_] <- DocBuckets],
         ExistingDocInfos = get_full_doc_infos(Db, Ids),
     
-        {DocBuckets2, PreConflicts} = prep_and_validate_updates(Db, DocBuckets, ExistingDocInfos, [], []),
-    
-        case PreConflicts of
-        [] ->
-            Continue = ok;
-        _ ->
-            case lists:member(merge_conflicts, Options) of
-            true -> Continue = ok;
-            false -> Continue = {conflicts, PreConflicts}
-            end
-        end;
+        {DocBucketsPrepped, Failures} = prep_and_validate_updates(Db, DocBuckets, ExistingDocInfos, [], []),
+        % strip out any empty buckets
+        DocBuckets2 = [Bucket || [_|_] = Bucket <- DocBucketsPrepped];
     false ->
-        Continue = ok,
+        Failures = [],
         DocBuckets2 = DocBuckets
     end,
-    if Continue == ok ->
-        case write_and_commit(Db, DocBuckets2, Options) of
-        {ok, SavedConflicts} ->
-            {ok, docs_to_revs(Docs2), SavedConflicts};
-        {conflicts, Conflicts} ->
-            {conflicts, Conflicts}
-        end;
-    true ->
-        Continue
-    end.
-    
-
-docs_to_revs([]) ->
-    [];
-docs_to_revs([#doc{revs={Start,[RevId|_]}} | Rest]) ->
-    [{Start, RevId} | docs_to_revs(Rest)].
+    {ok, CommitFailures} = write_and_commit(Db, DocBuckets2, Options),
+    FailDict = dict:from_list(CommitFailures ++ Failures),
+    % the output for each is either {ok, NewRev} or Error
+    {ok, lists:map(
+        fun(#doc{id=Id,revs={Pos, [NewRevId|_]}}) ->
+            case dict:find({Id, {Pos, NewRevId}}, FailDict) of
+            {ok, Error} ->
+                Error;
+            error ->
+                {ok, {Pos, NewRevId}}
+            end
+        end, Docs2)}.
 
 % Returns the first available document on disk. Input list is a full rev path
 % for the doc.
@@ -438,8 +473,7 @@ write_and_commit(#db{update_pid=UpdatePid, user_ctx=Ctx}=Db, DocBuckets,
     % flush unwritten binaries to disk.
     DocBuckets2 = [[doc_flush_binaries(Doc, Db#db.fd) || Doc <- Bucket] || Bucket <- DocBuckets],
     case gen_server:call(UpdatePid, {update_docs, DocBuckets2, Options}, infinity) of
-    {ok, SavedConflicts} -> {ok, SavedConflicts};
-    {conflicts, Conflicts} -> {conflicts, Conflicts};
+    {ok, Conflicts} -> {ok, Conflicts};
     retry ->
         % This can happen if the db file we wrote to was swapped out by
         % compaction. Retry by reopening the db and writing to the current file
@@ -448,8 +482,7 @@ write_and_commit(#db{update_pid=UpdatePid, user_ctx=Ctx}=Db, DocBuckets,
         % We only retry once
         close(Db2),
         case gen_server:call(UpdatePid, {update_docs, DocBuckets3, Options}, infinity) of
-        {ok, SavedConflicts} -> {ok, SavedConflicts};
-        {conflicts, Conflicts} -> {conflicts, Conflicts};
+        {ok, Conflicts} -> {ok, Conflicts};
         Else -> throw(Else)
         end
     end.

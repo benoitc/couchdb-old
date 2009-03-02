@@ -501,28 +501,25 @@ var tests = {
     var docs = makeDocs(5);
 
     // Create the docs
-    var result = db.bulkSave(docs);
-    T(result.ok);
-    T(result.new_revs.length == 5);
+    var results = db.bulkSave(docs);
+    T(results.length == 5);
     for (var i = 0; i < 5; i++) {
-      T(result.new_revs[i].id == docs[i]._id);
-      T(result.new_revs[i].rev);
+      T(results[i].id == docs[i]._id);
+      T(results[i].rev);
       docs[i].string = docs[i].string + ".00";
     }
 
     // Update the docs
-    result = db.bulkSave(docs);
-    T(result.ok);
-    T(result.new_revs.length == 5);
+    results = db.bulkSave(docs);
+    T(results.length == 5);
     for (i = 0; i < 5; i++) {
-      T(result.new_revs[i].id == i.toString());
+      T(results[i].id == i.toString());
       docs[i]._deleted = true;
     }
 
     // Delete the docs
-    result = db.bulkSave(docs);
-    T(result.ok);
-    T(result.new_revs.length == 5);
+    results = db.bulkSave(docs);
+    T(results.length == 5);
     for (i = 0; i < 5; i++) {
       T(db.open(docs[i]._id) == null);
     }
@@ -531,10 +528,10 @@ var tests = {
     var req = CouchDB.request("POST", "/test_suite_db/_bulk_docs", {
       body: JSON.stringify({"docs": [{"foo":"bar"}]})
     });
-    result = JSON.parse(req.responseText);
+    results = JSON.parse(req.responseText);
     
-    T(result.new_revs[0].id != "");
-    T(result.new_revs[0].rev != "");
+    T(results[0].id != "");
+    T(results[0].rev != "");
   },
 
   // test saving a semi-large quanitity of documents and do some view queries.
@@ -551,7 +548,7 @@ var tests = {
     for(var i=0; i < numDocsToCreate; i += 100) {
         var createNow = Math.min(numDocsToCreate - i, 100);
         var docs = makeDocs(i, i + createNow);
-        T(db.bulkSave(docs).ok);
+        db.bulkSave(docs);
     }
 
     // query all documents, and return the doc.integer member as a key.
@@ -588,7 +585,7 @@ var tests = {
     if (debug) debugger;
     var numDocs = 500
     var docs = makeDocs(1,numDocs + 1);
-    T(db.bulkSave(docs).ok);
+    db.bulkSave(docs);
     var summate = function(N) {return (N+1)*N/2;};
 
     var map = function (doc) {
@@ -636,7 +633,7 @@ var tests = {
         docs.push({keys:["d", "a"]});
         docs.push({keys:["d", "b"]});
         docs.push({keys:["d", "c"]});
-        T(db.bulkSave(docs).ok);
+        db.bulkSave(docs);
         T(db.info().doc_count == ((i - 1) * 10 * 11) + ((j + 1) * 11));
       }
 
@@ -728,7 +725,7 @@ var tests = {
       docs.push({val:80});
       docs.push({val:90});
       docs.push({val:100});
-      T(db.bulkSave(docs).ok);
+      db.bulkSave(docs);
     }
     
     var results = db.query(map, reduceCombine);
@@ -747,7 +744,7 @@ var tests = {
 
     var numDocs = 5;
     var docs = makeDocs(1,numDocs + 1);
-    T(db.bulkSave(docs).ok);
+    db.bulkSave(docs);
     var summate = function(N) {return (N+1)*N/2;};
 
     var designDoc = {
@@ -1419,7 +1416,7 @@ var tests = {
     }
     T(db.save(designDoc).ok);
 
-    T(db.bulkSave(makeDocs(1, numDocs + 1)).ok);
+    db.bulkSave(makeDocs(1, numDocs + 1));
 
     // test that the _all_docs view returns correctly with keys
     var results = db.allDocs({startkey:"_design", endkey:"_design0"});
@@ -1636,7 +1633,7 @@ var tests = {
     if (debug) debugger;
 
     var docs = makeDocs(0, 100);
-    T(db.bulkSave(docs).ok);
+    db.bulkSave(docs);
 
     var designDoc = {
       _id:"_design/test",
@@ -1736,7 +1733,7 @@ var tests = {
     if (debug) debugger;
 
     var docs = makeDocs(0, 100);
-    T(db.bulkSave(docs).ok);
+    db.bulkSave(docs);
 
     var keys = ["10","15","30","37","50"];
     var rows = db.allDocs({},keys).rows;
@@ -1779,7 +1776,7 @@ var tests = {
     if (debug) debugger;
 
     var docs = makeDocs(0, 100);
-    T(db.bulkSave(docs).ok);
+    db.bulkSave(docs);
 
     var designDoc = {
       _id:"_design/test",
@@ -1906,7 +1903,7 @@ var tests = {
     if (debug) debugger;
 
     var docs = makeDocs(0, 100);
-    T(db.bulkSave(docs).ok);
+    db.bulkSave(docs);
 
     var queryFun = function(doc) { emit(doc.integer, doc.integer) };
     var reduceFun = function (keys, values) { return sum(values); };
@@ -1932,7 +1929,7 @@ var tests = {
     if (debug) debugger;
 
     var docs = makeDocs(0, 100);
-    T(db.bulkSave(docs).ok);
+    db.bulkSave(docs);
 
     var queryFun = function(doc) { emit(doc.integer, null) };
     var i;
@@ -2141,7 +2138,7 @@ var tests = {
         simple_test: new function () {
           this.init = function(dbA, dbB) {
             var docs = makeDocs(0, numDocs);
-            T(dbA.bulkSave(docs).ok);
+            dbA.bulkSave(docs);
           };
         
           this.afterAB1 = function(dbA, dbB) {          
@@ -2728,8 +2725,7 @@ var tests = {
     T(db.save(designDoc).ok);
     
     var docs = makeDocs(0, 10);
-    var saveResult = db.bulkSave(docs);
-    T(saveResult.ok);
+    db.bulkSave(docs);
     
     var view = db.view('lists/basicView');
     T(view.total_rows == 10);
@@ -2790,8 +2786,7 @@ var tests = {
     db.createDb();
     if (debug) debugger;
     var docs = makeDocs(0, 10);
-    var saveResult = db.bulkSave(docs);
-    T(saveResult.ok);
+    db.bulkSave(docs);
 
     var binAttDoc = {
       _id: "bin_doc",
@@ -2856,7 +2851,7 @@ var tests = {
     
     T(db.save(designDoc).ok);
 
-    T(db.bulkSave(makeDocs(1, numDocs + 1)).ok);
+    db.bulkSave(makeDocs(1, numDocs + 1));
 
     // go ahead and validate the views before purging
     var rows = db.view("test/all_docs_twice").rows;

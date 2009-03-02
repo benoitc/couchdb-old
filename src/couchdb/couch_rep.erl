@@ -212,7 +212,7 @@ do_http_request(Url, Action, Headers, JsonBody, Retries) ->
 save_docs_buffer(DbTarget, DocsBuffer, []) ->
     receive
     {Src, shutdown} ->
-        ok = update_docs(DbTarget, lists:reverse(DocsBuffer), [], replicated_changes),
+        {ok, _UpdateErrors} = update_docs(DbTarget, lists:reverse(DocsBuffer), [], replicated_changes),
         Src ! {done, self(), [{<<"docs_written">>, length(DocsBuffer)}]}
     end;
 save_docs_buffer(DbTarget, DocsBuffer, UpdateSequences) ->
@@ -225,7 +225,7 @@ save_docs_buffer(DbTarget, DocsBuffer, UpdateSequences) ->
         Src ! got_it,
         case couch_util:should_flush() of
             true ->
-                ok = update_docs(DbTarget, lists:reverse(Docs++DocsBuffer), [], 
+                {ok, _UpdateErrors} = update_docs(DbTarget, lists:reverse(Docs++DocsBuffer), [], 
                     replicated_changes),
                 save_docs_buffer(DbTarget, [], Rest);
             false ->
@@ -233,7 +233,7 @@ save_docs_buffer(DbTarget, DocsBuffer, UpdateSequences) ->
         end;
         {Src, shutdown} ->
         ?LOG_ERROR("received shutdown while waiting for more update_seqs", []),
-        ok = update_docs(DbTarget, lists:reverse(DocsBuffer), [], replicated_changes),
+        {ok, _Errors} = update_docs(DbTarget, lists:reverse(DocsBuffer), [], replicated_changes),
         Src ! {done, self(), [{<<"docs_written">>, length(DocsBuffer)}]}
     end.
 
@@ -401,7 +401,7 @@ enum_docs_since(DbSource, DbTarget, StartSeq, InAcc) ->
     end.
 
 get_missing_revs(#http_db{uri=DbUrl, headers=Headers}, DocIdRevsList) ->
-    DocIdRevsList2 = [{Id, couch_doc:to_rev_strs(Revs)} || {Id, Revs} <- DocIdRevsList],
+    DocIdRevsList2 = [{Id, couch_doc:rev_to_strs(Revs)} || {Id, Revs} <- DocIdRevsList],
     {ResponseMembers} = do_http_request(DbUrl ++ "_missing_revs", post, Headers,
             {DocIdRevsList2}),
     {DocMissingRevsList} = proplists:get_value(<<"missing_revs">>, ResponseMembers),
@@ -422,15 +422,24 @@ update_doc(Db, Doc, Options) ->
     couch_db:update_doc(Db, Doc, Options).
 
 update_docs(_, [], _, _) ->
-    ok;
-update_docs(#http_db{uri=DbUrl, headers=Headers}, Docs, [], UpdateType) ->
-    NewEdits = UpdateType == interactive_edit,
+    {ok, []};
+update_docs(#http_db{uri=DbUrl, headers=Headers}, Docs, [], replicated_changes) ->
     JsonDocs = [couch_doc:to_json_obj(Doc, [revs,attachments]) || Doc <- Docs],
-    {Returned} =
+    ErrorsJson =
         do_http_request(DbUrl ++ "_bulk_docs", post, Headers,
-                {[{new_edits, NewEdits}, {docs, JsonDocs}]}),
-    true = proplists:get_value(<<"ok">>, Returned),
-    ok;
+                {[{new_edits, false}, {docs, JsonDocs}]}),
+    ErrorsList =
+    lists:map(
+        fun({Props}) ->
+            Id = proplists:get_value(<<"id">>, Props),
+            Rev = couch_doc:parse_rev(proplists:get_value(<<"rev">>, Props)),
+            ErrId = couch_util:to_existing_atom(
+                    proplists:get_value(<<"error">>, Props)),
+            Reason = proplists:get_value(<<"reason">>, Props),
+            Error = {ErrId, Reason},
+            {{Id, Rev}, Error}
+        end, ErrorsJson),
+    {ok, ErrorsList};
 update_docs(Db, Docs, Options, UpdateType) ->
     couch_db:update_docs(Db, Docs, Options, UpdateType).
 
@@ -448,7 +457,7 @@ open_doc(Db, DocId, Options) ->
 
 
 open_doc_revs(#http_db{uri=DbUrl, headers=Headers}, DocId, Revs0, Options) ->
-    Revs = couch_doc:to_rev_strs(Revs0),
+    Revs = couch_doc:rev_to_strs(Revs0),
     QueryOptionStrs =
     lists:map(fun(latest) ->
             % latest is only option right now

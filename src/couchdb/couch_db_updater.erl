@@ -41,11 +41,6 @@ init({MainPid, DbName, Filepath, Fd, Options}) ->
 terminate(_Reason, Db) ->
     close_db(Db).
 
-docs_to_revs([]) ->
-    [];
-docs_to_revs([#doc{revs={Start,[RevId|_]}} | Rest]) ->
-    [{Start, RevId} | docs_to_revs(Rest)].
-
 handle_call(get_db, _From, Db) ->
     {reply, {ok, Db}, Db};
 handle_call({update_docs, DocActions, Options}, _From, Db) ->
@@ -53,12 +48,10 @@ handle_call({update_docs, DocActions, Options}, _From, Db) ->
     {ok, Conflicts, Db2} ->
         ok = gen_server:call(Db#db.main_pid, {db_updated, Db2}),
         couch_db_update_notifier:notify({updated, Db2#db.name}),
-        {reply, {ok, docs_to_revs(Conflicts)}, Db2}
+        {reply, {ok, Conflicts}, Db2}
     catch
         throw: retry ->
-            {reply, retry, Db};
-        throw: {conflicts, Conflicts} ->
-            {reply, {conflicts, docs_to_revs(Conflicts)}, Db}
+            {reply, retry, Db}
     end;
 handle_call(full_commit, _From, #db{waiting_delayed_commit=nil}=Db) ->
     {reply, ok, Db}; % no data waiting, return ok immediately
@@ -367,16 +360,17 @@ flush_trees(#db{fd=Fd}=Db, [InfoUnflushed | RestUnflushed], AccFlushed) ->
         end, Unflushed),
     flush_trees(Db, RestUnflushed, [InfoUnflushed#full_doc_info{rev_tree=Flushed} | AccFlushed]).
 
-merge_rev_trees([], [], AccNewInfos, AccConflicts, AccSeq) ->
+merge_rev_trees(_MergeConflicts, [], [], AccNewInfos, AccConflicts, AccSeq) ->
     {ok, lists:reverse(AccNewInfos), AccConflicts, AccSeq};
-merge_rev_trees([NewDocs|RestDocsList],
+merge_rev_trees(MergeConflicts, [NewDocs|RestDocsList],
         [OldDocInfo|RestOldInfo], AccNewInfos, AccConflicts, AccSeq) ->
     #full_doc_info{id=Id,rev_tree=OldTree,deleted=OldDeleted}=OldDocInfo,
     {NewRevTree, NewConflicts} = lists:foldl(
-        fun(NewDoc, {AccTree, AccConflicts2}) ->
+        fun(#doc{revs={Pos,[Rev|_]}}=NewDoc, {AccTree, AccConflicts2}) ->
             case couch_key_tree:merge(AccTree, [couch_db:doc_to_tree(NewDoc)]) of
-            {NewTree, conflicts} when not OldDeleted ->
-                {NewTree, [NewDoc | AccConflicts2]};
+            {_NewTree, conflicts}
+                    when (not OldDeleted) and (not MergeConflicts) ->
+                {AccTree, [{{Id, {Pos,Rev}}, conflict} | AccConflicts2]};
             {NewTree, _} ->
                 {NewTree, AccConflicts2}
             end
@@ -384,12 +378,12 @@ merge_rev_trees([NewDocs|RestDocsList],
         {OldTree, AccConflicts}, NewDocs),
     if NewRevTree == OldTree ->
         % nothing changed
-        merge_rev_trees(RestDocsList, RestOldInfo, AccNewInfos,
+        merge_rev_trees(MergeConflicts, RestDocsList, RestOldInfo, AccNewInfos,
                 NewConflicts, AccSeq);
     true ->
         % we have updated the document, give it a new seq #
         NewInfo = #full_doc_info{id=Id,update_seq=AccSeq+1,rev_tree=NewRevTree},
-        merge_rev_trees(RestDocsList,RestOldInfo, 
+        merge_rev_trees(MergeConflicts, RestDocsList,RestOldInfo, 
                 [NewInfo|AccNewInfos], NewConflicts, AccSeq+1)
     end.
 
@@ -431,28 +425,23 @@ update_docs_int(Db, DocsList, Options) ->
         Ids, OldDocLookups),
     
     % Merge the new docs into the revision trees.
-    {ok, NewDocInfos, Conflicts, NewSeq} =
-            merge_rev_trees(DocsList2, OldDocInfos, [], [], LastSeq),
-    
-    case (Conflicts /= []) and (not lists:member(merge_conflicts, Options)) of
-    true -> throw({conflicts, Conflicts});
-    false -> ok
-    end,
-    
+    {ok, NewDocInfos, Conflicts, NewSeq} = merge_rev_trees(
+            lists:member(merge_conflicts, Options),
+            DocsList2, OldDocInfos, [], [], LastSeq),
     RemoveSeqs =
         [OldSeq || {ok, #full_doc_info{update_seq=OldSeq}} <- OldDocLookups],
     
-    % All regular documents are now ready to write.
+    % All documents are now ready to write.
     
-    % Try to write the local documents first, a conflict might be generated
-    {ok, Db2}  = update_local_docs(Db, NonRepDocs),
+    {ok, LocalConflicts, Db2}  = update_local_docs(Db, NonRepDocs),
+    
     % Write out the document summaries (the bodies are stored in the nodes of
     % the trees, the attachments are already written to disk)
     {ok, FlushedDocInfos} = flush_trees(Db2, NewDocInfos, []),
     
     {ok, InfoById, InfoBySeq} = new_index_entries(FlushedDocInfos, [], []),
 
-    % and the indexes to the documents
+    % and the indexes
     {ok, DocInfoBySeqBTree2} = couch_btree:add_remove(DocInfoBySeqBTree, InfoBySeq, RemoveSeqs),
     {ok, DocInfoByIdBTree2} = couch_btree:add_remove(DocInfoByIdBTree, InfoById, []),
 
@@ -470,18 +459,15 @@ update_docs_int(Db, DocsList, Options) ->
         Db4 = refresh_validate_doc_funs(Db3)
     end,
     
-    {ok, Conflicts, commit_data(Db4, not lists:member(full_commit, Options))}.
+    {ok, LocalConflicts ++ Conflicts, 
+            commit_data(Db4, not lists:member(full_commit, Options))}.
     
 update_local_docs(#db{local_docs_btree=Btree}=Db, Docs) ->
     Ids = [Id || #doc{id=Id} <- Docs],
     OldDocLookups = couch_btree:lookup(Btree, Ids),
     BtreeEntries = lists:zipwith(
-        fun(#doc{id=Id,deleted=Delete,revs={0,Revs},body=Body}=Doc, OldDocLookup) ->
-            NewRev =
-            case Revs of
-                [] -> 0;
-                [RevStr] -> list_to_integer(?b2l(RevStr))
-            end,
+        fun(#doc{id=Id,deleted=Delete,revs={0,[RevStr]},body=Body}, OldDocLookup) ->
+            NewRev = list_to_integer(?b2l(RevStr)),
             OldRev =
             case OldDocLookup of
                 {ok, {_, {OldRev0, _}}} -> OldRev0;
@@ -494,18 +480,19 @@ update_local_docs(#db{local_docs_btree=Btree}=Db, Docs) ->
                     true  -> {remove, Id}
                 end;
             false ->
-                throw({conflicts, [Doc]})
+                {conflict, {Id, {0, RevStr}}}
             end
             
         end, Docs, OldDocLookups),
 
     BtreeIdsRemove = [Id || {remove, Id} <- BtreeEntries],
     BtreeIdsUpdate = [ByIdDocInfo || {update, ByIdDocInfo} <- BtreeEntries],
+    Conflicts = [{conflict, IdRev} || {conflict, IdRev} <- BtreeEntries],
     
     {ok, Btree2} =
         couch_btree:add_remove(Btree, BtreeIdsUpdate, BtreeIdsRemove),
 
-    {ok, Db#db{local_docs_btree = Btree2}}.
+    {ok, Conflicts, Db#db{local_docs_btree = Btree2}}.
 
 
 commit_data(Db) ->

@@ -12,7 +12,7 @@
 
 -module(couch_doc).
 
--export([to_doc_info/1,to_doc_info_path/1,parse_rev/1,parse_revs/1,to_rev_str/1,to_rev_strs/1]).
+-export([to_doc_info/1,to_doc_info_path/1,parse_rev/1,parse_revs/1,rev_to_str/1,rev_to_strs/1]).
 -export([bin_foldl/3,bin_size/1,bin_to_binary/1,get_validate_doc_fun/1]).
 -export([from_json_obj/1,to_json_obj/2,has_stubs/1, merge_stubs/2]).
 
@@ -37,28 +37,28 @@ to_json_revisions(Options, Start, RevIds) ->
                         {<<"ids">>, RevIds}]}}]
     end.
 
-to_rev_str({Pos, RevId}) ->
+rev_to_str({Pos, RevId}) ->
     ?l2b([integer_to_list(Pos),"-",RevId]).
 
-to_rev_strs([]) ->
+rev_to_strs([]) ->
     [];
-to_rev_strs([{Pos, RevId}| Rest]) ->
-    [to_rev_str({Pos, RevId}) | to_rev_strs(Rest)].
+rev_to_strs([{Pos, RevId}| Rest]) ->
+    [rev_to_str({Pos, RevId}) | rev_to_strs(Rest)].
 
 to_json_meta(Meta) ->
     lists:map(
         fun({revs_info, Start, RevsInfo}) ->
             {JsonRevsInfo, _Pos}  = lists:mapfoldl(
                 fun({RevId, Status}, PosAcc) ->
-                    JsonObj = {[{<<"rev">>, to_rev_str({PosAcc, RevId})},
+                    JsonObj = {[{<<"rev">>, rev_to_str({PosAcc, RevId})},
                         {<<"status">>, ?l2b(atom_to_list(Status))}]},
                     {JsonObj, PosAcc - 1}
                 end, Start, RevsInfo),
             {<<"_revs_info">>, JsonRevsInfo};
         ({conflicts, Conflicts}) ->
-            {<<"_conflicts">>, to_rev_strs(Conflicts)};
+            {<<"_conflicts">>, rev_to_strs(Conflicts)};
         ({deleted_conflicts, DConflicts}) ->
-            {<<"_deleted_conflicts">>, to_rev_strs(DConflicts)}
+            {<<"_deleted_conflicts">>, rev_to_strs(DConflicts)}
         end, Meta).
 
 to_json_attachment_stubs(Attachments) ->
