@@ -145,19 +145,12 @@ start_primary_services() ->
                 brutal_kill,
                 supervisor,
                 [couch_server]},
-            {couch_file_stats,
-                {couch_file_stats, start_link, []},
-                permanent,
-                brutal_kill,
-                supervisor,
-                [couch_file_stats]},
             {couch_db_update_event,
                 {gen_event, start_link, [{local, couch_db_update}]},
                 permanent,
                 brutal_kill,
                 supervisor,
                 dynamic}]}).
-
 
 start_secondary_services() ->
     DaemonChildSpecs = [
@@ -173,7 +166,7 @@ start_secondary_services() ->
         end
         || {Name, SpecStr}
         <- couch_config:get("daemons"), SpecStr /= ""],
-        
+    
     supervisor:start_link({local, couch_secondary_services}, couch_server_sup,
         {{one_for_one, 10, 3600}, DaemonChildSpecs}).
 

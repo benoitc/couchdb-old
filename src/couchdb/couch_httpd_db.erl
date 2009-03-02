@@ -102,6 +102,7 @@ db_req(#httpd{path_parts=[_,<<"_ensure_full_commit">>]}=Req, _Db) ->
     send_method_not_allowed(Req, "POST");
 
 db_req(#httpd{method='POST',path_parts=[_,<<"_bulk_docs">>]}=Req, Db) ->
+    couch_stats_collector:increment({httpd, bulk_requests}),
     {JsonProps} = couch_httpd:json_body(Req),
     DocsArray = proplists:get_value(<<"docs">>, JsonProps),
     case couch_httpd:header_value(Req, "X-Couch-Full-Commit", "false") of
@@ -400,7 +401,7 @@ db_doc_req(#httpd{method='GET'}=Req, Db, DocId) ->
             [] -> [{"Etag", DiskEtag}]; % output etag only when we have no meta
             _ -> []
             end,
-            send_json(Req, 200, Headers, couch_doc:to_json_obj(Doc, Options))            
+            send_json(Req, 200, Headers, couch_doc:to_json_obj(Doc, Options))
         end);
     _ ->
         {ok, Results} = couch_db:open_doc_revs(Db, DocId, Revs, Options),
@@ -517,9 +518,8 @@ db_doc_req(#httpd{method='MOVE'}=Req, Db, SourceDocId) ->
         Doc#doc{id=TargetDocId, revs=TargetRev},
         #doc{id=SourceDocId, revs=[SourceRev], deleted=true}
         ],
-
     {ok, ResultRevs} = couch_db:update_docs(Db, Docs, []),
-
+    
     DocResults = lists:zipwith(
         fun(FDoc, NewRev) ->
             {[{id, FDoc#doc.id}, {rev, NewRev}]}

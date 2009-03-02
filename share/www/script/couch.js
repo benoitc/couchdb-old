@@ -312,6 +312,16 @@ CouchDB.request = function(method, uri, options) {
   return req;
 }
 
+CouchDB.requestStats = function(module, key, test) {
+  var query_arg = "";
+  if(test !== null) {
+    query_arg = "?flush=true";
+  }
+
+  var stat = CouchDB.request("GET", "/_stats/" + module + "/" + key + query_arg).responseText;
+  return JSON.parse(stat)[module][key];
+}
+
 CouchDB.uuids_cache = [];
 
 CouchDB.newUuids = function(n) {
@@ -343,4 +353,14 @@ CouchDB.maybeThrowError = function(req) {
     }
     throw result;
   }
+}
+
+CouchDB.params = function(options) {
+  options = options || {};
+  var returnArray = [];
+  for(var key in options) {
+    var value = options[key];
+    returnArray.push(key + "=" + value);
+  }
+  return returnArray.join("&");
 }

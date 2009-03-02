@@ -51,13 +51,13 @@ source_files = \
     couch_external_manager.erl \
     couch_external_server.erl \
     couch_file.erl \
-    couch_file_stats.erl \
     couch_httpd.erl \
     couch_httpd_db.erl \
     couch_httpd_external.erl \
     couch_httpd_show.erl \
     couch_httpd_view.erl \
     couch_httpd_misc_handlers.erl \
+    couch_httpd_stats_handlers.erl \
     couch_key_tree.erl \
     couch_log.erl \
     couch_os_process.erl \
@@ -66,6 +66,8 @@ source_files = \
     couch_rep.erl \
     couch_server.erl \
     couch_server_sup.erl \
+    couch_stats_aggregator.erl \
+    couch_stats_collector.erl \
     couch_stream.erl \
     couch_task_status.erl \
     couch_util.erl \
@@ -74,7 +76,7 @@ source_files = \
     couch_view_group.erl \
     couch_db_updater.erl
 
-EXTRA_DIST = $(source_files) couch_db.hrl
+EXTRA_DIST = $(source_files) couch_db.hrl couch_stats.hrl
 
 compiled_files = \
     couch.app \
@@ -89,13 +91,13 @@ compiled_files = \
     couch_external_manager.beam \
     couch_external_server.beam \
     couch_file.beam \
-    couch_file_stats.beam \
     couch_httpd.beam \
     couch_httpd_db.beam \
     couch_httpd_external.beam \
     couch_httpd_show.beam \
     couch_httpd_view.beam \
     couch_httpd_misc_handlers.beam \
+    couch_httpd_stats_handlers.beam \
     couch_key_tree.beam \
     couch_log.beam \
     couch_os_process.beam \
@@ -104,6 +106,8 @@ compiled_files = \
     couch_rep.beam \
     couch_server.beam \
     couch_server_sup.beam \
+    couch_stats_aggregator.beam \
+    couch_stats_collector.beam \
     couch_stream.beam \
     couch_task_status.beam \
     couch_util.beam \
@@ -152,7 +156,7 @@ couch.app: couch.app.tpl
 # $(ERL) -noshell -run edoc_run files [\"$<\"]
 
 %.beam: %.erl couch_db.hrl
-	$(ERLC) $<
+	$(ERLC) ${TEST} $<;
 
 install-data-hook:
 	if test -f "$(DESTDIR)/$(couchprivlibdir)/couch_erl_driver"; then \
