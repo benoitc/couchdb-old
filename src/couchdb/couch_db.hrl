@@ -60,6 +60,7 @@
     method,
     path_parts,
     db_url_handlers,
+    design_url_handlers,
     user_ctx
     }).
     
