@@ -33,9 +33,16 @@ couchTests.show_documents = function(debug) {
         }
       }),
       "just-name" : stringFun(function(doc, req) {
-        return {
-          body : "Just " + doc.name
-        };
+        if (doc) {
+          return {
+            body : "Just " + doc.name
+          };
+        } else {
+          return {
+            body : "No such doc",
+            code : 404
+          };
+        }
       }),
       "req-info" : stringFun(function(doc, req) {
         return {
@@ -143,12 +150,11 @@ couchTests.show_documents = function(debug) {
   xhr = CouchDB.request("GET", "/test_suite_db/_design/template/_show/just-name/"+docid);
   T(xhr.responseText == "Just Rusty");
   
-  // // show with missing doc
-  // xhr = CouchDB.request("GET", "/test_suite_db/_design/template/_show/just-name/missingdoc");
-  // T(xhr.status == 404, 'Doc should be missing');
-  // var resp = JSON.parse(xhr.responseText);
-  // T(resp.error == "not_found");
-  // T(resp.reason == "missing");
+  // show with missing doc
+  xhr = CouchDB.request("GET", "/test_suite_db/_design/template/_show/just-name/missingdoc");
+  console.log(xhr)
+  T(xhr.status == 404, 'Doc should be missing');
+  T(xhr.responseText == "No such doc");
   
   // show with missing func
   xhr = CouchDB.request("GET", "/test_suite_db/_design/template/_show/missing/"+docid);
