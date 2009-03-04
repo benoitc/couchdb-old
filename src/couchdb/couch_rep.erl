@@ -167,7 +167,7 @@ replicate2(Source, DbSrc, Target, DbTgt, Options) ->
                 {<<"end_time">>, list_to_binary(httpd_util:rfc1123_date())},
                 {<<"start_last_seq">>, SeqNum},
                 {<<"end_last_seq">>, NewSeqNum} | StatProps]}
-            | proplists:get_value("history", OldRepHistoryProps, [])],
+            | proplists:get_value(<<"history">>, OldRepHistoryProps, [])],
         % something changed, record results
         NewRepHistory =
             {
