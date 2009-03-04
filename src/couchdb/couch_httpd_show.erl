@@ -24,7 +24,7 @@
     
 handle_doc_show_req(#httpd{
         method='GET',
-        path_parts=[_DbName, _Design, DesignName, _Show, ShowName, Docid]
+        path_parts=[_DbName, _Design, DesignName, _Show, ShowName, DocId]
     }=Req, Db) ->
     DesignId = <<"_design/", DesignName/binary>>,
     #doc{body={Props}} = couch_httpd_db:couch_doc_open(Db, DesignId, [], []),

@@ -136,7 +136,7 @@ couchTests.show_documents = function(debug) {
   T(xhr.responseText == "Empty World");
 
   // // hello template world (non-existing docid)
-  xhr = CouchDB.request("GET", "/test_suite_db/_show/template/hello/nonExistingDoc");
+  xhr = CouchDB.request("GET", "/test_suite_db/_design/template/_show/hello/nonExistingDoc");
   T(xhr.responseText == "New World");
   
   // show with doc
@@ -287,7 +287,7 @@ couchTests.show_documents = function(debug) {
   T(xhr.responseText.match(/foofoo/));
 
   // test the respondWith mime matcher without
-  xhr = CouchDB.request("GET", "/test_suite_db/_show/template/respondWith/"+docid, {
+  xhr = CouchDB.request("GET", "/test_suite_db/_design/template/_show/respondWith/"+docid, {
    headers: {
      "Accept": 'text/html,application/atom+xml; q=0.9'
    }
