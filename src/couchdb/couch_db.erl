@@ -483,7 +483,7 @@ write_and_commit(#db{update_pid=UpdatePid, user_ctx=Ctx}=Db, DocBuckets,
         close(Db2),
         case gen_server:call(UpdatePid, {update_docs, DocBuckets3, Options}, infinity) of
         {ok, Conflicts} -> {ok, Conflicts};
-        Else -> throw(Else)
+        retry -> throw({update_error, compaction_retry})
         end
     end.
 

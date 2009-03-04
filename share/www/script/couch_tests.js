@@ -3111,6 +3111,9 @@ var tests = {
     
     // Now delete document
     T(user2Db.deleteDoc(doc).ok);
+    
+    
+    // Now test replication
     var AuthHeaders = {"WWW-Authenticate": "X-Couch-Test-Auth Christopher Lenz:dog food"};
     var host = CouchDB.host;
     var dbPairs = [
