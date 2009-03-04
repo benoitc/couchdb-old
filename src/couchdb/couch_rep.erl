@@ -132,12 +132,21 @@ replicate2(Source, DbSrc, Target, DbTgt, Options) ->
         {ok, {OldRepHistoryProps}};
     false ->
         % commit changes to both src and tgt. The src because if changes
-        % we replicated are lost, we'll record the a seq number of ahead 
-        % of what was committed and therefore lose future changes with the
-        % same seq nums.
+        % we replicated are lost, we'll record the a seq number ahead 
+        % of what was committed. If those changes are lost and the seq number
+        % reverts to a previous committed value, we will lose future changes
+        % when new doc updates are given our already replicated seq nums.
         
-        {ok, SrcInstanceStartTime2} = ensure_full_commit(DbSrc),
+        % commit the src async
+        ParentPid = self(),
+        SrcCommitPid = spawn_link(fun() -> 
+                ParentPid ! {self(), ensure_full_commit(DbSrc)} end),
+                
+        % commit tgt sync
         {ok, TgtInstanceStartTime2} = ensure_full_commit(DbTgt),
+        
+        receive {SrcCommitPid, {ok, SrcInstanceStartTime2}} -> ok end,
+        
         RecordSeqNum =
         if SrcInstanceStartTime2 == SrcInstanceStartTime andalso
                 TgtInstanceStartTime2 == TgtInstanceStartTime ->
@@ -150,7 +159,7 @@ replicate2(Source, DbSrc, Target, DbTgt, Options) ->
         end,
         [rep_stats | StatsList] = tuple_to_list(Stats),
         StatFieldNames =
-                [?l2b(tuple_to_list(T)) || T <- record_info(fields, rep_stats)],
+                [?l2b(atom_to_list(T)) || T <- record_info(fields, rep_stats)],
         StatProps = lists:zip(StatFieldNames, StatsList),
         HistEntries =[
             {

@@ -3139,7 +3139,6 @@ var tests = {
         {"WWW-Authenticate": "X-Couch-Test-Auth Christopher Lenz:dog food"});
     var dbB = new CouchDB("test_suite_db_b",
         {"WWW-Authenticate": "X-Couch-Test-Auth Christopher Lenz:dog food"});
-    var numDocs = 10;
     var xhr;
     for (var testPair = 0; testPair < dbPairs.length; testPair++) {
       var A = dbPairs[testPair].source
@@ -3189,7 +3188,12 @@ var tests = {
       foo2.value = "b";
       dbB.save(foo2);
       
-      T(CouchDB.replicate(B, A).ok);
+      var results = CouchDB.replicate(B, A);
+      
+      T(results.ok);
+      
+      T(results.history[0].docs_written == 2);
+      T(results.history[0].doc_write_failures == 1);
       
       // bad2 should not be on dbA
       T(dbA.open("bad2") == null);
