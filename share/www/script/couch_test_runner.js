@@ -16,6 +16,10 @@ function loadTests(url) {
   document.write('<script src="'+url+'"></script>');
 };
 
+function loadScript(url) {  
+  if (typeof document != "undefined") document.write('<script src="'+url+'"></script>');
+};
+
 function patchTest(fun) {
   var source = fun.toString();
   var output = "";
@@ -67,7 +71,7 @@ function runTest(button, callback, debug) {
   var row = currentRow = $(button).parents("tr").get(0);
   $("td.status", row).removeClass("error").removeClass("failure").removeClass("success");
   $("td", row).text("");
-  var testFun = tests[row.id];
+  var testFun = couchTests[row.id];
   function run() {
     numFailures = 0;
     var start = new Date().getTime();
@@ -114,8 +118,8 @@ function showSource(cell) {
 }
 
 function updateTestsListing() {
-  for (var name in tests) {
-    var testFunction = tests[name];
+  for (var name in couchTests) {
+    var testFunction = couchTests[name];
     var row = $("<tr><th></th><td></td><td></td><td></td></tr>")
       .find("th").text(name).attr("title", "Show source").click(function() {
         showSource(this);
