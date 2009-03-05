@@ -16,12 +16,12 @@
 -export([start_link/0, stop/0, handle_request/3]).
 
 -export([header_value/2,header_value/3,qs_value/2,qs_value/3,qs/1,path/1,absolute_uri/2]).
--export([verify_is_server_admin/1,unquote/1,quote/1,recv/2,error_info/1]).
+-export([verify_is_server_admin/1,unquote/1,quote/1,recv/2,recv_chunked/4,error_info/1]).
 -export([parse_form/1,json_body/1,body/1,doc_etag/1, make_etag/1, etag_respond/3]).
 -export([primary_header_value/2,partition/1,serve_file/3]).
 -export([start_chunked_response/3,send_chunk/2]).
 -export([start_json_response/2, start_json_response/3, end_json_response/1]).
--export([send_response/4,send_method_not_allowed/2,send_error/4]).
+-export([send_response/4,send_method_not_allowed/2,send_error/4, send_redirect/2]).
 -export([send_json/2,send_json/3,send_json/4]).
 -export([default_authentication_handler/1,special_test_authentication_handler/1]).
 
@@ -102,6 +102,7 @@ stop() ->
     
 
 handle_request(MochiReq, UrlHandlers, DbUrlHandlers) ->
+    statistics(runtime), % prepare request_time counter, see end of function
     AuthenticationFun = make_arity_1_fun(
             couch_config:get("httpd", "authentication_handler")),
     % for the path, use the raw path with the query string and fragment
@@ -123,11 +124,8 @@ handle_request(MochiReq, UrlHandlers, DbUrlHandlers) ->
         mochiweb_headers:to_list(MochiReq:get(headers))
     ]),
     
-    Method =
+    Method1 =
     case MochiReq:get(method) of
-        % alias HEAD to GET as mochiweb takes care of stripping the body
-        'HEAD' -> 'GET';
-        
         % already an atom
         Meth when is_atom(Meth) -> Meth;
         
@@ -135,6 +133,15 @@ handle_request(MochiReq, UrlHandlers, DbUrlHandlers) ->
         % possible (if any module references the atom, then it's existing).
         Meth -> couch_util:to_existing_atom(Meth)
     end,
+    
+    increment_method_stats(Method1),
+    
+    % alias HEAD to GET as mochiweb takes care of stripping the body
+    Method = case Method1 of
+        'HEAD' -> 'GET';
+        Other -> Other
+    end,
+
     HttpReq = #httpd{
         mochi_req = MochiReq,
         method = Method,
@@ -151,7 +158,7 @@ handle_request(MochiReq, UrlHandlers, DbUrlHandlers) ->
     catch
         throw:Error ->
             send_error(HttpReq, Error);
-        Tag:Error when Error == foo ->
+        Tag:Error ->
             ?LOG_ERROR("Uncaught error in HTTP request: ~p",[{Tag, Error}]),
             ?LOG_DEBUG("Stacktrace: ~p",[erlang:get_stacktrace()]),
             send_error(HttpReq, Error)
@@ -163,8 +170,13 @@ handle_request(MochiReq, UrlHandlers, DbUrlHandlers) ->
         RawUri,
         Resp:get(code)
     ]),
+    {_TotalRuntime, RequestTime} = statistics(runtime),
+    couch_stats_collector:record({couchdb, request_time}, RequestTime),
+    couch_stats_collector:increment({httpd, requests}),
     {ok, Resp}.
 
+increment_method_stats(Method) ->
+    couch_stats_collector:increment({httpd_request_methods, Method}).
 
 special_test_authentication_handler(Req) ->
     case header_value(Req, "WWW-Authenticate") of
@@ -260,6 +272,12 @@ parse_form(#httpd{mochi_req=MochiReq}) ->
 recv(#httpd{mochi_req=MochiReq}, Len) ->
     MochiReq:recv(Len).
 
+recv_chunked(#httpd{mochi_req=MochiReq}, MaxChunkSize, ChunkFun, InitState) ->
+    % Fun is called once with each chunk
+    % Fun({Length, Binary}, State)
+    % called with Length == 0 on the last time.
+    MochiReq:stream_body(MaxChunkSize, ChunkFun, InitState).
+
 body(#httpd{mochi_req=MochiReq}) ->
     % Maximum size of document PUT request body (4GB)
     MaxSize = list_to_integer(
@@ -319,6 +337,7 @@ basic_username_pw(Req) ->
 
 
 start_chunked_response(#httpd{mochi_req=MochiReq}, Code, Headers) ->
+    couch_stats_collector:increment({httpd_status_codes, Code}),
     {ok, MochiReq:respond({Code, Headers ++ server_header(), chunked})}.
 
 send_chunk(Resp, Data) ->
@@ -326,6 +345,7 @@ send_chunk(Resp, Data) ->
     {ok, Resp}.
 
 send_response(#httpd{mochi_req=MochiReq}, Code, Headers, Body) ->
+    couch_stats_collector:increment({httpd_status_codes, Code}),
     if Code >= 400 ->
         ?LOG_DEBUG("HTTPd ~p error response:~n ~s", [Code, Body]);
     true -> ok
@@ -346,7 +366,8 @@ send_json(Req, Code, Headers, Value) ->
         {"Content-Type", negotiate_content_type(Req)},
         {"Cache-Control", "must-revalidate"}
     ],
-    send_response(Req, Code, DefaultHeaders ++ Headers, ?JSON_ENCODE(Value)).
+    send_response(Req, Code, DefaultHeaders ++ Headers,
+                  list_to_binary([?JSON_ENCODE(Value), $\n])).
 
 start_json_response(Req, Code) ->
     start_json_response(Req, Code, []).
@@ -359,6 +380,7 @@ start_json_response(Req, Code, Headers) ->
     start_chunked_response(Req, Code, DefaultHeaders ++ Headers).
 
 end_json_response(Resp) ->
+    send_chunk(Resp, [$\n]),
     send_chunk(Resp, []).
 
 
@@ -407,6 +429,9 @@ send_error(Req, Code, Headers, ErrorStr, ReasonStr) ->
         {[{<<"error">>,  ErrorStr},
          {<<"reason">>, ReasonStr}]}).
 
+ send_redirect(Req, Path) ->
+     Headers = [{"Location", couch_httpd:absolute_uri(Req, Path)}],
+     send_response(Req, 301, Headers, <<>>).
 
 negotiate_content_type(#httpd{mochi_req=MochiReq}) ->
     %% Determine the appropriate Content-Type header for a JSON response

@@ -11,20 +11,33 @@
 // the License.
 
 couchTests.uuids = function(debug) {
+  var testHashBustingHeaders = function(xhr) {
+    T(xhr.getResponseHeader("Cache-Control").match(/no-cache/));
+    T(xhr.getResponseHeader("Pragma") == "no-cache");
+    
+    var currentTime = new Date();
+    var expiresHeader = Date.parse(xhr.getResponseHeader("Expires"));
+    var dateHeader = Date.parse(xhr.getResponseHeader("Date")); 
+    
+    T(expiresHeader < currentTime);
+    T(currentTime - dateHeader < 3000);
+  };
+    
   var db = new CouchDB("test_suite_db");
   db.deleteDb();
   db.createDb();
   if (debug) debugger;
   
   // a single UUID without an explicit count
-  var xhr = CouchDB.request("POST", "/_uuids");
+  var xhr = CouchDB.request("GET", "/_uuids");
   T(xhr.status == 200);
   var result = JSON.parse(xhr.responseText);
   T(result.uuids.length == 1);
   var first = result.uuids[0];
+  testHashBustingHeaders(xhr);
 
   // a single UUID with an explicit count
-  xhr = CouchDB.request("POST", "/_uuids?count=1");
+  xhr = CouchDB.request("GET", "/_uuids?count=1");
   T(xhr.status == 200);
   result = JSON.parse(xhr.responseText);
   T(result.uuids.length == 1);
@@ -32,7 +45,7 @@ couchTests.uuids = function(debug) {
   T(first != second);
 
   // no collisions with 1,000 UUIDs
-  xhr = CouchDB.request("POST", "/_uuids?count=1000");
+  xhr = CouchDB.request("GET", "/_uuids?count=1000");
   T(xhr.status == 200);
   result = JSON.parse(xhr.responseText);
   T( result.uuids.length == 1000 );
@@ -43,5 +56,7 @@ couchTests.uuids = function(debug) {
     seen[id] = 1;
   }
   
-  // check our library
+  // ensure we return a 405 on POST
+  xhr = CouchDB.request("POST", "/_uuids?count=1000");
+  T(xhr.status == 405);
 };

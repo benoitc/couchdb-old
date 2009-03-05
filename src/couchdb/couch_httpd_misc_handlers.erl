@@ -14,7 +14,7 @@
 
 -export([handle_welcome_req/2,handle_favicon_req/2,handle_utils_dir_req/2,
     handle_all_dbs_req/1,handle_replicate_req/1,handle_restart_req/1,
-    handle_uuids_req/1,handle_config_req/1,handle_stats_req/1,
+    handle_uuids_req/1,handle_config_req/1,
     handle_task_status_req/1]).
     
 -export([increment_update_seq_req/2]).
@@ -50,8 +50,7 @@ handle_utils_dir_req(#httpd{method='GET'}=Req, DocumentRoot) ->
         couch_httpd:serve_file(Req, RelativePath, DocumentRoot);
     {_ActionKey, "", _RelativePath} ->
         % GET /_utils
-        Headers = [{"Location", couch_httpd:absolute_uri(Req, "/_utils/")}],
-        couch_httpd:send_response(Req, 301, Headers, <<>>)
+        couch_httpd:send_redirect(Req, "/_utils/")
     end;
 handle_utils_dir_req(Req, _) ->
     send_method_not_allowed(Req, "GET,HEAD").
@@ -61,13 +60,6 @@ handle_all_dbs_req(#httpd{method='GET'}=Req) ->
     {ok, DbNames} = couch_server:all_databases(),
     send_json(Req, DbNames);
 handle_all_dbs_req(Req) ->
-    send_method_not_allowed(Req, "GET,HEAD").
-
-
-handle_stats_req(#httpd{method='GET'}=Req) ->
-    ok = couch_httpd:verify_is_server_admin(Req),
-    send_json(Req, {couch_server:get_stats() ++ couch_file_stats:get_stats()});
-handle_stats_req(Req) ->
     send_method_not_allowed(Req, "GET,HEAD").
 
 
@@ -111,14 +103,18 @@ handle_restart_req(Req) ->
     send_method_not_allowed(Req, "POST").
 
 
-handle_uuids_req(#httpd{method='POST'}=Req) ->
+handle_uuids_req(#httpd{method='GET'}=Req) ->
     Count = list_to_integer(couch_httpd:qs_value(Req, "count", "1")),
+    CacheBustingHeaders = [{"Date", httpd_util:rfc1123_date()},
+                           {"Cache-Control", "no-cache"},
+                           {"Expires", "Fri, 01 Jan 1990 00:00:00 GMT"},  % Past date, ON PURPOSE!
+                           {"Pragma", "no-cache"}],
     % generate the uuids
     UUIDs = [ couch_util:new_uuid() || _ <- lists:seq(1,Count)],
     % send a JSON response
-    send_json(Req, {[{<<"uuids">>, UUIDs}]});
+    send_json(Req, 200, CacheBustingHeaders, {[{<<"uuids">>, UUIDs}]});
 handle_uuids_req(Req) ->
-    send_method_not_allowed(Req, "POST").
+    send_method_not_allowed(Req, "GET").
 
 
 % Config request handler

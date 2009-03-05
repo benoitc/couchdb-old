@@ -33,7 +33,7 @@ couchTests.attachments= function(debug) {
   T(xhr.responseText == "This is a base64 encoded text");
   T(xhr.getResponseHeader("Content-Type") == "text/plain");
   T(xhr.getResponseHeader("Etag") == '"' + save_response.rev + '"');
-
+  
   // empty attachment
   var binAttDoc2 = {
     _id: "bin_doc2",

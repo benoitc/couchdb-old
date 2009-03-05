@@ -122,6 +122,7 @@
     compactor_pid=nil,
     instance_start_time, % number of microsecs since jan 1 1970 as a binary string
     fd,
+    fd_ref_counter,
     header = #db_header{},
     summary_stream,
     fulldocinfo_by_id_btree,
@@ -160,15 +161,21 @@
     send_row
 }).
 
+-record(reduce_fold_helper_funs, {
+    start_response,
+    send_row
+}).
+
 -record(extern_resp_args, {
     code = 200,
+    stop = false,
     data = <<>>,
     ctype = "application/json",
     headers = []
 }).
 
 -record(group,
-    {type=view, % can also be slow_view
+    {type=view, % can also be temp_view
     sig=nil,
     db=nil,
     fd=nil,

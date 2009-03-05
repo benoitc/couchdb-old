@@ -112,7 +112,7 @@ from_json_obj({Props}) ->
     transfer_fields(Props, #doc{body=[]});
 
 from_json_obj(_Other) ->
-    throw({invalid_json_object, "Document must be a JSON object"}).
+    throw({bad_request, "Document must be a JSON object"}).
 
 parse_rev(Rev) when is_binary(Rev) ->
     parse_rev(?b2l(Rev));
@@ -131,11 +131,18 @@ transfer_fields([], #doc{body=Fields}=Doc) ->
     Doc#doc{body={lists:reverse(Fields)}};
     
 transfer_fields([{<<"_id">>, Id} | Rest], Doc) when is_binary(Id) ->
+    case Id of
+    <<"_design/", _/binary>> -> ok;
+    <<"_local/", _/binary>> -> ok;
+    <<"_", _/binary>> ->
+        throw({bad_request, <<"Only reserved document ids may start with underscore.">>});
+    _Else -> ok
+    end,
     transfer_fields(Rest, Doc#doc{id=Id});
     
 transfer_fields([{<<"_id">>, Id} | _Rest], _Doc) ->
     ?LOG_DEBUG("Document id is not a string: ~p", [Id]),
-    throw({invalid_document_id, "Document id is not a string"});
+    throw({bad_request, <<"Document id must be a string">>});
     
 transfer_fields([{<<"_rev">>, Rev} | Rest], #doc{revs={0, []}}=Doc) ->
     {Pos, RevId} = parse_rev(Rev),

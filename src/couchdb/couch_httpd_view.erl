@@ -15,12 +15,12 @@
 
 -export([handle_view_req/2,handle_temp_view_req/2]).
 
--export([parse_view_query/1,parse_view_query/2,make_view_fold_fun/5,
-    finish_view_fold/3, view_row_obj/3]).
+-export([parse_view_query/1,parse_view_query/2,parse_view_query/4,make_view_fold_fun/6,
+    finish_view_fold/3, view_row_obj/3, view_group_etag/1, view_group_etag/2, make_reduce_fold_funs/5]).
 
 -import(couch_httpd,
-    [send_json/2,send_json/3,send_json/4,send_method_not_allowed/2,
-    start_json_response/2,send_chunk/2,end_json_response/1]).
+    [send_json/2,send_json/3,send_json/4,send_method_not_allowed/2,send_chunk/2,
+    start_json_response/2, start_json_response/3, end_json_response/1]).
 
 design_doc_view(Req, Db, Id, ViewName, Keys) ->
     #view_query_args{
@@ -28,24 +28,26 @@ design_doc_view(Req, Db, Id, ViewName, Keys) ->
         reduce = Reduce
     } = QueryArgs = parse_view_query(Req, Keys),
     DesignId = <<"_design/", Id/binary>>,
-    case couch_view:get_map_view(Db, DesignId, ViewName, Stale) of
-    {ok, View} ->    
-        output_map_view(Req, View, Db, QueryArgs, Keys);
+    Result = case couch_view:get_map_view(Db, DesignId, ViewName, Stale) of
+    {ok, View, Group} ->
+        output_map_view(Req, View, Group, Db, QueryArgs, Keys);
     {not_found, Reason} ->
         case couch_view:get_reduce_view(Db, DesignId, ViewName, Stale) of
-        {ok, ReduceView} ->
+        {ok, ReduceView, Group} ->
             parse_view_query(Req, Keys, true), % just for validation
             case Reduce of
             false ->
                 MapView = couch_view:extract_map_view(ReduceView),
-                output_map_view(Req, MapView, Db, QueryArgs, Keys);
+                output_map_view(Req, MapView, Group, Db, QueryArgs, Keys);
             _ ->
-                output_reduce_view(Req, ReduceView, QueryArgs, Keys)
+                output_reduce_view(Req, ReduceView, Group, QueryArgs, Keys)
             end;
         _ ->
             throw({not_found, Reason})
         end
-    end.
+    end,
+    couch_stats_collector:increment({httpd, view_reads}),
+    Result.
 
 handle_view_req(#httpd{method='GET',path_parts=[_,_, Id, ViewName]}=Req, Db) ->
     design_doc_view(Req, Db, Id, ViewName, nil);
@@ -60,7 +62,7 @@ handle_view_req(Req, _Db) ->
 
 handle_temp_view_req(#httpd{method='POST'}=Req, Db) ->
     QueryArgs = parse_view_query(Req),
-
+    couch_stats_collector:increment({httpd, temporary_view_reads}),
     case couch_httpd:primary_header_value(Req, "content-type") of
         undefined -> ok;
         "application/json" -> ok;
@@ -73,19 +75,19 @@ handle_temp_view_req(#httpd{method='POST'}=Req, Db) ->
     Keys = proplists:get_value(<<"keys">>, Props, nil),
     case proplists:get_value(<<"reduce">>, Props, null) of
     null ->
-        {ok, View} = couch_view:get_temp_map_view(Db, Language, 
+        {ok, View, Group} = couch_view:get_temp_map_view(Db, Language, 
             DesignOptions, MapSrc),
-        output_map_view(Req, View, Db, QueryArgs, Keys);
+        output_map_view(Req, View, Group, Db, QueryArgs, Keys);
     RedSrc ->
-        {ok, View} = couch_view:get_temp_reduce_view(Db, Language, 
+        {ok, View, Group} = couch_view:get_temp_reduce_view(Db, Language, 
             DesignOptions, MapSrc, RedSrc),
-        output_reduce_view(Req, View, QueryArgs, Keys)
+        output_reduce_view(Req, View, Group, QueryArgs, Keys)
     end;
 
 handle_temp_view_req(Req, _Db) ->
     send_method_not_allowed(Req, "POST").
 
-output_map_view(Req, View, Db, QueryArgs, nil) ->
+output_map_view(Req, View, Group, Db, QueryArgs, nil) ->
     #view_query_args{
         limit = Limit,
         direction = Dir,
@@ -93,38 +95,44 @@ output_map_view(Req, View, Db, QueryArgs, nil) ->
         start_key = StartKey,
         start_docid = StartDocId
     } = QueryArgs,
-    {ok, RowCount} = couch_view:get_row_count(View),
-    Start = {StartKey, StartDocId},
-    FoldlFun = make_view_fold_fun(Req, QueryArgs, Db, RowCount, #view_fold_helper_funs{reduce_count=fun couch_view:reduce_to_count/1}),
-    FoldAccInit = {Limit, SkipCount, undefined, []},
-    FoldResult = couch_view:fold(View, Start, Dir, FoldlFun, FoldAccInit),
-    finish_view_fold(Req, RowCount, FoldResult);
+    CurrentEtag = view_group_etag(Group),
+    couch_httpd:etag_respond(Req, CurrentEtag, fun() -> 
+        {ok, RowCount} = couch_view:get_row_count(View),
+        Start = {StartKey, StartDocId},
+        FoldlFun = make_view_fold_fun(Req, QueryArgs, CurrentEtag, Db, RowCount, #view_fold_helper_funs{reduce_count=fun couch_view:reduce_to_count/1}),
+        FoldAccInit = {Limit, SkipCount, undefined, []},
+        FoldResult = couch_view:fold(View, Start, Dir, FoldlFun, FoldAccInit),
+        finish_view_fold(Req, RowCount, FoldResult)
+    end);
     
-output_map_view(Req, View, Db, QueryArgs, Keys) ->
+output_map_view(Req, View, Group, Db, QueryArgs, Keys) ->
     #view_query_args{
         limit = Limit,
         direction = Dir,
         skip = SkipCount,
         start_docid = StartDocId
     } = QueryArgs,
-    {ok, RowCount} = couch_view:get_row_count(View),
-    FoldAccInit = {Limit, SkipCount, undefined, []},
-    FoldResult = lists:foldl(
-        fun(Key, {ok, FoldAcc}) ->
-            Start = {Key, StartDocId},
-            FoldlFun = make_view_fold_fun(Req,
-                QueryArgs#view_query_args{
-                    start_key = Key,
-                    end_key = Key
-                }, Db, RowCount, 
-                #view_fold_helper_funs{
-                    reduce_count = fun couch_view:reduce_to_count/1
-                }),
-            couch_view:fold(View, Start, Dir, FoldlFun, FoldAcc)
-        end, {ok, FoldAccInit}, Keys),
-    finish_view_fold(Req, RowCount, FoldResult).
+    CurrentEtag = view_group_etag(Group, Keys),
+    couch_httpd:etag_respond(Req, CurrentEtag, fun() ->     
+        {ok, RowCount} = couch_view:get_row_count(View),
+        FoldAccInit = {Limit, SkipCount, undefined, []},
+        FoldResult = lists:foldl(
+            fun(Key, {ok, FoldAcc}) ->
+                Start = {Key, StartDocId},
+                FoldlFun = make_view_fold_fun(Req,
+                    QueryArgs#view_query_args{
+                        start_key = Key,
+                        end_key = Key
+                    }, CurrentEtag, Db, RowCount, 
+                    #view_fold_helper_funs{
+                        reduce_count = fun couch_view:reduce_to_count/1
+                    }),
+                couch_view:fold(View, Start, Dir, FoldlFun, FoldAcc)
+            end, {ok, FoldAccInit}, Keys),
+        finish_view_fold(Req, RowCount, FoldResult)
+    end).
 
-output_reduce_view(Req, View, QueryArgs, nil) ->
+output_reduce_view(Req, View, Group, QueryArgs, nil) ->
     #view_query_args{
         start_key = StartKey,
         end_key = EndKey,
@@ -135,15 +143,16 @@ output_reduce_view(Req, View, QueryArgs, nil) ->
         end_docid = EndDocId,
         group_level = GroupLevel
     } = QueryArgs,
-    {ok, Resp} = start_json_response(Req, 200),
-    {ok, GroupRowsFun, RespFun} = make_reduce_fold_funs(Resp, GroupLevel),
-    send_chunk(Resp, "{\"rows\":["),
-    {ok, _} = couch_view:fold_reduce(View, Dir, {StartKey, StartDocId}, 
-        {EndKey, EndDocId}, GroupRowsFun, RespFun, {"", Skip, Limit}),
-    send_chunk(Resp, "]}"),
-    end_json_response(Resp);
+    CurrentEtag = view_group_etag(Group),
+    couch_httpd:etag_respond(Req, CurrentEtag, fun() ->
+        {ok, GroupRowsFun, RespFun} = make_reduce_fold_funs(Req, GroupLevel, QueryArgs, CurrentEtag, #reduce_fold_helper_funs{}),
+        FoldAccInit = {Limit, Skip, undefined, []},
+        {ok, {_, _, Resp, _}} = couch_view:fold_reduce(View, Dir, {StartKey, StartDocId}, 
+            {EndKey, EndDocId}, GroupRowsFun, RespFun, FoldAccInit),
+        finish_reduce_fold(Req, Resp)
+    end);
     
-output_reduce_view(Req, View, QueryArgs, Keys) ->
+output_reduce_view(Req, View, Group, QueryArgs, Keys) ->
     #view_query_args{
         limit = Limit,
         skip = Skip,
@@ -152,21 +161,27 @@ output_reduce_view(Req, View, QueryArgs, Keys) ->
         end_docid = EndDocId,
         group_level = GroupLevel
     } = QueryArgs,
-    {ok, Resp} = start_json_response(Req, 200),
-    {ok, GroupRowsFun, RespFun} = make_reduce_fold_funs(Resp, GroupLevel),
-    send_chunk(Resp, "{\"rows\":["),
-    lists:foldl(
-        fun(Key, AccSeparator) ->
-            {ok, {NewAcc, _, _}} = couch_view:fold_reduce(View, Dir, {Key, StartDocId}, 
-                {Key, EndDocId}, GroupRowsFun, RespFun, 
-                {AccSeparator, Skip, Limit}),
-            NewAcc % Switch to comma
-        end,
-    "", Keys), % Start with no comma
-    send_chunk(Resp, "]}"),
-    end_json_response(Resp).
+    CurrentEtag = view_group_etag(Group),
+    couch_httpd:etag_respond(Req, CurrentEtag, fun() ->
+        {ok, GroupRowsFun, RespFun} = make_reduce_fold_funs(Req, GroupLevel, QueryArgs, CurrentEtag, #reduce_fold_helper_funs{}),
+        {Resp, _} = lists:foldl(
+            fun(Key, {Resp, AccSeparator}) ->
+                FoldAccInit = {Limit, Skip, Resp, AccSeparator},
+                {_, {_, _, Resp2, NewAcc}} = couch_view:fold_reduce(View, Dir, {Key, StartDocId}, 
+                    {Key, EndDocId}, GroupRowsFun, RespFun, FoldAccInit),
+                % Switch to comma
+                {Resp2, NewAcc}
+            end,
+        {undefined, []}, Keys), % Start with no comma
+        finish_reduce_fold(Req, Resp)
+    end).
     
-make_reduce_fold_funs(Resp, GroupLevel) ->
+make_reduce_fold_funs(Req, GroupLevel, _QueryArgs, Etag, HelperFuns) ->
+    #reduce_fold_helper_funs{
+        start_response = StartRespFun,
+        send_row = SendRowFun
+    } = apply_default_helper_funs(HelperFuns),
+
     GroupRowsFun =
         fun({_Key1,_}, {_Key2,_}) when GroupLevel == 0 ->
             true;
@@ -176,29 +191,45 @@ make_reduce_fold_funs(Resp, GroupLevel) ->
         ({Key1,_}, {Key2,_}) ->
             Key1 == Key2
         end,
-    RespFun = fun(_Key, _Red, {AccSeparator,AccSkip,AccLimit}) when AccSkip > 0 ->
-        {ok, {AccSeparator,AccSkip-1,AccLimit}};
-    (_Key, _Red, {AccSeparator,0,AccLimit}) when AccLimit == 0 ->
-        {stop, {AccSeparator,0,AccLimit}};
-    (_Key, Red, {AccSeparator,0,AccLimit}) when GroupLevel == 0 ->
-        Json = ?JSON_ENCODE({[{key, null}, {value, Red}]}),
-        send_chunk(Resp, AccSeparator ++ Json),
-        {ok, {",",0,AccLimit-1}};
-    (Key, Red, {AccSeparator,0,AccLimit})
+    RespFun = fun(_Key, _Red, {AccLimit, AccSkip, Resp, AccSeparator}) when AccSkip > 0 ->
+        {ok, {AccLimit, AccSkip - 1, Resp, AccSeparator}};
+    (_Key, _Red, {0, 0, Resp, AccSeparator}) ->
+        {stop, {0, 0, Resp, AccSeparator}};
+    (_Key, Red, {AccLimit, 0, Resp, AccSeparator}) when GroupLevel == 0 ->
+        {ok, Resp2, RowSep} = case Resp of
+        undefined -> StartRespFun(Req, Etag, null, null);
+        _ -> {ok, Resp, nil}
+        end,
+        RowResult = case SendRowFun(Resp2, {null, Red}, RowSep) of
+        stop -> stop;
+        _ -> ok
+        end,
+        {RowResult, {AccLimit - 1, 0, Resp2, AccSeparator}};
+    (Key, Red, {AccLimit, 0, Resp, AccSeparator})
             when is_integer(GroupLevel) 
             andalso is_list(Key) ->
-        Json = ?JSON_ENCODE(
-            {[{key, lists:sublist(Key, GroupLevel)},{value, Red}]}),
-        send_chunk(Resp, AccSeparator ++ Json),
-        {ok, {",",0,AccLimit-1}};
-    (Key, Red, {AccSeparator,0,AccLimit}) ->
-        Json = ?JSON_ENCODE({[{key, Key}, {value, Red}]}),
-        send_chunk(Resp, AccSeparator ++ Json),
-        {ok, {",",0,AccLimit-1}}
+        {ok, Resp2, RowSep} = case Resp of
+        undefined -> StartRespFun(Req, Etag, null, null);
+        _ -> {ok, Resp, nil}
+        end,
+        RowResult = case SendRowFun(Resp2, {lists:sublist(Key, GroupLevel), Red}, RowSep) of
+        stop -> stop;
+        _ -> ok
+        end,
+        {RowResult, {AccLimit - 1, 0, Resp2, AccSeparator}};
+    (Key, Red, {AccLimit, 0, Resp, AccSeparator}) ->
+        {ok, Resp2, RowSep} = case Resp of
+        undefined -> StartRespFun(Req, Etag, null, null);
+        _ -> {ok, Resp, nil}
+        end,
+        RowResult = case SendRowFun(Resp2, {Key, Red}, RowSep) of
+        stop -> stop;
+        _ -> ok
+        end,
+        {RowResult, {AccLimit - 1, 0, Resp2, AccSeparator}}
     end,
     {ok, GroupRowsFun, RespFun}.
     
-
 
 
 reverse_key_default(nil) -> {};
@@ -210,6 +241,8 @@ parse_view_query(Req) ->
 parse_view_query(Req, Keys) ->
     parse_view_query(Req, Keys, nil).
 parse_view_query(Req, Keys, IsReduce) ->
+    parse_view_query(Req, Keys, IsReduce, false).
+parse_view_query(Req, Keys, IsReduce, IgnoreExtra) ->
     QueryList = couch_httpd:qs(Req),
     #view_query_args{
         group_level = GroupLevel
@@ -328,10 +361,18 @@ parse_view_query(Req, Keys, IsReduce) ->
                 Msg1 = "Bad URL query value for 'include_docs' expected \"true\" or \"false\".",
                 throw({query_parse_error, Msg1})
             end;
+        {"format", _} ->
+            % we just ignore format, so that JS can have it
+            Args;
         _ -> % unknown key
-            Msg = lists:flatten(io_lib:format(
-                "Bad URL query key:~s", [Key])),
-            throw({query_parse_error, Msg})
+            case IgnoreExtra of
+            true ->
+                Args;
+            false ->
+                Msg = lists:flatten(io_lib:format(
+                    "Bad URL query key:~s", [Key])),
+                throw({query_parse_error, Msg})
+            end
         end
     end, #view_query_args{}, QueryList),
     case IsReduce of
@@ -371,7 +412,7 @@ parse_view_query(Req, Keys, IsReduce) ->
         end
     end.
 
-make_view_fold_fun(Req, QueryArgs, Db,
+make_view_fold_fun(Req, QueryArgs, Etag, Db,
     TotalViewCount, HelperFuns) ->
     #view_query_args{
         end_key = EndKey,
@@ -404,15 +445,19 @@ make_view_fold_fun(Req, QueryArgs, Db,
             {ok, {AccLimit, AccSkip - 1, Resp, AccRevRows}};
         {_, _, _, undefined} ->
             Offset = ReduceCountFun(OffsetReds),
-            {ok, Resp2, BeginBody} = StartRespFun(Req, 200, 
+            {ok, Resp2, BeginBody} = StartRespFun(Req, Etag,
                 TotalViewCount, Offset),
-            SendRowFun(Resp2, Db, 
-                {{Key, DocId}, Value}, BeginBody, IncludeDocs),
-            {ok, {AccLimit - 1, 0, Resp2, AccRevRows}};
+            case SendRowFun(Resp2, Db, 
+                {{Key, DocId}, Value}, BeginBody, IncludeDocs) of
+            stop ->  {stop, {AccLimit - 1, 0, Resp2, AccRevRows}};
+            _ -> {ok, {AccLimit - 1, 0, Resp2, AccRevRows}}
+            end;
         {_, AccLimit, _, Resp} when (AccLimit > 0) ->
-            SendRowFun(Resp, Db, 
-                {{Key, DocId}, Value}, nil, IncludeDocs),
-            {ok, {AccLimit - 1, 0, Resp, AccRevRows}}
+            case SendRowFun(Resp, Db, 
+                {{Key, DocId}, Value}, nil, IncludeDocs) of
+            stop ->  {stop, {AccLimit - 1, 0, Resp, AccRevRows}};
+            _ -> {ok, {AccLimit - 1, 0, Resp, AccRevRows}}
+            end
         end
     end.
 
@@ -442,6 +487,25 @@ apply_default_helper_funs(#view_fold_helper_funs{
         send_row = SendRow2
     }.
 
+apply_default_helper_funs(#reduce_fold_helper_funs{
+    start_response = StartResp,
+    send_row = SendRow
+}=Helpers) ->
+    StartResp2 = case StartResp of
+    undefined -> fun json_reduce_start_resp/4;
+    _ -> StartResp
+    end,
+
+    SendRow2 = case SendRow of
+    undefined -> fun send_json_reduce_row/3;
+    _ -> SendRow
+    end,
+
+    Helpers#reduce_fold_helper_funs{
+        start_response = StartResp2,
+        send_row = SendRow2
+    }.
+
 make_passed_end_fun(Dir, EndKey, EndDocId) ->
     case Dir of
     fwd ->
@@ -454,8 +518,8 @@ make_passed_end_fun(Dir, EndKey, EndDocId) ->
         end
     end.
 
-json_view_start_resp(Req, Code, TotalViewCount, Offset) ->
-    {ok, Resp} = couch_httpd:start_json_response(Req, Code),
+json_view_start_resp(Req, Etag, TotalViewCount, Offset) ->
+    {ok, Resp} = start_json_response(Req, 200, [{"Etag", Etag}]),
     BeginBody = io_lib:format("{\"total_rows\":~w,\"offset\":~w,\"rows\":[\r\n",
             [TotalViewCount, Offset]),
     {ok, Resp, BeginBody}.
@@ -467,7 +531,28 @@ send_json_view_row(Resp, Db, {{Key, DocId}, Value}, RowFront, IncludeDocs) ->
     _ -> RowFront
     end,
     send_chunk(Resp, RowFront2 ++  ?JSON_ENCODE(JsonObj)).
+
+json_reduce_start_resp(Req, Etag, _, _) ->
+    {ok, Resp} = start_json_response(Req, 200, [{"Etag", Etag}]),
+    BeginBody = "{\"rows\":[\r\n",
+    {ok, Resp, BeginBody}.
+
+send_json_reduce_row(Resp, {Key, Value}, RowFront) ->
+    RowFront2 = case RowFront of
+    nil -> ",\r\n";
+    _ -> RowFront
+    end,
+    send_chunk(Resp, RowFront2 ++ ?JSON_ENCODE({[{key, Key}, {value, Value}]})).
+
+view_group_etag(Group) ->
+    view_group_etag(Group, nil).
     
+view_group_etag(#group{sig=Sig,current_seq=CurrentSeq}, Extra) ->
+    % This is not as granular as it could be.
+    % If there are updates to the db that do not effect the view index,
+    % they will change the Etag. For more granular Etags we'd need to keep 
+    % track of the last Db seq that caused an index change.
+    couch_httpd:make_etag({Sig, CurrentSeq, Extra}).
 
 view_row_obj(Db, {{Key, DocId}, Value}, IncludeDocs) ->
     case DocId of
@@ -519,4 +604,15 @@ finish_view_fold(Req, TotalRows, FoldResult) ->
         end_json_response(Resp);
     Error ->
         throw(Error)
+    end.
+
+finish_reduce_fold(Req, Resp) ->
+    case Resp of
+    undefined ->
+        send_json(Req, 200, {[
+            {rows, []}
+        ]});
+    Resp ->
+        send_chunk(Resp, "\r\n]}"),
+        end_json_response(Resp)
     end.
