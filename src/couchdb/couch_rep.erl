@@ -84,50 +84,58 @@ replicate2(Source, DbSrc, Target, DbTgt, Options) ->
     SrcInstanceStartTime = proplists:get_value(instance_start_time, InfoSrc),
     TgtInstanceStartTime = proplists:get_value(instance_start_time, InfoTgt),
     
-    case proplists:get_value(full, Options, false) of
-    true ->
-         RepRecSrc = RepRecTgt = #doc{id=RepRecKey};
-    false ->
-        RepRecSrc =
-        case open_doc(DbSrc, RepRecKey, []) of
-        {ok, SrcDoc} ->
-            ?LOG_DEBUG("Found existing replication record on source", []),
-            SrcDoc;
-        _ -> #doc{id=RepRecKey}
-        end,
-
-        RepRecTgt =
-        case open_doc(DbTgt, RepRecKey, []) of
-        {ok, TgtDoc} ->
-            ?LOG_DEBUG("Found existing replication record on target", []),
-            TgtDoc;
-        _ -> #doc{id=RepRecKey}
-        end
+    RepRecDocSrc =
+    case open_doc(DbSrc, RepRecKey, []) of
+    {ok, SrcDoc} ->
+        ?LOG_DEBUG("Found existing replication record on source", []),
+        SrcDoc;
+    _ -> #doc{id=RepRecKey}
     end,
 
-    #doc{body={OldRepHistoryProps}} = RepRecSrc,
-    #doc{body={OldRepHistoryPropsTrg}} = RepRecTgt,
+    RepRecDocTgt =
+    case open_doc(DbTgt, RepRecKey, []) of
+    {ok, TgtDoc} ->
+        ?LOG_DEBUG("Found existing replication record on target", []),
+        TgtDoc;
+    _ -> #doc{id=RepRecKey}
+    end,
+    
 
-    SeqNum =
-    case OldRepHistoryProps == OldRepHistoryPropsTrg of
+    #doc{body={RepRecProps}} = RepRecDocSrc,
+    #doc{body={RepRecPropsTgt}} = RepRecDocTgt,
+
+    
+    case proplists:get_value(<<"session_id">>, RepRecProps) == 
+            proplists:get_value(<<"session_id">>, RepRecPropsTgt) of
     true ->
-        % if the records are identical, then we have a valid replication history
-        proplists:get_value(<<"source_last_seq">>, OldRepHistoryProps, 0);
+        % if the records have the same session id,
+        % then we have a valid replication history
+        OldSeqNum = proplists:get_value(<<"source_last_seq">>, RepRecProps, 0),
+        OldHistory = proplists:get_value(<<"history">>, RepRecProps, []);
     false ->
         ?LOG_INFO("Replication records differ. "
                 "Performing full replication instead of incremental.", []),
         ?LOG_DEBUG("Record on source:~p~nRecord on target:~p~n",
-                [OldRepHistoryProps, OldRepHistoryPropsTrg]),
-        0
+                [RepRecProps, RepRecPropsTgt]),
+        OldSeqNum = 0,
+        OldHistory = []
+    end,
+    
+    
+    case proplists:get_value(full, Options, false) of
+    true  -> StartSeqNum = 0;
+    false -> StartSeqNum = OldSeqNum
     end,
 
-    {NewSeqNum, Stats} = pull_rep(DbTgt, DbSrc, SeqNum),    
+    {NewSeqNum, Stats} = pull_rep(DbTgt, DbSrc, StartSeqNum),    
     
-    case NewSeqNum == SeqNum andalso OldRepHistoryProps /= [] of
+    case NewSeqNum == StartSeqNum andalso StartSeqNum > 0 of
     true ->
-        % nothing changed, don't record results
-        {ok, {OldRepHistoryProps}};
+        % nothing changed, don't record any results
+        {ok, {[{<<"no_changes">>, true} | RepRecProps]}};
     false ->
+        % something changed, record results for incremental replication,
+        
         % commit changes to both src and tgt. The src because if changes
         % we replicated are lost, we'll record the a seq number ahead 
         % of what was committed. If those changes are lost and the seq number
@@ -152,29 +160,28 @@ replicate2(Source, DbSrc, Target, DbTgt, Options) ->
             ?LOG_INFO("A server has restarted sinced replication start. "
                 "Not recording the new sequence number to ensure the "
                 "replication is redone and documents reexamined.", []),
-            SeqNum
+            StartSeqNum
         end,
-        % convert the stats record into a proplist
+        % convert the stats record into a proplist and then to json
         [rep_stats | StatsList] = tuple_to_list(Stats),
         StatFieldNames =
                 [?l2b(atom_to_list(T)) || T <- record_info(fields, rep_stats)],
         StatProps = lists:zip(StatFieldNames, StatsList),
-        HistEntries =[
-            {
+        
+        NewHistoryEntry = {
                 [{<<"start_time">>, list_to_binary(ReplicationStartTime)},
                 {<<"end_time">>, list_to_binary(httpd_util:rfc1123_date())},
-                {<<"start_last_seq">>, SeqNum},
-                {<<"end_last_seq">>, NewSeqNum} | StatProps]}
-            | proplists:get_value(<<"history">>, OldRepHistoryProps, [])],
-        % something changed, record results
+                {<<"start_last_seq">>, StartSeqNum},
+                {<<"end_last_seq">>, NewSeqNum} | StatProps]},
+        % limit history to 50 entries
+        HistEntries =lists:sublist([NewHistoryEntry |  OldHistory], 50),
         NewRepHistory =
-            {
-                [{<<"session_id">>, couch_util:new_uuid()},
-                {<<"source_last_seq">>, RecordSeqNum},
-                {<<"history">>, lists:sublist(HistEntries, 50)}]},
+                {[{<<"session_id">>, couch_util:new_uuid()},
+                  {<<"source_last_seq">>, RecordSeqNum},
+                  {<<"history">>, HistEntries}]},
 
-        {ok, _} = update_doc(DbSrc, RepRecSrc#doc{body=NewRepHistory}, []),
-        {ok, _} = update_doc(DbTgt, RepRecTgt#doc{body=NewRepHistory}, []),
+        {ok, _} = update_doc(DbSrc, RepRecDocSrc#doc{body=NewRepHistory}, []),
+        {ok, _} = update_doc(DbTgt, RepRecDocTgt#doc{body=NewRepHistory}, []),
         {ok, NewRepHistory}
     end.
 

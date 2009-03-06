@@ -20,25 +20,40 @@ couchTests.bulk_docs = function(debug) {
 
   // Create the docs
   var results = db.bulkSave(docs);
+  
   T(results.length == 5);
   for (var i = 0; i < 5; i++) {
     T(results[i].id == docs[i]._id);
     T(results[i].rev);
+    // Update the doc
     docs[i].string = docs[i].string + ".00";
   }
 
-  // Update the docs
+  // Save the docs
   results = db.bulkSave(docs);
   T(results.length == 5);
   for (i = 0; i < 5; i++) {
     T(results[i].id == i.toString());
+    
+    // set the delete flag to delete the docs in the next step
     docs[i]._deleted = true;
   }
+  
+  // now test a bulk update with a conflict
+  
+  var doc = db.open("0");
+  db.save(doc);
 
   // Delete the docs
   results = db.bulkSave(docs);
   T(results.length == 5);
-  for (i = 0; i < 5; i++) {
+  T(results[0].id == "0");
+  T(results[0].rev === undefined);
+  T(results[0].error == "conflict");
+  
+  for (i = 1; i < 5; i++) {
+    T(results[i].id == i.toString());
+    T(results[i].rev)
     T(db.open(docs[i]._id) == null);
   }
   
