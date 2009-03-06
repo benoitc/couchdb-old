@@ -338,17 +338,7 @@ prep_and_validate_updates(Db, [DocBucket|RestBuckets],
 
 update_docs(#db{update_pid=UpdatePid}=Db, Docs, Options) ->
     update_docs(#db{update_pid=UpdatePid}=Db, Docs, Options, interactive_edit).
-    
-should_validate(Db, Docs) ->
-    % true if our db has validation funs, we have design docs,
-    % or we have attachments.
-    (Db#db.validate_doc_funs /= []) orelse
-        lists:any(
-            fun(#doc{id= <<?DESIGN_DOC_PREFIX, _/binary>>}) ->
-                true;
-            (#doc{attachments=Atts}) ->
-                Atts /= []
-            end, Docs).
+
 
 validate_replicated_updates(_Db, [], [], AccPrepped, AccErrors) ->
     Errors2 = [{{Id, {Pos, Rev}}, Error} || 
@@ -399,7 +389,7 @@ validate_replicated_updates(Db, [Bucket|RestBuckets], [OldInfo|RestOldInfo], Acc
                     {AccValidated, AccErrors2}
                 end
             end,
-            {[], []}, Bucket),
+            {[], AccErrors}, Bucket),
         validate_replicated_updates(Db, RestBuckets, RestOldInfo, [ValidatedBucket | AccPrepped], AccErrors3)
     end.
 
@@ -407,7 +397,11 @@ update_docs(Db, Docs, Options, replicated_changes) ->
     couch_stats_collector:increment({couchdb, database_writes}),
     DocBuckets = group_alike_docs(Docs),
     
-    case should_validate(Db, Docs) of
+    case (Db#db.validate_doc_funs /= []) orelse
+        lists:any(
+            fun(#doc{id= <<?DESIGN_DOC_PREFIX, _/binary>>}) -> true;
+            (_) -> false
+            end, Docs) of
     true ->
         Ids = [Id || [#doc{id=Id}|_] <- DocBuckets],
         ExistingDocs = get_full_doc_infos(Db, Ids),
@@ -437,9 +431,13 @@ update_docs(Db, Docs, Options, interactive_edit) ->
         end, Docs),
     DocBuckets = group_alike_docs(Docs2),
     
-    case ((Db#db.validate_doc_funs /= []) orelse
-            lists:any(fun(#doc{id= <<?DESIGN_DOC_PREFIX, _/binary>>}) -> true;
-                            (Doc) -> couch_doc:has_stubs(Doc) end, Docs)) of
+    case (Db#db.validate_doc_funs /= []) orelse
+        lists:any(
+            fun(#doc{id= <<?DESIGN_DOC_PREFIX, _/binary>>}) ->
+                true;
+            (#doc{attachments=Atts}) ->
+                Atts /= []
+            end, Docs) of
     true ->
         % lookup the doc by id and get the most recent
         Ids = [Id || [#doc{id=Id}|_] <- DocBuckets],

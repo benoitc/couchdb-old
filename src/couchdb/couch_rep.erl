@@ -58,11 +58,9 @@ replicate(DbNameA, DbNameB) ->
     replicate(DbNameA, DbNameB, []).
 
 replicate(Source, Target, Options) ->
-    {ok, DbSrc} = open_db(Source,
-            proplists:get_value(source_options, Options, [])),
+    {ok, DbSrc} = open_db(Source),
     try
-        {ok, DbTgt} = open_db(Target,
-                proplists:get_value(target_options, Options, [])),
+        {ok, DbTgt} = open_db(Target),
         try
             replicate2(Source, DbSrc, Target, DbTgt, Options)
         after
@@ -74,9 +72,9 @@ replicate(Source, Target, Options) ->
     
 replicate2(Source, DbSrc, Target, DbTgt, Options) ->
     {ok, HostName} = inet:gethostname(),
-    HostNameBin = list_to_binary(HostName),
-    RepRecKey = <<?LOCAL_DOC_PREFIX, HostNameBin/binary, 
-            ":", Source/binary, ":", Target/binary>>,
+    RepRecordNameDigest = couch_util:to_hex(
+            erlang:md5(term_to_binary([HostName, Source, Target]))),
+    RepRecKey = ?l2b(?LOCAL_DOC_PREFIX ++ RepRecordNameDigest),
     
     ReplicationStartTime = httpd_util:rfc1123_date(),
     
@@ -86,8 +84,7 @@ replicate2(Source, DbSrc, Target, DbTgt, Options) ->
     SrcInstanceStartTime = proplists:get_value(instance_start_time, InfoSrc),
     TgtInstanceStartTime = proplists:get_value(instance_start_time, InfoTgt),
     
-    case proplists:get_value(full, Options, false)
-        orelse proplists:get_value("full", Options, false) of
+    case proplists:get_value(full, Options, false) of
     true ->
          RepRecSrc = RepRecTgt = #doc{id=RepRecKey};
     false ->
@@ -157,6 +154,7 @@ replicate2(Source, DbSrc, Target, DbTgt, Options) ->
                 "replication is redone and documents reexamined.", []),
             SeqNum
         end,
+        % convert the stats record into a proplist
         [rep_stats | StatsList] = tuple_to_list(Stats),
         StatFieldNames =
                 [?l2b(atom_to_list(T)) || T <- record_info(fields, rep_stats)],
@@ -268,7 +266,9 @@ save_docs_with_stats(Db, Docs, Stats) ->
         docs_written=Stats#rep_stats.docs_written+length(Docs)-length(Errors),
         doc_write_failures=Stats#rep_stats.doc_write_failures+length(Errors)}.
 
-
+% we should probably write these to a special replication log
+% or have a callback where the caller decides what to do with replication
+% errors.
 dump_update_errors([]) -> ok;
 dump_update_errors([{{Id, Rev}, Error}|Rest]) ->
     ?LOG_INFO("error replicating document \"~s\" rev \"~s\":~p",
@@ -327,34 +327,20 @@ enum_docs_parallel(DbS, DbT, InfoList) ->
 
 
 sum_rep_stats(StatsA, StatsB) ->
-    % Quick and dirty sum matchng members of the records
+    % Quick and dirty way to sum matchng fields of the records.
     % convert to lists
-    [rep_stats | MembersA] = tuple_to_list(StatsA),
-    [rep_stats | MembersB] = tuple_to_list(StatsB),
-    % pairwise add the members and convert back to the record
+    [rep_stats | FieldsA] = tuple_to_list(StatsA),
+    [rep_stats | FieldsB] = tuple_to_list(StatsB),
+    % pairwise add the fields and convert back to the record
     list_to_tuple([rep_stats |
-            lists:zipwith(fun(A,B) -> A + B end, MembersA, MembersB)]).
+            lists:zipwith(fun(A,B) -> A + B end, FieldsA, FieldsB)]).
 
 
-fix_url(UrlBin) ->
-    Url = binary_to_list(UrlBin),
-    case lists:last(Url) of
-    $/ ->
-        Url;
-    _ ->
-        Url ++ "/"
-    end.
-
-open_http_db(UrlBin, Options) ->
-    Headers = proplists:get_value(headers, Options, {[]}),
-    {ok, #http_db{uri=fix_url(UrlBin), headers=Headers}}.
             
-open_db(<<"http://", _/binary>>=Url, Options)->
-    open_http_db(Url, Options);
-open_db(<<"https://", _/binary>>=Url, Options)->
-    open_http_db(Url, Options);
-open_db(DbName, Options)->
-    couch_db:open(DbName, Options).
+open_db({remote, Url, Headers})->
+    {ok, #http_db{uri=Url, headers=Headers}};
+open_db({local, DbName, UserCtx})->
+    couch_db:open(DbName, [{user_ctx, UserCtx}]).
 
 close_db(#http_db{})->
     ok;

@@ -179,25 +179,37 @@ couchTests.replication = function(debug) {
       }
     }
 
-    T(CouchDB.replicate(A, B).ok);
+    var result = CouchDB.replicate(A, B);
+    
+    var seqA = result.source_last_seq;
 
     for(test in repTests) {
       if(repTests[test].afterAB1) repTests[test].afterAB1(dbA, dbB);
     }
 
-    T(CouchDB.replicate(B, A).ok);
+    result = CouchDB.replicate(B, A);
+    
+    var seqB = result.source_last_seq;
 
     for(test in repTests) {
       if(repTests[test].afterBA1) repTests[test].afterBA1(dbA, dbB);
     }
 
-    T(CouchDB.replicate(A, B).ok);
+    result = CouchDB.replicate(A, B)
+    
+    T(seqA < result.source_last_seq);
+    
+    seqA = result.source_last_seq;
 
     for(test in repTests) {
       if(repTests[test].afterAB2) repTests[test].afterAB2(dbA, dbB);
     }
 
-    T(CouchDB.replicate(B, A).ok);
+    result = CouchDB.replicate(B, A)
+    
+    T(seqB < result.source_last_seq);
+    
+    seqB = result.source_last_seq;
 
     for(test in repTests) {
       if(repTests[test].afterBA2) repTests[test].afterBA2(dbA, dbB);

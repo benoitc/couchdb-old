@@ -70,26 +70,32 @@ handle_task_status_req(#httpd{method='GET'}=Req) ->
 handle_task_status_req(Req) ->
     send_method_not_allowed(Req, "GET,HEAD").
 
+% convert to list and add trailing slash if missing
+fix_db_url(UrlBin) ->
+    case lists:last(Url = ?b2l(UrlBin)) of
+    $/ -> Url;
+    _  -> Url ++ "/"
+    end.
+    
 
-handle_replicate_req(#httpd{user_ctx=UserCtx,method='POST'}=Req) ->
+get_rep_endpoint(_Req, {Props}) ->
+    Url = proplists:get_value(<<"url">>, Props),
+    {BinHeaders} = proplists:get_value(<<"headers">>, Props, {[]}),
+    {remote, fix_db_url(Url), [{?b2l(K),?b2l(V)} || {K,V} <- BinHeaders]};
+get_rep_endpoint(_Req, <<"http://",_/binary>>=Url) ->
+    {remote, fix_db_url(Url), []};
+get_rep_endpoint(_Req, <<"https://",_/binary>>=Url) ->
+    {remote, fix_db_url(Url), []};
+get_rep_endpoint(#httpd{user_ctx=UserCtx}, <<DbName/binary>>) ->
+    {local, DbName, UserCtx}.
+
+handle_replicate_req(#httpd{method='POST'}=Req) ->
     {Props} = couch_httpd:json_body(Req),
-    Source = proplists:get_value(<<"source">>, Props),
-    Target = proplists:get_value(<<"target">>, Props),
-    
-    {Options} = proplists:get_value(<<"options">>, Props, {[]}),
-    {SrcHeadersJson} = proplists:get_value(<<"source_headers">>, Options, {[]}),
-    SrcHeaders = [{?b2l(K),(V)} || {K,V} <- SrcHeadersJson],
-    
-    {TgtHeadersJson} = proplists:get_value(<<"target_headers">>, Options, {[]}),
-    TgtHeaders = [{?b2l(K),(V)} || {K,V} <- TgtHeadersJson],
-    
-    {ok, {JsonResults}} = couch_rep:replicate(Source, Target,
-            [{source_options,   % Only one of following is used by api
-                [{headers, SrcHeaders}, % Headers used when src DB is URI
-                {user_ctx, UserCtx}]},  % Ctx used when src DB is local.
-            {target_options,
-                [{headers, TgtHeaders},
-                {user_ctx, UserCtx}]}]),
+    Src = get_rep_endpoint(Req, proplists:get_value(<<"source">>, Props)),
+    Tgt = get_rep_endpoint(Req, proplists:get_value(<<"target">>, Props)),
+    {OptionsBin} = proplists:get_value(<<"options">>, Props, {[]}),
+    Options = [{couch_util:to_existing_atom(K), V} || {K,V} <- OptionsBin],
+    {ok, {JsonResults}} = couch_rep:replicate(Src, Tgt, Options),
     send_json(Req, {[{ok, true} | JsonResults]});
 handle_replicate_req(Req) ->
     send_method_not_allowed(Req, "POST").

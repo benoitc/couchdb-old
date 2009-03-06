@@ -156,20 +156,20 @@ couchTests.security_validation = function(debug) {
       var host = CouchDB.host;
       var dbPairs = [
         {source:"test_suite_db_a",
-          target:"test_suite_db_b",
-          options:{}},
+          target:"test_suite_db_b"},
     
         {source:"test_suite_db_a",
-          target:"http://" + host + "/test_suite_db_b",
-          options: {target_headers: AuthHeaders}},
+          target:{url: "http://" + host + "/test_suite_db_b",
+                  headers: AuthHeaders}},
         
-        {source:"http://" + host + "/test_suite_db_a",
-          target:"test_suite_db_b",
-          options: {source_headers: AuthHeaders}},
+        {source:{url:"http://" + host + "/test_suite_db_a",
+                 headers: AuthHeaders},
+          target:"test_suite_db_b"},
         
-        {source:"http://" + host + "/test_suite_db_a",
-          target:"http://" + host + "/test_suite_db_b",
-          options:{source_headers: AuthHeaders, target_headers: AuthHeaders}},
+        {source:{url:"http://" + host + "/test_suite_db_a",
+                 headers: AuthHeaders},
+         target:{url:"http://" + host + "/test_suite_db_b",
+                 headers: AuthHeaders}},
       ]
       var adminDbA = new CouchDB("test_suite_db_a");
       var adminDbB = new CouchDB("test_suite_db_b");
@@ -181,7 +181,6 @@ couchTests.security_validation = function(debug) {
       for (var testPair = 0; testPair < dbPairs.length; testPair++) {
         var A = dbPairs[testPair].source
         var B = dbPairs[testPair].target
-        var Options = dbPairs[testPair].options
 
         adminDbA.deleteDb();
         adminDbA.createDb();
@@ -194,8 +193,8 @@ couchTests.security_validation = function(debug) {
         dbA.save({_id:"foo2",value:"a",author:"Christopher Lenz"});
         dbA.save({_id:"bad1",value:"a"});
 
-        T(CouchDB.replicate(A, B).ok);
-        T(CouchDB.replicate(B, A).ok);
+        T(CouchDB.replicate(A, B, {headers:AuthHeaders}).ok);
+        T(CouchDB.replicate(B, A, {headers:AuthHeaders}).ok);
 
         T(dbA.open("foo1"));
         T(dbB.open("foo1"));
@@ -226,12 +225,12 @@ couchTests.security_validation = function(debug) {
         foo2.value = "b";
         dbB.save(foo2);
   
-        var results = CouchDB.replicate(B, A);
+        var results = CouchDB.replicate(B, A, {headers:AuthHeaders});
   
         T(results.ok);
   
-        T(results.history[0].docs_written == 2);
-        T(results.history[0].doc_write_failures == 1);
+        T(results.history[0].docs_written == 1);
+        T(results.history[0].doc_write_failures == 2);
   
         // bad2 should not be on dbA
         T(dbA.open("bad2") == null);
@@ -240,7 +239,7 @@ couchTests.security_validation = function(debug) {
         T(dbA.open("foo1").value == "a");
   
         // The edit to foo2 should have replicated.
-        T(dbA.open("foo2").value == "a");
+        T(dbA.open("foo2").value == "b");
       }
     });
 };
