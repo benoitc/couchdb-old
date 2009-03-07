@@ -14,7 +14,7 @@
 
 -export([merge/2, find_missing/2, get_key_leafs/2, get_full_key_paths/2, get/2]).
 -export([map/2, get_all_leafs/1, count_leafs/1, remove_leafs/2,
-    get_all_leafs_full/1,test/0]).
+    get_all_leafs_full/1,stem/2,test/0]).
 
 % a key tree looks like this:
 % Tree -> [] or [{Key, Value, ChildTree} | SiblingTree]
@@ -25,10 +25,7 @@
 
 % partial trees arranged by how much they are cut off.
 
-merge(A0, B0) ->
-    % convert to canonical
-    A = make_canonical(A0),
-    B = make_canonical(B0),
+merge(A, B) ->
     {Merged, HasConflicts} = 
     lists:foldl(
         fun(InsertTree, {AccTrees, AccConflicts}) ->
@@ -47,11 +44,6 @@ merge(A0, B0) ->
         Conflicts = no_conflicts
     end,
     {lists:sort(Merged), Conflicts}.
-
-make_canonical([{_Start, _Tree} | _] = Can) ->
-    Can; % already canonical
-make_canonical(Trees) ->
-    [{0, Tree} || Tree <- Trees].
 
 merge_one([], Insert, OutAcc, ConflictsAcc) ->
     {ok, [Insert | OutAcc], ConflictsAcc};
@@ -146,24 +138,6 @@ find_missing_simple(Pos, [{Key, _, SubTree} | RestTree], SeachKeys) ->
     ImpossibleKeys ++ find_missing_simple(Pos, RestTree, SrcKeys3).
 
 
-get_all_key_paths_reverse_simple(Pos, [], KeyPathAcc) ->
-    [{Pos - 1, KeyPathAcc}];
-get_all_key_paths_reverse_simple(Pos, [{Key, Value, SubTree} | RestTree], KeyPathAcc) ->
-    SubLists = get_all_key_paths_reverse_simple(Pos + 1, SubTree, [{Key, Value} | KeyPathAcc]),
-    SiblingLists =
-        if RestTree /= [] ->
-            get_all_key_paths_reverse_simple(Pos, RestTree, KeyPathAcc);
-        true ->
-            []
-        end,
-    SiblingLists ++ SubLists.
-
-get_all_key_paths_reverse([], PathsAcc) ->
-    PathsAcc;
-get_all_key_paths_reverse([{Start, Tree}|Rest], PathsAcc) ->
-    get_all_key_paths_reverse(Rest, get_all_key_paths_reverse_simple(Start, [Tree], []) ++ PathsAcc).
-
-
 filter_leafs([], _Keys, FilteredAcc, RemovedKeysAcc) ->
     {FilteredAcc, RemovedKeysAcc};
 filter_leafs([{Pos, [{LeafKey, _}|_]} = Path |Rest], Keys, FilteredAcc, RemovedKeysAcc) ->
@@ -179,7 +153,7 @@ filter_leafs([{Pos, [{LeafKey, _}|_]} = Path |Rest], Keys, FilteredAcc, RemovedK
 % Removes any branches from the tree whose leaf node(s) are in the Keys
 remove_leafs(Trees, Keys) ->
     % flatten each branch in a tree into a tree path
-    Paths = get_all_key_paths_reverse(make_canonical(Trees), []),
+    Paths = get_all_leafs_full(Trees),
     
     % filter out any that are in the keys list.
     {FilteredPaths, RemovedKeys} = filter_leafs(Paths, Keys, [], []),
@@ -318,6 +292,20 @@ map_simple(Fun, Pos, [{Key, Value, SubTree} | RestTree]) ->
     [{Key, Value2, map_simple(Fun, Pos + 1, SubTree)} | map_simple(Fun, Pos, RestTree)].
 
 
+stem(Trees, Limit) ->
+    % flatten each branch in a tree into a tree path
+    Paths = get_all_leafs_full(Trees),
+    
+    Paths2 = [{Pos, lists:sublist(Path, Limit)} || {Pos, Path} <- Paths],
+    
+    % convert paths back to trees
+    lists:foldl(
+        fun({PathPos, Path},TreeAcc) ->
+            [SingleTree] = lists:foldl(
+                fun({K,V},NewTreeAcc) -> [{K,V,NewTreeAcc}] end, [], Path),
+            {NewTrees, _} = merge(TreeAcc, [{PathPos + 1 - length(Path), SingleTree}]),
+            NewTrees
+        end, [], Paths2).
 
 test() ->
     EmptyTree = [],
@@ -353,7 +341,7 @@ test() ->
     {TwoChildSibs, []} = remove_leafs(TwoChildSibs, []),
     {TwoChildSibs, []} = remove_leafs(TwoChildSibs, [{0, "1"}]),
     {OneChild, [{1, "1b"}]} = remove_leafs(TwoChildSibs, [{1, "1b"}]),
-    {[], [{1, "1a"},{1, "1b"}]} = remove_leafs(TwoChildSibs, [{1, "1a"}, {1, "1b"}]),
+    {[], [{1, "1b"},{1, "1a"}]} = remove_leafs(TwoChildSibs, [{1, "1a"}, {1, "1b"}]),
     {Stemmed1a, []} = remove_leafs(Stemmed1a, [{1, "1a"}]),
     {[], [{2, "1aa"}]} = remove_leafs(Stemmed1a, [{2, "1aa"}]),
     {TwoChildSibs, []} = remove_leafs(TwoChildSibs, []),
@@ -380,7 +368,9 @@ test() ->
     2 = count_leafs(TwoChildSibs),
     1 = count_leafs(Stemmed1a),
     
-    
+    TwoChild = stem(TwoChild, 3),
+    Stemmed1a = stem(TwoChild, 2),
+    Stemmed1aa = stem(TwoChild, 1),
     ok.
     
     

@@ -273,6 +273,18 @@ db_req(#httpd{method='GET',path_parts=[_,<<"_admins">>]}=Req, Db) ->
 db_req(#httpd{path_parts=[_,<<"_admins">>]}=Req, _Db) ->
     send_method_not_allowed(Req, "PUT,GET");
 
+db_req(#httpd{method='PUT',path_parts=[_,<<"_revs_limit">>]}=Req,
+        Db) ->
+    Limit = couch_httpd:json_body(Req),
+    ok = couch_db:set_revs_limit(Db, Limit),
+    send_json(Req, {[{<<"ok">>, true}]});
+
+db_req(#httpd{method='GET',path_parts=[_,<<"_revs_limit">>]}=Req, Db) ->
+    send_json(Req, couch_db:get_revs_limit(Db));
+
+db_req(#httpd{path_parts=[_,<<"_revs_limit">>]}=Req, _Db) ->
+    send_method_not_allowed(Req, "PUT,GET");
+
 % Special case to enable using an unencoded slash in the URL of design docs, 
 % as slashes in document IDs must otherwise be URL encoded.
 db_req(#httpd{method='GET',mochi_req=MochiReq, path_parts=[DbName,<<"_design/",_/binary>>|_]}=Req, _Db) ->

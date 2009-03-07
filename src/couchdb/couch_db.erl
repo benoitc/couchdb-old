@@ -17,6 +17,7 @@
 -export([open_ref_counted/2,is_idle/1,monitor/1,count_changes_since/2]).
 -export([update_doc/3,update_docs/4,update_docs/2,update_docs/3,delete_doc/3]).
 -export([get_doc_info/2,open_doc/2,open_doc/3,open_doc_revs/4]).
+-export([set_revs_limit/2,get_revs_limit/1]).
 -export([get_missing_revs/2,name/1,doc_to_tree/1,get_update_seq/1,get_committed_update_seq/1]).
 -export([enum_docs/4,enum_docs/5,enum_docs_since/4,enum_docs_since/5]).
 -export([enum_docs_since_reduce_to_count/1,enum_docs_reduce_to_count/1]).
@@ -184,15 +185,31 @@ get_db_info(Db) ->
         ],
     {ok, InfoList}.
 
+check_is_admin(#db{admins=Admins, user_ctx=#user_ctx{name=Name,roles=Roles}}) ->
+    DbAdmins = [<<"_admin">> | Admins],
+    case DbAdmins -- [Name | Roles] of
+    DbAdmins -> % same list, not an admin
+        throw({unauthorized, <<"You are not a db or server admin.">>});
+    _ ->
+        ok
+    end.
+
 get_admins(#db{admins=Admins}) ->
     Admins.
 
-set_admins(#db{update_pid=UpdatePid,user_ctx=Ctx}, 
-        Admins) when is_list(Admins) ->
-    case gen_server:call(UpdatePid, {set_admins, Admins, Ctx}, infinity) of
-    ok -> ok;
-    Error -> throw(Error)
-    end.
+set_admins(#db{update_pid=Pid}=Db, Admins) when is_list(Admins) ->
+    check_is_admin(Db),
+    gen_server:call(Pid, {set_admins, Admins}, infinity).
+
+
+get_revs_limit(#db{revs_limit=Limit}) ->
+    Limit.
+
+set_revs_limit(#db{update_pid=Pid}=Db, Limit) when Limit > 0 ->
+    check_is_admin(Db),
+    gen_server:call(Pid, {set_revs_limit, Limit}, infinity);
+set_revs_limit(_Db, _Limit) ->
+    throw(invalid_revs_limit).
 
 name(#db{name=Name}) ->
     Name.

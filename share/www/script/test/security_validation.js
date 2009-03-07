@@ -94,8 +94,8 @@ couchTests.security_validation = function(debug) {
         T(userDb.last_req.status == 401);
       }
 
-      // add user as admin
-      db.setAdmins(["Damien Katz"]);
+      // set user as the admin
+      T(db.setDbProperty("_admins", ["Damien Katz"]).ok);
 
       T(userDb.save(designDoc).ok);
 

@@ -62,18 +62,18 @@ handle_call(increment_update_seq, _From, Db) ->
     couch_db_update_notifier:notify({updated, Db#db.name}),
     {reply, {ok, Db2#db.update_seq}, Db2};
 
-handle_call({set_admins, NewAdmins, #user_ctx{roles=Roles}}, _From, Db) ->
-    DbAdmins = [<<"_admin">> | Db#db.admins],
-    case length(DbAdmins -- Roles) == length(DbAdmins) of
-    true ->
-        {reply, {unauthorized, <<"You are not a db or server admin.">>}, Db};
-    false ->
-        {ok, Ptr} = couch_file:append_term(Db#db.fd, NewAdmins),
-        Db2 = commit_data(Db#db{admins=NewAdmins, admins_ptr=Ptr,
-                update_seq=Db#db.update_seq+1}),
-        ok = gen_server:call(Db2#db.main_pid, {db_updated, Db2}),
-        {reply, ok, Db2}
-    end;
+handle_call({set_admins, NewAdmins}, _From, Db) ->
+    {ok, Ptr} = couch_file:append_term(Db#db.fd, NewAdmins),
+    Db2 = commit_data(Db#db{admins=NewAdmins, admins_ptr=Ptr,
+            update_seq=Db#db.update_seq+1}),
+    ok = gen_server:call(Db2#db.main_pid, {db_updated, Db2}),
+    {reply, ok, Db2};
+
+handle_call({set_revs_limit, Limit}, _From, Db) ->
+    Db2 = commit_data(Db#db{revs_limit=Limit,
+            update_seq=Db#db.update_seq+1}),
+    ok = gen_server:call(Db2#db.main_pid, {db_updated, Db2}),
+    {reply, ok, Db2};
 
 handle_call({purge_docs, _IdRevs}, _From,
         #db{compactor_pid=Pid}=Db) when Pid /= nil ->
@@ -296,7 +296,8 @@ init_db(DbName, Filepath, Fd, Header0) ->
         filepath = Filepath,
         admins = Admins,
         admins_ptr = AdminsPtr,
-        instance_start_time = StartTime
+        instance_start_time = StartTime,
+        revs_limit = Header#db_header.revs_limit
         }.
 
 
@@ -391,6 +392,12 @@ new_index_entries([FullDocInfo|RestInfos], AccById, AccBySeq) ->
         [FullDocInfo#full_doc_info{deleted=Deleted}|AccById],
         [DocInfo|AccBySeq]).
 
+
+stem_full_doc_infos(#db{revs_limit=Limit}, DocInfos) ->
+    [Info#full_doc_info{rev_tree=couch_key_tree:stem(Tree, Limit)} ||
+            #full_doc_info{rev_tree=Tree}=Info <- DocInfos].
+        
+
 update_docs_int(Db, DocsList, Options) ->
     #db{
         fulldocinfo_by_id_btree = DocInfoByIdBTree,
@@ -421,9 +428,12 @@ update_docs_int(Db, DocsList, Options) ->
         Ids, OldDocLookups),
     
     % Merge the new docs into the revision trees.
-    {ok, NewDocInfos, Conflicts, NewSeq} = merge_rev_trees(
+    {ok, NewDocInfos0, Conflicts, NewSeq} = merge_rev_trees(
             lists:member(merge_conflicts, Options),
             DocsList2, OldDocInfos, [], [], LastSeq),
+    
+    NewDocInfos = stem_full_doc_infos(Db, NewDocInfos0),
+    
     RemoveSeqs =
         [OldSeq || {ok, #full_doc_info{update_seq=OldSeq}} <- OldDocLookups],
     
@@ -502,7 +512,8 @@ commit_data(#db{fd=Fd, header=Header} = Db, Delay) ->
         docinfo_by_seq_btree_state = couch_btree:get_state(Db#db.docinfo_by_seq_btree),
         fulldocinfo_by_id_btree_state = couch_btree:get_state(Db#db.fulldocinfo_by_id_btree),
         local_docs_btree_state = couch_btree:get_state(Db#db.local_docs_btree),
-        admins_ptr = Db#db.admins_ptr
+        admins_ptr = Db#db.admins_ptr,
+        revs_limit = Db#db.revs_limit
         },
     if Header == Header2 ->
         Db;
@@ -551,10 +562,11 @@ copy_rev_tree(SrcFd, DestFd, DestStream, [{RevId, _, SubTree} | RestTree]) ->
 copy_docs(#db{fd=SrcFd}=Db, #db{fd=DestFd,summary_stream=DestStream}=NewDb, InfoBySeq, Retry) ->
     Ids = [Id || #doc_info{id=Id} <- InfoBySeq],
     LookupResults = couch_btree:lookup(Db#db.fulldocinfo_by_id_btree, Ids),
-    NewFullDocInfos = lists:map(
+    NewFullDocInfos0 = lists:map(
         fun({ok, #full_doc_info{rev_tree=RevTree}=Info}) ->
             Info#full_doc_info{rev_tree=copy_rev_tree(SrcFd, DestFd, DestStream, RevTree)}
         end, LookupResults),
+    NewFullDocInfos = stem_full_doc_infos(Db, NewFullDocInfos0),
     NewDocInfos = [couch_doc:to_doc_info(Info) || Info <- NewFullDocInfos],
     RemoveSeqs =
     case Retry of

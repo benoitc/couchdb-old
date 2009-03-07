@@ -202,6 +202,20 @@ function CouchDB(name, httpHeaders) {
     return JSON.parse(this.last_req.responseText);
   }
   
+  this.setDbProperty = function(propId, propValue) {
+    this.last_req = this.request("PUT", this.uri + propId,{
+      body:JSON.stringify(propValue)
+    });
+    CouchDB.maybeThrowError(this.last_req);
+    return JSON.parse(this.last_req.responseText);
+  }
+  
+  this.getDbProperty = function(propId) {
+    this.last_req = this.request("GET", this.uri + propId);
+    CouchDB.maybeThrowError(this.last_req);
+    return JSON.parse(this.last_req.responseText);
+  }
+  
   this.setAdmins = function(adminsArray) {
     this.last_req = this.request("PUT", this.uri + "_admins",{
       body:JSON.stringify(adminsArray)

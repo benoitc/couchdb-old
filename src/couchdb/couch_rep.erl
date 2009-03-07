@@ -139,7 +139,7 @@ replicate2(Source, DbSrc, Target, DbTgt, Options) ->
         % commit changes to both src and tgt. The src because if changes
         % we replicated are lost, we'll record the a seq number ahead 
         % of what was committed. If those changes are lost and the seq number
-        % reverts to a previous committed value, we will lose future changes
+        % reverts to a previous committed value, we will skip future changes
         % when new doc updates are given our already replicated seq nums.
         
         % commit the src async

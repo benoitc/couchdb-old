@@ -67,6 +67,7 @@ loadTest("purge.js");
 loadTest("config.js");
 loadTest("security_validation.js");
 loadTest("stats.js");
+loadTest("rev_stemming.js");
 
 function makeDocs(start, end, templateDoc) {
   var templateDocSrc = templateDoc ? JSON.stringify(templateDoc) : "{}"
