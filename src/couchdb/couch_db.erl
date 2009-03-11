@@ -357,11 +357,11 @@ update_docs(#db{update_pid=UpdatePid}=Db, Docs, Options) ->
     update_docs(#db{update_pid=UpdatePid}=Db, Docs, Options, interactive_edit).
 
 
-validate_replicated_updates(_Db, [], [], AccPrepped, AccErrors) ->
+prep_and_validate_replicated_updates(_Db, [], [], AccPrepped, AccErrors) ->
     Errors2 = [{{Id, {Pos, Rev}}, Error} || 
             {#doc{id=Id,revs={Pos,[Rev|_]}}, Error} <- AccErrors],
     {lists:reverse(AccPrepped), lists:reverse(Errors2)};
-validate_replicated_updates(Db, [Bucket|RestBuckets], [OldInfo|RestOldInfo], AccPrepped, AccErrors) ->
+prep_and_validate_replicated_updates(Db, [Bucket|RestBuckets], [OldInfo|RestOldInfo], AccPrepped, AccErrors) ->
     case OldInfo of
     not_found ->
         {ValidatedBucket, AccErrors3} = lists:foldl(
@@ -374,7 +374,7 @@ validate_replicated_updates(Db, [Bucket|RestBuckets], [OldInfo|RestOldInfo], Acc
                 end
             end,
             {[], AccErrors}, Bucket),
-        validate_replicated_updates(Db, RestBuckets, RestOldInfo, [ValidatedBucket | AccPrepped], AccErrors3);
+        prep_and_validate_replicated_updates(Db, RestBuckets, RestOldInfo, [ValidatedBucket | AccPrepped], AccErrors3);
     {ok, #full_doc_info{rev_tree=OldTree}} ->
         NewRevTree = lists:foldl(
             fun(NewDoc, AccTree) ->
@@ -391,12 +391,32 @@ validate_replicated_updates(Db, [Bucket|RestBuckets], [OldInfo|RestOldInfo], Acc
                 {ok, {Start, Path}} ->
                     % our unflushed doc is a leaf node. Go back on the path 
                     % to find the previous rev that's on disk.
-                    LoadPrevRev = fun() ->
-                        make_first_doc_on_disk(Db, Id, Start - 1, tl(Path))
+                    PrevRevResult = 
+                    case couch_doc:has_stubs(Doc) of
+                    true ->
+                        [_PrevRevFull | [PrevRevFull | _]=PrevPath]  = Path,
+                        case PrevRevFull of
+                        {_RevId, ?REV_MISSING} ->
+                            conflict;
+                        {RevId, {IsDel, DiskSp}} ->
+                            DiskDoc = make_doc(Db, Id, IsDel, DiskSp, PrevPath),
+                            Doc2 = couch_doc:merge_stubs(Doc, DiskDoc),
+                            {ok, Doc2, fun() -> DiskDoc end}
+                        end;
+                    false ->    
+                        {ok, Doc,
+                            fun() ->
+                                make_first_doc_on_disk(Db,Id,Start-1, tl(Path))
+                            end}
                     end,
-                    case validate_doc_update(Db, Doc, LoadPrevRev) of
-                    ok ->
-                        {[Doc | AccValidated], AccErrors2};
+                    case PrevRevResult of
+                    {ok, NewDoc, LoadPrevRevFun} ->                        
+                        case validate_doc_update(Db, NewDoc, LoadPrevRevFun) of
+                        ok ->
+                            {[NewDoc | AccValidated], AccErrors2};
+                        Error ->
+                            {AccValidated, [{NewDoc, Error} | AccErrors2]}
+                        end;
                     Error ->
                         {AccValidated, [{Doc, Error} | AccErrors2]}
                     end;
@@ -407,7 +427,7 @@ validate_replicated_updates(Db, [Bucket|RestBuckets], [OldInfo|RestOldInfo], Acc
                 end
             end,
             {[], AccErrors}, Bucket),
-        validate_replicated_updates(Db, RestBuckets, RestOldInfo, [ValidatedBucket | AccPrepped], AccErrors3)
+        prep_and_validate_replicated_updates(Db, RestBuckets, RestOldInfo, [ValidatedBucket | AccPrepped], AccErrors3)
     end.
 
 update_docs(Db, Docs, Options, replicated_changes) ->
@@ -424,7 +444,7 @@ update_docs(Db, Docs, Options, replicated_changes) ->
         ExistingDocs = get_full_doc_infos(Db, Ids),
     
         {DocBuckets2, DocErrors} =
-                validate_replicated_updates(Db, DocBuckets, ExistingDocs, [], []),
+                prep_and_validate_replicated_updates(Db, DocBuckets, ExistingDocs, [], []),
         DocBuckets3 = [Bucket || [_|_]=Bucket <- DocBuckets2]; % remove empty buckets
     false ->
         DocErrors = [],
@@ -435,6 +455,7 @@ update_docs(Db, Docs, Options, replicated_changes) ->
     
 update_docs(Db, Docs, Options, interactive_edit) ->
     couch_stats_collector:increment({couchdb, database_writes}),
+    AllOrNothing = lists:member(all_or_nothing, Options),
     % go ahead and generate the new revision ids for the documents.
     Docs2 = lists:map(
         fun(#doc{id=Id,revs={Start, RevIds}}=Doc) ->
@@ -459,26 +480,41 @@ update_docs(Db, Docs, Options, interactive_edit) ->
         % lookup the doc by id and get the most recent
         Ids = [Id || [#doc{id=Id}|_] <- DocBuckets],
         ExistingDocInfos = get_full_doc_infos(Db, Ids),
-    
-        {DocBucketsPrepped, Failures} = prep_and_validate_updates(Db, DocBuckets, ExistingDocInfos, [], []),
+        
+        {DocBucketsPrepped, Failures} =
+        case AllOrNothing of
+        true ->
+            prep_and_validate_replicated_updates(Db, DocBuckets, 
+                    ExistingDocInfos, [], []);
+        false ->
+            prep_and_validate_updates(Db, DocBuckets, ExistingDocInfos, [], [])
+        end,
+        
         % strip out any empty buckets
         DocBuckets2 = [Bucket || [_|_] = Bucket <- DocBucketsPrepped];
     false ->
         Failures = [],
         DocBuckets2 = DocBuckets
     end,
-    {ok, CommitFailures} = write_and_commit(Db, DocBuckets2, Options),
-    FailDict = dict:from_list(CommitFailures ++ Failures),
-    % the output for each is either {ok, NewRev} or Error
-    {ok, lists:map(
-        fun(#doc{id=Id,revs={Pos, [NewRevId|_]}}) ->
-            case dict:find({Id, {Pos, NewRevId}}, FailDict) of
-            {ok, Error} ->
-                Error;
-            error ->
-                {ok, {Pos, NewRevId}}
-            end
-        end, Docs2)}.
+
+    if (AllOrNothing) and (Failures /= []) ->
+         {aborted, Failures};
+    true ->
+        Options2 = if AllOrNothing -> [merge_conflicts]; 
+                true -> [] end ++ Options,
+        {ok, CommitFailures} = write_and_commit(Db, DocBuckets2, Options2),
+        FailDict = dict:from_list(CommitFailures ++ Failures),
+        % the output for each is either {ok, NewRev} or Error
+        {ok, lists:map(
+            fun(#doc{id=Id,revs={Pos, [NewRevId|_]}}) ->
+                case dict:find({Id, {Pos, NewRevId}}, FailDict) of
+                {ok, Error} ->
+                    Error;
+                error ->
+                    {ok, {Pos, NewRevId}}
+                end
+            end, Docs2)}
+    end.
 
 % Returns the first available document on disk. Input list is a full rev path
 % for the doc.

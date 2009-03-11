@@ -130,20 +130,36 @@ db_req(#httpd{method='POST',path_parts=[_,<<"_bulk_docs">>]}=Req, Db) ->
                 Doc#doc{id=Id,revs=Revs}
             end,
             DocsArray),
-        {ok, Results} = couch_db:update_docs(Db, Docs, Options),
-
-        % output the results
-        DocResults = lists:zipwith(
-            fun(Doc, {ok, NewRev}) ->
-                {[{<<"id">>, Doc#doc.id}, {<<"rev">>, couch_doc:rev_to_str(NewRev)}]};
-            (Doc, Error) ->
-                {_Code, Err, Msg} = couch_httpd:error_info(Error),
-                % maybe we should add the http error code to the json?
-                {[{<<"id">>, Doc#doc.id}, {<<"error">>, Err}, {"reason", Msg}]}
-            end,
-            Docs, Results),
-        send_json(Req, 201, DocResults);
-
+        Options2 =
+        case proplists:get_value(<<"all_or_nothing">>, JsonProps) of
+        true  -> [all_or_nothing|Options];
+        _ -> Options
+        end,
+        case couch_db:update_docs(Db, Docs, Options2) of
+        {ok, Results} ->
+            % output the results
+            DocResults = lists:zipwith(
+                fun(Doc, {ok, NewRev}) ->
+                    {[{<<"id">>, Doc#doc.id}, {<<"rev">>, couch_doc:rev_to_str(NewRev)}]};
+                (Doc, Error) ->
+                    {_Code, Err, Msg} = couch_httpd:error_info(Error),
+                    % maybe we should add the http error code to the json?
+                    {[{<<"id">>, Doc#doc.id}, {<<"error">>, Err}, {"reason", Msg}]}
+                end,
+                Docs, Results),
+            send_json(Req, 201, DocResults);
+        {aborted, Errors} ->
+            ErrorsJson = 
+                lists:map(
+                    fun({{Id, Rev}, Error}) ->
+                        {_Code, Err, Msg} = couch_httpd:error_info(Error),
+                        {[{<<"id">>, Id},
+                            {<<"rev">>, couch_doc:rev_to_str(Rev)},
+                            {<<"error">>, Err},
+                            {"reason", Msg}]}
+                    end, Errors),
+            send_json(Req, 417, ErrorsJson)
+        end;
     false ->
         Docs = [couch_doc:from_json_obj(JsonObj) || JsonObj <- DocsArray],
         {ok, Errors} = couch_db:update_docs(Db, Docs, Options, replicated_changes),

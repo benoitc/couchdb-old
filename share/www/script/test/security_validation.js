@@ -148,9 +148,35 @@ couchTests.security_validation = function(debug) {
       }
 
       // Now delete document
-      T(user2Db.deleteDoc(doc).ok);
+      T(user2Db.deleteDoc(doc).ok);      
 
+      // now test bulk docs
+      var docs = [{_id:"bahbah",author:"Damien Katz",foo:"bar"},{_id:"fahfah",foo:"baz"}];
 
+      // Create the docs
+      var results = db.bulkSave(docs);
+
+      T(results[0].rev)
+      T(results[0].error == undefined)
+      T(results[1].rev === undefined)
+      T(results[1].error == "forbidden")
+      
+      T(db.open("bahbah"));
+      T(db.open("fahfah") == null);
+      
+      
+      // now all or nothing with a failure
+      var docs = [{_id:"booboo",author:"Damien Katz",foo:"bar"},{_id:"foofoo",foo:"baz"}];
+
+      // Create the docs
+      var results = db.bulkSave(docs, {all_or_nothing:true});
+
+      T(results.errors.length == 1);
+      T(results.errors[0].error == "forbidden");
+      T(db.open("booboo") == null);
+      T(db.open("foofoo") == null);
+      
+      
       // Now test replication
       var AuthHeaders = {"WWW-Authenticate": "X-Couch-Test-Auth Christopher Lenz:dog food"};
       var host = CouchDB.host;
