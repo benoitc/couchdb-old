@@ -153,12 +153,13 @@ function CouchDB(name, httpHeaders) {
   }
 
   this.view = function(viewname, options, keys) {
+    var viewParts = viewname.split('/');
+    var viewPath = this.uri + "_design/" + viewParts[0] + "/_view/" 
+        + viewParts[1] + encodeOptions(options);
     if(!keys) {
-      this.last_req = this.request("GET", this.uri + "_view/" +
-          viewname + encodeOptions(options));      
+      this.last_req = this.request("GET", viewPath);      
     } else {
-      this.last_req = this.request("POST", this.uri + "_view/" + 
-        viewname + encodeOptions(options), {
+      this.last_req = this.request("POST", viewPath, {
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({keys:keys})
       });      
@@ -310,10 +311,9 @@ CouchDB.getVersion = function() {
 CouchDB.replicate = function(source, target, rep_options) {
   rep_options = rep_options || {};
   var headers = rep_options.headers || {};
-  var options = rep_options.options || {};
   CouchDB.last_req = CouchDB.request("POST", "/_replicate", {
     headers: headers,
-    body: JSON.stringify({source: source, target: target, options: options})
+    body: JSON.stringify({source: source, target: target})
   });
   CouchDB.maybeThrowError(CouchDB.last_req);
   return JSON.parse(CouchDB.last_req.responseText);

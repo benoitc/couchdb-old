@@ -70,12 +70,12 @@ handle_task_status_req(#httpd{method='GET'}=Req) ->
 handle_task_status_req(Req) ->
     send_method_not_allowed(Req, "GET,HEAD").
 
-% convert to list and add trailing slash if missing
+% add trailing slash if missing
 fix_db_url(UrlBin) ->
-    case lists:last(Url = ?b2l(UrlBin)) of
+    ?l2b(case lists:last(Url = ?b2l(UrlBin)) of
     $/ -> Url;
     _  -> Url ++ "/"
-    end.
+    end).
     
 
 get_rep_endpoint(_Req, {Props}) ->
@@ -91,12 +91,16 @@ get_rep_endpoint(#httpd{user_ctx=UserCtx}, <<DbName/binary>>) ->
 
 handle_replicate_req(#httpd{method='POST'}=Req) ->
     {Props} = couch_httpd:json_body(Req),
-    Src = get_rep_endpoint(Req, proplists:get_value(<<"source">>, Props)),
-    Tgt = get_rep_endpoint(Req, proplists:get_value(<<"target">>, Props)),
-    {OptionsBin} = proplists:get_value(<<"options">>, Props, {[]}),
-    Options = [{couch_util:to_existing_atom(K), V} || {K,V} <- OptionsBin],
-    {ok, {JsonResults}} = couch_rep:replicate(Src, Tgt, Options),
-    send_json(Req, {[{ok, true} | JsonResults]});
+    Source = get_rep_endpoint(Req, proplists:get_value(<<"source">>, Props)),
+    Target = get_rep_endpoint(Req, proplists:get_value(<<"target">>, Props)),
+    case couch_rep:replicate(Source, Target) of
+    {ok, {JsonResults}} ->
+        send_json(Req, {[{ok, true} | JsonResults]});
+    {error, {Type, Details}} ->
+        send_json(Req, 500, {[{error, Type}, {reason, Details}]});
+    {error, Reason} ->
+        send_json(Req, 500, {[{error, Reason}]})
+    end;
 handle_replicate_req(Req) ->
     send_method_not_allowed(Req, "POST").
 

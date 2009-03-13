@@ -63,7 +63,13 @@ to_json_meta(Meta) ->
 
 to_json_attachment_stubs(Attachments) ->
     BinProps = lists:map(
-        fun({Name, {Type, BinValue}}) ->
+        fun({Name, {Type, {_RcvFun, Length}}}) ->
+            {Name, {[
+                {<<"stub">>, true},
+                {<<"content_type">>, Type},
+                {<<"length">>, Length}
+            ]}};
+        ({Name, {Type, BinValue}}) ->
             {Name, {[
                 {<<"stub">>, true},
                 {<<"content_type">>, Type},
@@ -78,7 +84,13 @@ to_json_attachment_stubs(Attachments) ->
 
 to_json_attachments(Attachments) ->
     BinProps = lists:map(
-        fun({Name, {Type, BinValue}}) ->
+        fun({Name, {Type, {RcvFun, Length}}}) ->
+            Data = read_streamed_attachment(RcvFun, Length, _Acc = []),
+            {Name, {[
+                {<<"content_type">>, Type},
+                {<<"data">>, couch_util:encodeBase64(Data)}
+            ]}};
+        ({Name, {Type, BinValue}}) ->
             {Name, {[
                 {<<"content_type">>, Type},
                 {<<"data">>, couch_util:encodeBase64(bin_to_binary(BinValue))}
@@ -157,7 +169,9 @@ transfer_fields([{<<"_attachments">>, {JsonBins}} | Rest], Doc) ->
     Bins = lists:flatmap(fun({Name, {BinProps}}) ->
         case proplists:get_value(<<"stub">>, BinProps) of
         true ->
-            [{Name, stub}];
+            Type = proplists:get_value(<<"content_type">>, BinProps),
+            Length = proplists:get_value(<<"length">>, BinProps),
+            [{Name, {stub, Type, Length}}];
         _ ->
             Value = proplists:get_value(<<"data">>, BinProps),
             Type = proplists:get_value(<<"content_type">>, BinProps,
@@ -270,7 +284,7 @@ has_stubs(#doc{attachments=Bins}) ->
     has_stubs(Bins);
 has_stubs([]) ->
     false;
-has_stubs([{_Name, stub}|_]) ->
+has_stubs([{_Name, {stub, _, _}}|_]) ->
     true;
 has_stubs([_Bin|Rest]) ->
     has_stubs(Rest).
@@ -278,9 +292,15 @@ has_stubs([_Bin|Rest]) ->
 merge_stubs(#doc{attachments=MemBins}=StubsDoc, #doc{attachments=DiskBins}) ->
     BinDict = dict:from_list(DiskBins),
     MergedBins = lists:map(
-        fun({Name, stub}) ->
+        fun({Name, {stub, _, _}}) ->
             {Name, dict:fetch(Name, BinDict)};
         ({Name, Value}) ->
             {Name, Value}
         end, MemBins),
     StubsDoc#doc{attachments= MergedBins}.
+
+read_streamed_attachment(_RcvFun, 0, Acc) ->
+    list_to_binary(lists:reverse(Acc));
+read_streamed_attachment(RcvFun, LenLeft, Acc) ->
+    Bin = RcvFun(),
+    read_streamed_attachment(RcvFun, LenLeft - size(Bin), [Bin|Acc]).

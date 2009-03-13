@@ -13,7 +13,7 @@
 -module(couch_httpd_db).
 -include("couch_db.hrl").
 
--export([handle_request/1, db_req/2, couch_doc_open/4]).
+-export([handle_request/1, handle_design_req/2, db_req/2, couch_doc_open/4]).
 
 -import(couch_httpd,
     [send_json/2,send_json/3,send_json/4,send_method_not_allowed/2,
@@ -40,6 +40,16 @@ handle_request(#httpd{path_parts=[DbName|RestParts],method=Method,
         Handler = couch_util:dict_find(SecondPart, DbUrlHandlers, fun db_req/2),
         do_db_req(Req, Handler)
     end.
+
+handle_design_req(#httpd{
+        path_parts=[_DbName,_Design,_DesName, <<"_",_/binary>> = Action | _Rest],
+        design_url_handlers = DesignUrlHandlers
+    }=Req, Db) ->
+    Handler = couch_util:dict_find(Action, DesignUrlHandlers, fun db_req/2),
+    Handler(Req, Db);
+    
+handle_design_req(Req, Db) ->
+    db_req(Req, Db).
 
 create_db_req(#httpd{user_ctx=UserCtx}=Req, DbName) ->
     ok = couch_httpd:verify_is_server_admin(Req),
@@ -116,6 +126,7 @@ db_req(#httpd{method='POST',path_parts=[_,<<"_bulk_docs">>]}=Req, Db) ->
         Docs = lists:map(
             fun({ObjProps} = JsonObj) ->
                 Doc = couch_doc:from_json_obj(JsonObj),
+                validate_attachment_names(Doc),
                 Id = case Doc#doc.id of
                     <<>> -> couch_util:new_uuid();
                     Id0 -> Id0
@@ -460,31 +471,6 @@ db_doc_req(#httpd{method='GET'}=Req, Db, DocId) ->
         end_json_response(Resp)
     end;
 
-db_doc_req(#httpd{method='POST'}=Req, Db, DocId) ->
-    Form = couch_httpd:parse_form(Req),
-    Rev = couch_doc:parse_rev(proplists:get_value("_rev", Form)),
-    Doc = case couch_db:open_doc_revs(Db, DocId, [Rev], []) of
-        {ok, [{ok, Doc0}]}  -> Doc0#doc{revs=[Rev]};
-        {ok, [Error]}       -> throw(Error)
-    end,
-
-    NewAttachments = [
-        {list_to_binary(Name), {list_to_binary(ContentType), Content}} ||
-        {Name, {ContentType, _}, Content} <-
-        proplists:get_all_values("_attachments", Form)
-    ],
-    #doc{attachments=Attachments} = Doc,
-    NewDoc = Doc#doc{
-        attachments = Attachments ++ NewAttachments
-    },
-    {ok, NewRev} = couch_db:update_doc(Db, NewDoc, []),
-
-    send_json(Req, 201, [{"Etag", "\"" ++ NewRev ++ "\""}], {obj, [
-        {ok, true},
-        {id, DocId},
-        {rev, NewRev}
-    ]});
-
 db_doc_req(#httpd{method='PUT'}=Req, Db, DocId) ->
     update_doc(Req, Db, DocId, couch_httpd:json_body(Req));
 
@@ -545,6 +531,7 @@ update_result_to_json(Error) ->
 
 update_doc(Req, Db, DocId, Json) ->
     #doc{deleted=Deleted} = Doc = couch_doc:from_json_obj(Json),
+    validate_attachment_names(Doc),
     ExplicitDocRev =
     case Doc#doc.revs of
         {Start,[RevId|_]} -> {Start, RevId};
@@ -629,8 +616,11 @@ db_attachment_req(#httpd{method='GET'}=Req, Db, DocId, FileNameParts) ->
 
 db_attachment_req(#httpd{method=Method}=Req, Db, DocId, FileNameParts)
         when (Method == 'PUT') or (Method == 'DELETE') ->
-    FileName = list_to_binary(mochiweb_util:join(lists:map(fun binary_to_list/1, 
-        FileNameParts),"/")),
+    FileName = validate_attachment_name(
+                    mochiweb_util:join(
+                        lists:map(fun binary_to_list/1, 
+                            FileNameParts),"/")),
+    
     NewAttachment = case Method of
         'DELETE' ->
             [];
@@ -746,3 +736,44 @@ parse_copy_destination_header(Req) ->
         {list_to_binary(DocId), {Pos, [RevId]}}
     end.
 
+validate_attachment_names(Doc) ->
+    lists:foreach(fun({Name, _}) -> 
+        validate_attachment_name(Name)
+    end, Doc#doc.attachments).
+
+validate_attachment_name(Name) when is_list(Name) ->
+    validate_attachment_name(list_to_binary(Name));
+validate_attachment_name(<<"_",_/binary>>) ->
+    throw({bad_request, <<"Attachment name can't start with '_'">>});
+validate_attachment_name(Name) ->
+    case is_valid_utf8(Name) of
+        true -> Name;
+        false -> throw({bad_request, <<"Attachment name is not UTF-8 encoded">>})
+    end.
+
+%% borrowed from mochijson2:json_bin_is_safe()
+is_valid_utf8(<<>>) ->
+    true;
+is_valid_utf8(<<C, Rest/binary>>) ->
+    case C of
+        $\" ->
+            false;
+        $\\ ->
+            false;
+        $\b ->
+            false;
+        $\f ->
+            false;
+        $\n ->
+            false;
+        $\r ->
+            false;
+        $\t ->
+            false;
+        C when C >= 0, C < $\s; C >= 16#7f, C =< 16#10FFFF ->
+            false;
+        C when C < 16#7f ->
+            is_valid_utf8(Rest);
+        _ ->
+            false
+    end.

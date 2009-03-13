@@ -230,15 +230,5 @@ couchTests.replication = function(debug) {
     result2 = CouchDB.replicate(B, A);
     T(result2.no_changes == true);
     T(result2.session_id == result.session_id);
-    
-    // do a full (not incremental) replication
-    
-    result = CouchDB.replicate(B, A, {options:{full:true}})
-    
-    T(0 == result.history[0].start_last_seq);
-    T(seqB == result.source_last_seq);
-    T(result.history[0].end_last_seq == seqB);
-    T(result.history[1].end_last_seq == seqB);
-    
   }
 };
