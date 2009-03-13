@@ -67,7 +67,7 @@ handle_view_list_req(#httpd{method='GET'}=Req, _Db) ->
 handle_view_list_req(#httpd{method='POST',
         path_parts=[_DbName, _Design, DesignName, _List, ListName, ViewName]}=Req, Db) ->
     DesignId = <<"_design/", DesignName/binary>>,
-    #doc{body={Props}} = couch_httpd_db:couch_doc_open(Db, DesignId, [], []),
+    #doc{body={Props}} = couch_httpd_db:couch_doc_open(Db, DesignId, nil, []),
     Lang = proplists:get_value(<<"language">>, Props, <<"javascript">>),
     ListSrc = get_nested_json_value({Props}, [<<"lists">>, ListName]),
     ReqBody = couch_httpd:body(Req),
