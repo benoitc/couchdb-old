@@ -51,6 +51,7 @@ src/couchdb/edoc-info
 src/couchdb/erlang.png
 src/couchdb/stylesheet.css
 test/local.ini
+share/server/main.js
 
 # for make dev
 
