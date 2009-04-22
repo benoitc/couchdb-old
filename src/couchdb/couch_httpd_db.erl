@@ -527,9 +527,21 @@ db_doc_req(#httpd{method='POST'}=Req, Db, DocId) ->
 
 db_doc_req(#httpd{method='PUT'}=Req, Db, DocId) ->
     couch_doc:validate_docid(DocId),
-    Location = absolute_uri(Req, "/" ++ ?b2l(Db#db.name) ++ "/" ++ ?b2l(DocId)),
-    update_doc(Req, Db, DocId, couch_httpd:json_body(Req),
-      [{"Location", Location}]);
+    Json = couch_httpd:json_body(Req),
+    case couch_httpd:qs_value(Req, "batch") of
+        "ok" ->
+        % batch
+            Doc = couch_doc_from_req(Req, DocId, Json),
+            ok = couch_batch_save:eventually_save_doc(Db#db.name, Doc, Db#db.user_ctx),
+            send_json(Req, 202, [], {[
+                {ok, true},
+                {id, DocId}
+            ]});
+        _Normal ->
+        % normal
+        Location = absolute_uri(Req, "/" ++ ?b2l(Db#db.name) ++ "/" ++ ?b2l(DocId)),
+        update_doc(Req, Db, DocId, Json, [{"Location", Location}])
+    end;
 
 db_doc_req(#httpd{method='COPY'}=Req, Db, SourceDocId) ->
     SourceRev =
@@ -565,7 +577,25 @@ update_doc(Req, Db, DocId, Json) ->
     update_doc(Req, Db, DocId, Json, []).
 
 update_doc(Req, Db, DocId, Json, Headers) ->
-    #doc{deleted=Deleted} = Doc = couch_doc:from_json_obj(Json),
+    #doc{deleted=Deleted} = Doc = couch_doc_from_req(Req, DocId, Json),
+    
+    case couch_httpd:header_value(Req, "X-Couch-Full-Commit", "false") of
+    "true" ->
+        Options = [full_commit];
+    _ ->
+        Options = []
+    end,
+    {ok, NewRev} = couch_db:update_doc(Db, Doc, Options),
+    NewRevStr = couch_doc:rev_to_str(NewRev),
+    ResponseHeaders = [{"Etag", <<"\"", NewRevStr/binary, "\"">>}] ++ Headers,
+    send_json(Req, if Deleted -> 200; true -> 201 end,
+        ResponseHeaders, {[
+            {ok, true},
+            {id, DocId},
+            {rev, NewRevStr}]}).
+
+couch_doc_from_req(Req, DocId, Json) ->
+    Doc = couch_doc:from_json_obj(Json),
     validate_attachment_names(Doc),
     ExplicitDocRev =
     case Doc#doc.revs of
@@ -578,21 +608,8 @@ update_doc(Req, Db, DocId, Json, Headers) ->
     {Pos, Rev} ->
         Revs = {Pos, [Rev]}
     end,
+    Doc#doc{id=DocId, revs=Revs}.
     
-    case couch_httpd:header_value(Req, "X-Couch-Full-Commit", "false") of
-    "true" ->
-        Options = [full_commit];
-    _ ->
-        Options = []
-    end,
-    {ok, NewRev} = couch_db:update_doc(Db, Doc#doc{id=DocId, revs=Revs}, Options),
-    NewRevStr = couch_doc:rev_to_str(NewRev),
-    ResponseHeaders = [{"Etag", <<"\"", NewRevStr/binary, "\"">>}] ++ Headers,
-    send_json(Req, if Deleted -> 200; true -> 201 end,
-        ResponseHeaders, {[
-            {ok, true},
-            {id, DocId},
-            {rev, NewRevStr}]}).
 
 % Useful for debugging
 % couch_doc_open(Db, DocId) ->
