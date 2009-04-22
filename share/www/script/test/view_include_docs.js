@@ -97,9 +97,9 @@ couchTests.view_include_docs = function(debug) {
   T(!resp.rows[0].doc.prev);
   T(resp.rows[0].doc.integer == 0);
 
-  var xhr = CouchDB.request("POST", "/test_suite_db/_compact");
-  T(xhr.status == 202)
-  while (db.info().compact_running) {}
+  // var xhr = CouchDB.request("POST", "/test_suite_db/_compact");
+  // T(xhr.status == 202)
+  // while (db.info().compact_running) {}
 
   resp = db.view("test/with_prev", {include_docs: true}, ["0", "23"]);
   T(resp.rows.length == 2);

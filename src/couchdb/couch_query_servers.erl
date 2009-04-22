@@ -85,23 +85,27 @@ rereduce(_Lang, [], _ReducedValues) ->
 rereduce(Lang, RedSrcs, ReducedValues) ->
     Pid = get_os_process(Lang),
     Grouped = group_reductions_results(ReducedValues),
-    Results = lists:zipwith(
+    Results = try lists:zipwith(
         fun(FunSrc, Values) ->
             [true, [Result]] = 
                 couch_os_process:prompt(Pid, [<<"rereduce">>, [FunSrc], Values]),
             Result
-        end, RedSrcs, Grouped),
-        
-    ok = ret_os_process(Lang, Pid),
+        end, RedSrcs, Grouped)
+    after
+        ok = ret_os_process(Lang, Pid)
+    end,
     {ok, Results}.
 
 reduce(_Lang, [], _KVs) ->
     {ok, []};
 reduce(Lang, RedSrcs, KVs) ->
     Pid = get_os_process(Lang),
-    [true, Results] = couch_os_process:prompt(Pid, 
-            [<<"reduce">>, RedSrcs, KVs]),
-    ok = ret_os_process(Lang, Pid),
+    Results = try couch_os_process:prompt(Pid, 
+            [<<"reduce">>, RedSrcs, KVs]) of
+        [true, Reductions] -> Reductions
+    after
+        ok = ret_os_process(Lang, Pid)
+    end,
     {ok, Results}.
 
 validate_doc_update(Lang, FunSrc, EditDoc, DiskDoc, Ctx) ->
