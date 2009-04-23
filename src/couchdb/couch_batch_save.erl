@@ -43,6 +43,9 @@ start_link(BatchSize, BatchInterval) ->
 %% the commit is complete.
 %%--------------------------------------------------------------------
 eventually_save_doc(DbName, Doc, UserCtx) ->
+    % find or create a process for the {DbName, UserCtx} pair
+    {ok, Pid} = batch_pid_for_db_and_user(DbName, UserCtx);
+    % hand it the document 
     ok = gen_server:call(couch_batch_save, {eventually_save_doc, DbName, Doc, UserCtx}, infinity).
 
 %%--------------------------------------------------------------------
@@ -50,8 +53,10 @@ eventually_save_doc(DbName, Doc, UserCtx) ->
 %% Description: Commits all docs for the DB. Does not reply until
 %% the commit is complete.
 %%--------------------------------------------------------------------
-commit_now(DbName) ->
-    committed = gen_server:call(couch_batch_save, {commit_now, DbName}, infinity).
+commit_now(DbName, UserCtx) ->
+    % find the process for the {DbName, UserCtx} pair
+    % tell it to commit
+    committed = gen_server:call(couch_batch_save, {commit_now, DbName, UserCtx}, infinity).
 
 %%--------------------------------------------------------------------
 %% Function: commit_now() -> committed
@@ -75,7 +80,7 @@ commit_now() ->
 %%--------------------------------------------------------------------
 init([BatchSize, BatchInterval]) ->
     % start a process that calls commit_now/0 every BatchInterval milliseconds
-    ets:new(couch_batch_save_by_db, [duplicate_bag, private, named_table]),
+    ets:new(couch_batch_save_by_db, [duplicate_bag, public, named_table]),
     spawn_link(fun() -> commit_every_ms(BatchInterval) end),
     {ok, #batch_state{batch_size=BatchSize}}.
 
@@ -106,7 +111,7 @@ handle_call(commit_now, _From, State) ->
     ok = commit_all_dbs(),
     {reply, committed, State};
 
-handle_call({commit_now, DbName}, _From, State) ->
+handle_call({commit_now, DbName, UserCtx}, _From, State) ->
     ok = commit_docs(DbName),
     {reply, committed, State}.
 
@@ -127,6 +132,7 @@ handle_cast(_Msg, State) ->
 %%--------------------------------------------------------------------
 handle_info(_Info, State) ->
     {noreply, State}.
+% this should handle the exit of a dblist pid after flush or for other reasons
 
 %%--------------------------------------------------------------------
 %% Function: terminate(Reason, State) -> void()
@@ -189,3 +195,7 @@ commit_every_ms(BatchInterval) ->
             couch_batch_save:commit_now(),
             commit_every_ms(BatchInterval)
     end.
+
+
+batch_pid_for_db_and_user(DbName, UserCtx) ->
+    
