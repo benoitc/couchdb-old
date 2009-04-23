@@ -24,7 +24,8 @@
 -include("couch_db.hrl").
 
 -record(batch_state, {
-    batch_size=1000
+    batch_size=1000,
+    batch_interval=1000
     }).
 
 %%====================================================================
@@ -46,6 +47,7 @@ eventually_save_doc(DbName, Doc, UserCtx) ->
     % find or create a process for the {DbName, UserCtx} pair
     {ok, Pid} = batch_pid_for_db_and_user(DbName, UserCtx);
     % hand it the document 
+    ok = send_doc_to_batch(Pid, Doc),
     ok = gen_server:call(couch_batch_save, {eventually_save_doc, DbName, Doc, UserCtx}, infinity).
 
 %%--------------------------------------------------------------------
@@ -80,9 +82,9 @@ commit_now() ->
 %%--------------------------------------------------------------------
 init([BatchSize, BatchInterval]) ->
     % start a process that calls commit_now/0 every BatchInterval milliseconds
-    ets:new(couch_batch_save_by_db, [duplicate_bag, public, named_table]),
-    spawn_link(fun() -> commit_every_ms(BatchInterval) end),
-    {ok, #batch_state{batch_size=BatchSize}}.
+    ets:new(couch_batch_save_by_db, [set, public, named_table]),
+    % spawn_link(fun() -> commit_every_ms(BatchInterval) end),
+    {ok, #batch_state{batch_size=BatchSize, batch_interval=BatchInterval}}.
 
 %%--------------------------------------------------------------------
 %% Function: %% handle_call(Request, From, State) -> {reply, Reply, State} |
@@ -93,19 +95,13 @@ init([BatchSize, BatchInterval]) ->
 %%                                      {stop, Reason, State}
 %% Description: Handling call messages
 %%--------------------------------------------------------------------
-handle_call({eventually_save_doc, DbName, Doc, UserCtx}, _From, #batch_state{
+handle_call({make_pid, DbName, UserCtx}, _From, #batch_state{
         batch_size=BatchSize
     }=State) ->
     % add the doc to the set
-    true = ets:insert(couch_batch_save_by_db, {{DbName, UserCtx}, Doc}),
-    NumDocs = ets:select_count(couch_batch_save_by_db, 
-        [{[{{DbName, '_'}, '_'}],[],['$$']}]),
-
-    if NumDocs >= BatchSize ->
-        commit_docs(DbName);
-    true -> ok
-    end,
-    {reply, ok, State};
+    {ok, Pid} = spawn_link(fun() -> doc_collector(DbName, UserCtx) end),
+    true = ets:insert_new(couch_batch_save_by_db, {{DbName, UserCtx}, Pid}),
+    {reply, {ok, Pid}, State};
 
 handle_call(commit_now, _From, State) ->
     ok = commit_all_dbs(),
@@ -198,4 +194,24 @@ commit_every_ms(BatchInterval) ->
 
 
 batch_pid_for_db_and_user(DbName, UserCtx) ->
+    % look in the ets table
+    case ets:lookup(couch_batch_save_by_db, {DbName,UserCtx}) of
+        [{_, Pid}] ->
+            % we have a pid
+            {ok, Pid};
+        [] ->
+            % no match
+            {ok, Pid} = gen_server:call(couch_batch_save, {make_pid, DbName, UserCtx}),
+            {ok, Pid}
+    end.
+
+send_doc_to_batch(Pid, Doc) ->
+    Pid ! {add_doc, Doc},
+    receive
+        {Pid, doc_added} -> ok
+    after 500 ->
+        timeout
+    end.
     
+doc_collector(DbName, UserCtx) ->
+    % loop to wait for docs
