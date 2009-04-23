@@ -15,7 +15,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/2, eventually_save_doc/3, commit_now/0, commit_now/1]).
+-export([start_link/2, eventually_save_doc/3, commit_now/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -45,11 +45,10 @@ start_link(BatchSize, BatchInterval) ->
 %%--------------------------------------------------------------------
 eventually_save_doc(DbName, Doc, UserCtx) ->
     % find or create a process for the {DbName, UserCtx} pair
-    {ok, Pid} = batch_pid_for_db_and_user(DbName, UserCtx);
+    {ok, Pid} = batch_pid_for_db_and_user(DbName, UserCtx),
     % hand it the document 
-    ok = send_doc_to_batch(Pid, Doc),
-    ok = gen_server:call(couch_batch_save, {eventually_save_doc, DbName, Doc, UserCtx}, infinity).
-
+    ok = send_doc_to_batch(Pid, Doc).
+    
 %%--------------------------------------------------------------------
 %% Function: commit_now(DbName) -> committed
 %% Description: Commits all docs for the DB. Does not reply until
@@ -58,16 +57,18 @@ eventually_save_doc(DbName, Doc, UserCtx) ->
 commit_now(DbName, UserCtx) ->
     % find the process for the {DbName, UserCtx} pair
     % tell it to commit
-    committed = gen_server:call(couch_batch_save, {commit_now, DbName, UserCtx}, infinity).
+    {ok, Pid} = batch_pid_for_db_and_user(DbName, UserCtx),
+    ok = send_commit(Pid),
+    committed.
 
 %%--------------------------------------------------------------------
 %% Function: commit_now() -> committed
 %% Description: Commits all docs for all DBs. Does not reply until
 %% the commit is complete.
 %%--------------------------------------------------------------------
-commit_now() ->
-    committed = gen_server:call(couch_batch_save, commit_now, infinity).
- 
+% commit_now() ->
+%     committed = gen_server:call(couch_batch_save, commit_now, infinity).
+%  
     
 %%====================================================================
 %% gen_server callbacks
@@ -81,9 +82,7 @@ commit_now() ->
 %% Description: Initiates the server with the meanings
 %%--------------------------------------------------------------------
 init([BatchSize, BatchInterval]) ->
-    % start a process that calls commit_now/0 every BatchInterval milliseconds
     ets:new(couch_batch_save_by_db, [set, public, named_table]),
-    % spawn_link(fun() -> commit_every_ms(BatchInterval) end),
     {ok, #batch_state{batch_size=BatchSize, batch_interval=BatchInterval}}.
 
 %%--------------------------------------------------------------------
@@ -96,20 +95,15 @@ init([BatchSize, BatchInterval]) ->
 %% Description: Handling call messages
 %%--------------------------------------------------------------------
 handle_call({make_pid, DbName, UserCtx}, _From, #batch_state{
-        batch_size=BatchSize
+        batch_size=BatchSize,
+        batch_interval=BatchInterval
     }=State) ->
-    % add the doc to the set
-    {ok, Pid} = spawn_link(fun() -> doc_collector(DbName, UserCtx) end),
+    % start and record the doc collector process
+    Pid = spawn_link(fun() -> 
+        doc_collector(DbName, UserCtx, {BatchSize, BatchInterval}, new) 
+    end),
     true = ets:insert_new(couch_batch_save_by_db, {{DbName, UserCtx}, Pid}),
-    {reply, {ok, Pid}, State};
-
-handle_call(commit_now, _From, State) ->
-    ok = commit_all_dbs(),
-    {reply, committed, State};
-
-handle_call({commit_now, DbName, UserCtx}, _From, State) ->
-    ok = commit_docs(DbName),
-    {reply, committed, State}.
+    {reply, {ok, Pid}, State}.
 
 %%--------------------------------------------------------------------
 %% Function: handle_cast(Msg, State) -> {noreply, State} |
@@ -151,26 +145,26 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %%% Internal functions
 %%--------------------------------------------------------------------
-commit_docs(DbName) ->
-    UserCtxs = user_ctxs(DbName),
-    lists:foldl(fun(UserCtx) ->
-            UserDocsL = ets:match(couch_batch_save_by_db, 
-                {{DbName, UserCtx}, '$1'}),
-            Docs = [Doc || [Doc] <- UserDocsL],
-            {ok, _Revs} = commit_user_docs(DbName, UserCtx, Docs),
-            []
-        end, [], UserCtxs),        
-    ok.
-
-% commit the docs for all dbs
-commit_all_dbs() ->
-    DbNamesL = ets:match(couch_batch_save_by_db, {{'$1', '_'}, '_'}),
-    [commit_docs(DbName) || [DbName] <- DbNamesL],
-    ok.
-
-user_ctxs(DbName) ->
-    AllCtxs = ets:match(couch_batch_save_by_db, {{DbName, '$1'}, '_'}),
-    [Ctx || [Ctx] <- lists:usort(AllCtxs)].
+% commit_docs(DbName) ->
+%     UserCtxs = user_ctxs(DbName),
+%     lists:foldl(fun(UserCtx) ->
+%             UserDocsL = ets:match(couch_batch_save_by_db, 
+%                 {{DbName, UserCtx}, '$1'}),
+%             Docs = [Doc || [Doc] <- UserDocsL],
+%             {ok, _Revs} = commit_user_docs(DbName, UserCtx, Docs),
+%             []
+%         end, [], UserCtxs),        
+%     ok.
+% 
+% % commit the docs for all dbs
+% commit_all_dbs() ->
+%     DbNamesL = ets:match(couch_batch_save_by_db, {{'$1', '_'}, '_'}),
+%     [commit_docs(DbName) || [DbName] <- DbNamesL],
+%     ok.
+% 
+% user_ctxs(DbName) ->
+%     AllCtxs = ets:match(couch_batch_save_by_db, {{DbName, '$1'}, '_'}),
+%     [Ctx || [Ctx] <- lists:usort(AllCtxs)].
 
 commit_user_docs(DbName, UserCtx, Docs) ->
     case couch_db:open(DbName, [{user_ctx, UserCtx}]) of
@@ -185,13 +179,19 @@ commit_user_docs(DbName, UserCtx, Docs) ->
     end.
 
 % spawned to trigger commits on an interval
-commit_every_ms(BatchInterval) ->
+commit_every_ms(Pid, BatchInterval) ->
     receive
         after BatchInterval ->
-            couch_batch_save:commit_now(),
-            commit_every_ms(BatchInterval)
+            ok = send_commit(Pid),
+            commit_every_ms(Pid, BatchInterval)
     end.
 
+send_commit(Pid) ->
+    Pid ! {self(), commit},
+    receive 
+        {Pid, committed} ->
+           ok
+    end.
 
 batch_pid_for_db_and_user(DbName, UserCtx) ->
     % look in the ets table
@@ -206,12 +206,32 @@ batch_pid_for_db_and_user(DbName, UserCtx) ->
     end.
 
 send_doc_to_batch(Pid, Doc) ->
-    Pid ! {add_doc, Doc},
+    Pid ! {self(), add_doc, Doc},
     receive
         {Pid, doc_added} -> ok
     after 500 ->
         timeout
     end.
+
+% the loop that holds documents between commits
+doc_collector(DbName, UserCtx, {BatchSize, BatchInterval}, new) -> 
+    % start a process that triggers commit every BatchInterval milliseconds
+    _IntervalPid = spawn_link(fun() -> commit_every_ms(self(), BatchInterval) end),
+    doc_collector(DbName, UserCtx, {BatchSize, BatchInterval}, []);
+
+doc_collector(DbName, UserCtx, {BatchSize, BatchInterval}, Docs) when length(Docs) >= BatchSize->
+    {ok, _Revs} = commit_user_docs(DbName, UserCtx, Docs),
+    doc_collector(DbName, UserCtx, {BatchSize, BatchInterval}, []);
     
-doc_collector(DbName, UserCtx) ->
+doc_collector(DbName, UserCtx, {BatchSize, BatchInterval}, Docs) ->
     % loop to wait for docs
+    receive
+        {From, add_doc, Doc} ->
+            From ! {self(), doc_added},
+            doc_collector(DbName, UserCtx, {BatchSize, BatchInterval}, [Doc|Docs]);
+        {From, commit} ->
+            {ok, _Revs} = commit_user_docs(DbName, UserCtx, Docs),
+            From ! {self(), committed},
+            doc_collector(DbName, UserCtx, {BatchSize, BatchInterval}, [])
+    end.
+            

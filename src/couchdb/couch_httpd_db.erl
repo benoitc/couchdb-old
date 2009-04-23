@@ -529,15 +529,15 @@ db_doc_req(#httpd{method='PUT'}=Req, Db, DocId) ->
     couch_doc:validate_docid(DocId),
     Json = couch_httpd:json_body(Req),
     case couch_httpd:qs_value(Req, "batch") of
-        "ok" ->
+    "ok" ->
         % batch
-            Doc = couch_doc_from_req(Req, DocId, Json),
-            ok = couch_batch_save:eventually_save_doc(Db#db.name, Doc, Db#db.user_ctx),
-            send_json(Req, 202, [], {[
-                {ok, true},
-                {id, DocId}
-            ]});
-        _Normal ->
+        Doc = couch_doc_from_req(Req, DocId, Json),
+        ok = couch_batch_save:eventually_save_doc(Db#db.name, Doc, Db#db.user_ctx),
+        send_json(Req, 202, [], {[
+            {ok, true},
+            {id, DocId}
+        ]});
+    _Normal ->
         % normal
         Location = absolute_uri(Req, "/" ++ ?b2l(Db#db.name) ++ "/" ++ ?b2l(DocId)),
         update_doc(Req, Db, DocId, Json, [{"Location", Location}])
