@@ -32,8 +32,10 @@ couchTests.batch_put = function(debug) {
   T(db.allDocs().total_rows == 0);
   
   T(db.save({_id:"0",a:1,b:1},  {batch : "ok"}).ok);
+  T(db.save({_id:"1",a:1,b:1},  {batch : "ok"}).ok);
+  T(db.save({_id:"2",a:1,b:1},  {batch : "ok"}).ok);
 
   T(db.ensureFullCommit().ok);
-  T(db.allDocs().total_rows == 4);
+  T(db.allDocs().total_rows == 3);
   
 };

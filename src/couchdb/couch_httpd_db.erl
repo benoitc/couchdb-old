@@ -115,6 +115,8 @@ db_req(#httpd{path_parts=[_DbName]}=Req, _Db) ->
     send_method_not_allowed(Req, "DELETE,GET,HEAD,POST");
 
 db_req(#httpd{method='POST',path_parts=[_,<<"_ensure_full_commit">>]}=Req, Db) ->
+    % make the batch save
+    committed = couch_batch_save:commit_now(Db#db.name, Db#db.user_ctx),
     {ok, DbStartTime} = couch_db:ensure_full_commit(Db),
     send_json(Req, 201, {[
             {ok, true},

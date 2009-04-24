@@ -66,7 +66,7 @@ commit_now(DbName, UserCtx) ->
 %% Description: Commits all docs for all DBs. Does not reply until
 %% the commit is complete.
 %%--------------------------------------------------------------------
-% commit_now() ->
+% commit_all() ->
 %     committed = gen_server:call(couch_batch_save, commit_now, infinity).
 %  
     
@@ -99,6 +99,7 @@ handle_call({make_pid, DbName, UserCtx}, _From, #batch_state{
         batch_interval=BatchInterval
     }=State) ->
     % start and record the doc collector process
+    ?LOG_DEBUG("making a batch pid ~p",[{DbName, UserCtx}]),
     Pid = spawn_link(fun() -> 
         doc_collector(DbName, UserCtx, {BatchSize, BatchInterval}, new) 
     end),
@@ -166,6 +167,9 @@ code_change(_OldVsn, State, _Extra) ->
 %     AllCtxs = ets:match(couch_batch_save_by_db, {{DbName, '$1'}, '_'}),
 %     [Ctx || [Ctx] <- lists:usort(AllCtxs)].
 
+commit_user_docs(DbName, UserCtx, []) ->
+    {ok, []};
+    
 commit_user_docs(DbName, UserCtx, Docs) ->
     case couch_db:open(DbName, [{user_ctx, UserCtx}]) of
     {ok, Db} ->
@@ -187,6 +191,7 @@ commit_every_ms(Pid, BatchInterval) ->
     end.
 
 send_commit(Pid) ->
+    ?LOG_DEBUG("sending commit",[]),
     Pid ! {self(), commit},
     receive 
         {Pid, committed} ->
@@ -227,9 +232,11 @@ doc_collector(DbName, UserCtx, {BatchSize, BatchInterval}, Docs) ->
     % loop to wait for docs
     receive
         {From, add_doc, Doc} ->
+            ?LOG_DEBUG("adding doc ~p",[Doc]),
             From ! {self(), doc_added},
             doc_collector(DbName, UserCtx, {BatchSize, BatchInterval}, [Doc|Docs]);
         {From, commit} ->
+            ?LOG_DEBUG("committing ~p docs",[length(Docs)]),
             {ok, _Revs} = commit_user_docs(DbName, UserCtx, Docs),
             From ! {self(), committed},
             doc_collector(DbName, UserCtx, {BatchSize, BatchInterval}, [])
