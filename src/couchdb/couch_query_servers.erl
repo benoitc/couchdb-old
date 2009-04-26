@@ -213,7 +213,8 @@ handle_call({get_proc, Lang}, _From, {Langs, PidLangs, Pids, InUse}=Server) ->
         add_value(PidLangs, Pid, Lang),
         rem_from_list(Pids, Lang, Pid),
         add_to_list(InUse, Lang, Pid),
-        true = couch_os_process:prompt(Pid, [<<"reset">>]),
+        QueryConfig = get_query_server_config(),
+        true = couch_os_process:prompt(Pid, [<<"reset">>, QueryConfig]),
         {reply, Pid, Server};
     _ ->
         {ok, Pid} = new_process(Langs, Lang),
@@ -252,6 +253,11 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 % Private API
+
+get_query_server_config() ->
+    ReduceLimit = list_to_atom(
+        couch_config:get("query_server_config","reduce_limit","true")),
+    {[{<<"reduce_limit">>, ReduceLimit}]}.
 
 new_process(Langs, Lang) ->
     Proc =
