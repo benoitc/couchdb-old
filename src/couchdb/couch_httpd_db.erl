@@ -102,14 +102,27 @@ db_req(#httpd{method='GET',path_parts=[_DbName]}=Req, Db) ->
 db_req(#httpd{method='POST',path_parts=[DbName]}=Req, Db) ->
     Doc = couch_doc:from_json_obj(couch_httpd:json_body(Req)),
     DocId = couch_util:new_uuid(),
-    {ok, NewRev} = couch_db:update_doc(Db, Doc#doc{id=DocId}, []),
-    DocUrl = absolute_uri(Req, 
-        binary_to_list(<<"/",DbName/binary,"/",DocId/binary>>)),
-    send_json(Req, 201, [{"Location", DocUrl}], {[
-        {ok, true},
-        {id, DocId},
-        {rev, couch_doc:rev_to_str(NewRev)}
-    ]});
+    case couch_httpd:qs_value(Req, "batch") of
+    "ok" ->
+        % batch
+        ok = couch_batch_save:eventually_save_doc(Db#db.name,
+                Doc#doc{id=DocId}, Db#db.user_ctx),
+        send_json(Req, 202, [], {[
+            {ok, true},
+            {id, DocId}
+        ]});
+    _Normal ->
+        % normal
+        {ok, NewRev} = couch_db:update_doc(Db, Doc#doc{id=DocId}, []),
+        DocUrl = absolute_uri(Req, 
+            binary_to_list(<<"/",DbName/binary,"/",DocId/binary>>)),
+        send_json(Req, 201, [{"Location", DocUrl}], {[
+            {ok, true},
+            {id, DocId},
+            {rev, couch_doc:rev_to_str(NewRev)}
+        ]})
+    end;
+
 
 db_req(#httpd{path_parts=[_DbName]}=Req, _Db) ->
     send_method_not_allowed(Req, "DELETE,GET,HEAD,POST");
