@@ -47,6 +47,7 @@ eventually_save_doc(DbName, Doc, UserCtx) ->
     % find or create a process for the {DbName, UserCtx} pair
     {ok, Pid} = batch_pid_for_db_and_user(DbName, UserCtx),
     % hand it the document 
+    ?LOG_DEBUG("sending doc to batch ~p",[Pid]),
     ok = send_doc_to_batch(Pid, Doc).
     
 %%--------------------------------------------------------------------
@@ -103,8 +104,21 @@ handle_call({make_pid, DbName, UserCtx}, _From, #batch_state{
     Pid = spawn_link(fun() -> 
         doc_collector(DbName, UserCtx, {BatchSize, BatchInterval}, new) 
     end),
-    true = ets:insert_new(couch_batch_save_by_db, {{DbName, UserCtx}, Pid}),
-    {reply, {ok, Pid}, State}.
+    Resp = case ets:insert_new(couch_batch_save_by_db, {{DbName, UserCtx}, Pid}) of
+        true -> {ok, Pid};
+        _Else -> 
+            % the dbname/ctx pair already has a pid.
+            case ets:lookup(couch_batch_save_by_db, {DbName,UserCtx}) of
+                [{_, OldPid}] ->
+                    % we have a pid
+                    {ok, OldPid};
+                [] ->
+                    % no match
+                    % I don't like this...
+                    {ok, Pid}
+            end
+    end,
+    {reply, Resp, State}.
 
 %%--------------------------------------------------------------------
 %% Function: handle_cast(Msg, State) -> {noreply, State} |
@@ -207,7 +221,7 @@ batch_pid_for_db_and_user(DbName, UserCtx) ->
             {ok, Pid};
         [] ->
             % no match
-            {ok, Pid} = gen_server:call(couch_batch_save, {make_pid, DbName, UserCtx}),
+            {ok, Pid} = gen_server:call(couch_batch_save, {make_pid, DbName, UserCtx}, infinity),
             {ok, Pid}
     end.
 
@@ -215,8 +229,6 @@ send_doc_to_batch(Pid, Doc) ->
     Pid ! {self(), add_doc, Doc},
     receive
         {Pid, doc_added} -> ok
-    after 500 ->
-        timeout
     end.
 
 % the loop that holds documents between commits
