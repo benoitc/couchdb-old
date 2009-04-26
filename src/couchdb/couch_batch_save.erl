@@ -134,6 +134,7 @@ handle_info(_Info, State) ->
 %%--------------------------------------------------------------------
 terminate(_Reason, _State) ->
     % todo shutdown the interval loop
+    % todo kill all the Pids and drop the ets table
     ok.
 
 %%--------------------------------------------------------------------

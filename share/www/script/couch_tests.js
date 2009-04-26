@@ -26,7 +26,7 @@ function loadTest(file) {
 };
 
 loadTest("basics.js");
-loadTest("batch_put.js");
+loadTest("batch_save.js");
 loadTest("delayed_commits.js");
 loadTest("all_docs.js");
 loadTest("conflicts.js");

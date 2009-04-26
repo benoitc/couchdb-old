@@ -11,13 +11,13 @@
 // the License.
 
 
-couchTests.batch_put = function(debug) {
+couchTests.batch_save = function(debug) {
   var db = new CouchDB("test_suite_db");
   db.deleteDb();
   db.createDb();
   if (debug) debugger;
   
-  // create a doc with ?batch=ok
+  // PUT a doc with ?batch=ok
   T(db.save({_id:"0",a:1,b:1},  {batch : "ok"}).ok);
 
   // test that response is 200 Accepted
@@ -34,6 +34,23 @@ couchTests.batch_put = function(debug) {
   T(db.save({_id:"0",a:1,b:1},  {batch : "ok"}).ok);
   T(db.save({_id:"1",a:1,b:1},  {batch : "ok"}).ok);
   T(db.save({_id:"2",a:1,b:1},  {batch : "ok"}).ok);
+
+  T(db.ensureFullCommit().ok);
+  T(db.allDocs().total_rows == 3);
+  
+  // repeat the tests for POST
+  var resp = db.save({a:1,b:1},  {batch : "ok"});
+  T(resp.ok);
+  // test that response is 200 Accepted
+  T(db.last_req.status == 202);
+  T(db.last_req.statusText == "Accepted");
+  T(db.allDocs().total_rows == 3);
+  restartServer();
+  T(db.allDocs().total_rows == 3);
+
+  T(db.save({a:1,b:1},  {batch : "ok"}).ok);
+  T(db.save({a:1,b:1},  {batch : "ok"}).ok);
+  T(db.save({a:1,b:1},  {batch : "ok"}).ok);
 
   T(db.ensureFullCommit().ok);
   T(db.allDocs().total_rows == 3);
