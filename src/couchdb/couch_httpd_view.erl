@@ -447,31 +447,33 @@ make_view_fold_fun(Req, QueryArgs, Etag, Db,
     } = QueryArgs,
 
     fun({{Key, DocId}, Value}, OffsetReds,
-                      {AccLimit, AccSkip, Resp, AccRevRows}) ->
+                      {AccLimit, AccSkip, Resp, RowFunAcc}) ->
+        % ?LOG_ERROR("RowFunAcc ~p",[RowFunAcc]),
         PassedEnd = PassedEndFun(Key, DocId),
         case {PassedEnd, AccLimit, AccSkip, Resp} of
         {true, _, _, _} ->
             % The stop key has been passed, stop looping.
-            {stop, {AccLimit, AccSkip, Resp, AccRevRows}};
+            {stop, {AccLimit, AccSkip, Resp, RowFunAcc}};
         {_, 0, _, _} ->
             % we've done "limit" rows, stop foldling
-            {stop, {0, 0, Resp, AccRevRows}};
+            {stop, {0, 0, Resp, RowFunAcc}};
         {_, _, AccSkip, _} when AccSkip > 0 ->
-            {ok, {AccLimit, AccSkip - 1, Resp, AccRevRows}};
+            {ok, {AccLimit, AccSkip - 1, Resp, RowFunAcc}};
         {_, _, _, undefined} ->
             Offset = ReduceCountFun(OffsetReds),
             {ok, Resp2, BeginBody} = StartRespFun(Req, Etag,
                 TotalViewCount, Offset),
+            FirstRowFunAcc = {BeginBody, IncludeDocs, []},
             case SendRowFun(Resp2, Db, 
-                {{Key, DocId}, Value}, BeginBody, IncludeDocs) of
-            stop ->  {stop, {AccLimit - 1, 0, Resp2, AccRevRows}};
-            _ -> {ok, {AccLimit - 1, 0, Resp2, AccRevRows}}
+                {{Key, DocId}, Value}, FirstRowFunAcc) of
+            {stop, RowFunAcc3} ->  {stop, {AccLimit - 1, 0, Resp2, RowFunAcc3}};
+            {ok, RowFunAcc2} -> {ok, {AccLimit - 1, 0, Resp2, RowFunAcc2}}
             end;
         {_, AccLimit, _, Resp} when (AccLimit > 0) ->
             case SendRowFun(Resp, Db, 
-                {{Key, DocId}, Value}, nil, IncludeDocs) of
-            stop ->  {stop, {AccLimit - 1, 0, Resp, AccRevRows}};
-            _ -> {ok, {AccLimit - 1, 0, Resp, AccRevRows}}
+                {{Key, DocId}, Value}, RowFunAcc) of
+            {stop, RowFunAcc3} ->  {stop, {AccLimit - 1, 0, Resp, RowFunAcc3}};
+            {ok, RowFunAcc2} -> {ok, {AccLimit - 1, 0, Resp, RowFunAcc2}}
             end
         end
     end.
@@ -492,7 +494,7 @@ apply_default_helper_funs(#view_fold_helper_funs{
     end,
 
     SendRow2 = case SendRow of
-    undefined -> fun send_json_view_row/5;
+    undefined -> fun send_json_view_row/4;
     _ -> SendRow
     end,
 
@@ -557,13 +559,14 @@ json_view_start_resp(Req, Etag, TotalViewCount, Offset) ->
             [TotalViewCount, Offset]),
     {ok, Resp, BeginBody}.
 
-send_json_view_row(Resp, Db, {{Key, DocId}, Value}, RowFront, IncludeDocs) ->
+send_json_view_row(Resp, Db, {{Key, DocId}, Value}, {RowFront, IncludeDocs, []}) ->
     JsonObj = view_row_obj(Db, {{Key, DocId}, Value}, IncludeDocs),
     RowFront2 = case RowFront of
     nil -> ",\r\n";
     _ -> RowFront
     end,
-    send_chunk(Resp, RowFront2 ++  ?JSON_ENCODE(JsonObj)).
+    send_chunk(Resp, RowFront2 ++  ?JSON_ENCODE(JsonObj)),
+    {ok, {nil, IncludeDocs, []}}.
 
 json_reduce_start_resp(Req, Etag, _, _) ->
     {ok, Resp} = start_json_response(Req, 200, [{"Etag", Etag}]),
@@ -631,9 +634,9 @@ finish_view_fold(Req, TotalRows, FoldResult) ->
             {total_rows, TotalRows},
             {rows, []}
         ]});
-    {ok, {_, _, Resp, AccRevRows}} ->
+    {ok, {_, _, Resp, _}} ->
         % end the view
-        send_chunk(Resp, AccRevRows ++ "\r\n]}"),
+        send_chunk(Resp, "\r\n]}"),
         end_json_response(Resp);
     Error ->
         throw(Error)

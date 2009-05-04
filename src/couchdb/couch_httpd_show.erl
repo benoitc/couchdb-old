@@ -135,7 +135,7 @@ make_map_start_resp_fun(QueryServer, Req, Db, CurrentEtag) ->
 
 make_map_send_row_fun(QueryServer, Req) ->
     fun(Resp, Db2, {{Key, DocId}, Value}, 
-        RowFront, _IncludeDocs) ->
+        {RowFront, IncludeDocs, Acc}) ->
         try
             JsonResp = couch_query_servers:render_list_row(QueryServer, 
                 Req, Db2, {{Key, DocId}, Value}),
@@ -144,7 +144,8 @@ make_map_send_row_fun(QueryServer, Req) ->
                 data = RowBody
             } = couch_httpd_external:parse_external_response(JsonResp),
             case StopIter of
-            true -> stop;
+            true -> 
+                {stop, {RowFront, IncludeDocs, Acc}};
             _ ->
                 RowFront2 = case RowFront of
                 nil -> [];
@@ -152,9 +153,10 @@ make_map_send_row_fun(QueryServer, Req) ->
                 end,
                 Chunk = RowFront2 ++ binary_to_list(RowBody),
                 case Chunk of
-                    [] -> {ok, Resp};
+                    [] -> ok;
                     _ -> send_chunk(Resp, Chunk)
-                end
+                end,
+                {ok, {RowFront, IncludeDocs, Acc}}
             end
         catch
             throw:Error ->
