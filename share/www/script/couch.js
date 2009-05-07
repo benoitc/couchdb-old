@@ -241,7 +241,25 @@ function CouchDB(name, httpHeaders) {
     CouchDB.maybeThrowError(this.last_req);
     return JSON.parse(this.last_req.responseText);
   }
-  
+
+  this.login = function(username, password) {
+    var _db = this;
+    function req(body, callback) {
+      _db.last_req = _db.request("POST", _db.uri + "_login", {
+        body: body
+      });
+      return callback(JSON.parse(_db.last_req.responseText));
+    }
+    var data = {};
+    authSRP(req, username, password, function(_data) { data = _data; });
+    return data;
+  }
+
+  this.logout = function(username, password) {
+    this.last_req = this.request("POST", this.uri + "_logout", {});
+    return JSON.parse(this.last_req.responseText);
+  }
+
   // Convert a options object to an url query string.
   // ex: {key:'value',key2:'value2'} becomes '?key="value"&key2="value2"'
   function encodeOptions(options) {

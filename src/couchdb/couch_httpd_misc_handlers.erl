@@ -194,4 +194,3 @@ increment_update_seq_req(#httpd{method='POST'}=Req, Db) ->
     ]});
 increment_update_seq_req(Req, _Db) ->
     send_method_not_allowed(Req, "POST").
-

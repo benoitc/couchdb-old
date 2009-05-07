@@ -57,7 +57,8 @@ process_external_req(HttpReq, Db, Name) ->
 json_req_obj(#httpd{mochi_req=Req, 
                method=Verb,
                path_parts=Path,
-               req_body=ReqBody
+               req_body=ReqBody,
+               user_ctx=#user_ctx{name=UserName, roles=UserRoles}
             }, Db) ->
     Body = case ReqBody of
         undefined -> Req:recv_body();
@@ -68,6 +69,10 @@ json_req_obj(#httpd{mochi_req=Req,
             mochiweb_util:parse_qs(ReqBody);
         _ ->
             []
+    end,
+    UserCtx = case UserName of
+        null -> {[{<<"roles">>, UserRoles}]};
+        _Else -> {[{<<"name">>, UserName}, {<<"roles">>, UserRoles}]}
     end,
     Headers = Req:get(headers),
     Hlist = mochiweb_headers:to_list(Headers),
@@ -80,7 +85,8 @@ json_req_obj(#httpd{mochi_req=Req,
         {<<"headers">>, to_json_terms(Hlist)},
         {<<"body">>, Body},
         {<<"form">>, to_json_terms(ParsedForm)},
-        {<<"cookie">>, to_json_terms(Req:parse_cookie())}]}.
+        {<<"cookie">>, to_json_terms(Req:parse_cookie())},
+        {<<"userCtx">>, UserCtx}]}.
 
 to_json_terms(Data) ->
     to_json_terms(Data, []).

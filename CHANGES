@@ -11,8 +11,12 @@ Build and System Integration:
  * Changed `couchdb` script configuration options.
  * Added default.d and local.d configuration directories to load sequence.
  * Updated ownership and permission advice in `README` for better security.
- * The SysV/BSD daemon script now creates the PID directory on each invokation
+ * The SysV/BSD daemon script now creates the PID directory on each invocation
    because PREFIX/var/run might be a temporary filesystem.
+
+HTTP Interface:
+
+ * Added optional cookie-based authentication handler.
 
 Version 0.9.0
 -------------
