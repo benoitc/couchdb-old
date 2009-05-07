@@ -73,6 +73,7 @@ loadTest("purge.js");
 loadTest("config.js");
 loadTest("form_submit.js");
 loadTest("security_validation.js");
+loadTest("cookie_auth.js");
 loadTest("stats.js");
 loadTest("rev_stemming.js");
 
