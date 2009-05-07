@@ -73,6 +73,7 @@ loadTest("form_submit.js");
 loadTest("security_validation.js");
 loadTest("stats.js");
 loadTest("rev_stemming.js");
+loadTest("rewrite.js");
 
 function makeDocs(start, end, templateDoc) {
   var templateDocSrc = templateDoc ? JSON.stringify(templateDoc) : "{}"

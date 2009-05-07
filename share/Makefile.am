@@ -136,4 +136,5 @@ nobase_dist_localdata_DATA = \
     www/script/test/config.js \
     www/script/test/security_validation.js \
     www/script/test/stats.js \
+    www/script/test/rewrite.js \
     www/style/layout.css
