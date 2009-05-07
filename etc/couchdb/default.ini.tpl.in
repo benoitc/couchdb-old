@@ -16,7 +16,7 @@ batch_save_interval = 1000 ; milliseconds after which to save batches
 [httpd]
 port = 5984
 bind_address = 127.0.0.1
-authentication_handler = {couch_httpd, default_authentication_handler}
+authentication_handler = {couch_httpd_auth, default_authentication_handler}
 default_handler = {couch_httpd_db, handle_request}
 WWW-Authenticate = Basic realm="administrator"
 
@@ -66,6 +66,8 @@ _sleep = {couch_httpd_misc_handlers, handle_sleep_req}
 [httpd_db_handlers]
 _compact = {couch_httpd_db, handle_compact_req}
 _design = {couch_httpd_db, handle_design_req}
+_login = {couch_httpd_auth, handle_login_req}
+_logout = {couch_httpd_auth, handle_logout_req}
 _temp_view = {couch_httpd_view, handle_temp_view_req}
 _changes = {couch_httpd_db, handle_changes_req}
 
