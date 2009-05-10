@@ -248,25 +248,15 @@ make_reduce_fold_funs(Req, GroupLevel, _QueryArgs, Etag, HelperFuns) ->
     end,
     {ok, GroupRowsFun, RespFun}.
     
-
-
 reverse_key_default(nil) -> {};
 reverse_key_default({}) -> nil;
 reverse_key_default(Key) -> Key.
 
 get_stale_type(Req) ->
-    QueryList = couch_httpd:qs(Req),
-    case proplists:get_value("stale", QueryList, nil) of
-        "ok" -> ok;
-        Else -> Else
-    end.
+    list_to_atom(couch_httpd:qs_value(Req, "stale", "nil")).
 
 get_reduce_type(Req) ->
-    QueryList = couch_httpd:qs(Req),
-    case proplists:get_value("reduce", QueryList, true) of
-        "false" -> false;
-        _ -> true
-    end.
+    list_to_atom(couch_httpd:qs_value(Req, "reduce", "true")).
 
 parse_view_params(Req, Keys, ViewType, IgnoreType) ->
     QueryList = couch_httpd:qs(Req),
