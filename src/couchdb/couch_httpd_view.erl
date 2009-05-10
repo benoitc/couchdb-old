@@ -215,41 +215,47 @@ make_reduce_fold_funs(Req, GroupLevel, _QueryArgs, Etag, HelperFuns) ->
         {stop, {0, _AccSkip, Resp, AccSeparator}};
     (_Key, Red, {AccLimit, 0, undefined, AccSeparator}) when GroupLevel == 0 ->
         % we haven't started responding yet and group=false
-        {ok, Resp2, RowSep} = StartRespFun(Req, Etag, null, null),
-        RowResult = case SendRowFun(Resp2, {null, Red}, RowSep) of
+        {ok, Resp2, RowSep} = StartRespFun(Req, Etag),
+        SendRowFun(Resp2, {null, Red}, RowSep),
+        {ok, {AccLimit - 1, 0, Resp2, AccSeparator}};
+    (_Key, Red, {AccLimit, 0, Resp, AccSeparator}) when GroupLevel == 0 ->
+        % group=false but we've already started the response
+        SendRowFun(Resp, {null, Red}, nil),
+        {ok, {AccLimit - 1, 0, Resp, AccSeparator}};
+    (Key, Red, {AccLimit, 0, undefined, AccSeparator})
+            when is_integer(GroupLevel) 
+            andalso is_list(Key) ->
+        % group_level and we haven't responded yet
+        {ok, Resp2, RowSep} = StartRespFun(Req, Etag),
+        RowResult = case SendRowFun(Resp2, {lists:sublist(Key, GroupLevel), Red}, RowSep) of
         stop -> stop;
         _ -> ok
-        end,
+        end,        
         {RowResult, {AccLimit - 1, 0, Resp2, AccSeparator}};
-    (_Key, Red, {AccLimit, 0, Resp, AccSeparator}) when GroupLevel == 0 ->
-        % group=false but we've already responded
-        RowResult = case SendRowFun(Resp, {null, Red}, nil) of
+    (Key, Red, {AccLimit, 0, Resp, AccSeparator})
+            when is_integer(GroupLevel) 
+            andalso is_list(Key) ->
+        % group_level and we've already started the response
+        RowResult = case SendRowFun(Resp, {lists:sublist(Key, GroupLevel), Red}, nil) of
         stop -> stop;
         _ -> ok
         end,
         {RowResult, {AccLimit - 1, 0, Resp, AccSeparator}};
-    (Key, Red, {AccLimit, 0, Resp, AccSeparator})
-            when is_integer(GroupLevel) 
-            andalso is_list(Key) ->
-        {ok, Resp2, RowSep} = case Resp of
-        undefined -> StartRespFun(Req, Etag, null, null);
-        _ -> {ok, Resp, nil}
-        end,
-        RowResult = case SendRowFun(Resp2, {lists:sublist(Key, GroupLevel), Red}, RowSep) of
+    (Key, Red, {AccLimit, 0, undefined, AccSeparator}) ->
+        % group=true and we haven't responded yet
+        {ok, Resp2, RowSep} = StartRespFun(Req, Etag),
+        RowResult = case SendRowFun(Resp2, {Key, Red}, RowSep) of
         stop -> stop;
         _ -> ok
         end,
         {RowResult, {AccLimit - 1, 0, Resp2, AccSeparator}};
     (Key, Red, {AccLimit, 0, Resp, AccSeparator}) ->
-        {ok, Resp2, RowSep} = case Resp of
-        undefined -> StartRespFun(Req, Etag, null, null);
-        _ -> {ok, Resp, nil}
-        end,
-        RowResult = case SendRowFun(Resp2, {Key, Red}, RowSep) of
+        % group=true and we've already started the response
+        RowResult = case SendRowFun(Resp, {Key, Red}, nil) of
         stop -> stop;
         _ -> ok
         end,
-        {RowResult, {AccLimit - 1, 0, Resp2, AccSeparator}}
+        {RowResult, {AccLimit - 1, 0, Resp, AccSeparator}}
     end,
     {ok, GroupRowsFun, RespFun}.
     
@@ -524,7 +530,7 @@ apply_default_helper_funs(#reduce_fold_helper_funs{
     send_row = SendRow
 }=Helpers) ->
     StartResp2 = case StartResp of
-    undefined -> fun json_reduce_start_resp/4;
+    undefined -> fun json_reduce_start_resp/2;
     _ -> StartResp
     end,
 
@@ -579,7 +585,7 @@ send_json_view_row(Resp, Db, {{Key, DocId}, Value}, IncludeDocs, {RowFront, []})
     send_chunk(Resp, RowFront ++  ?JSON_ENCODE(JsonObj)),
     {ok, {",\r\n", []}}.
 
-json_reduce_start_resp(Req, Etag, _, _) ->
+json_reduce_start_resp(Req, Etag) ->
     {ok, Resp} = start_json_response(Req, 200, [{"Etag", Etag}]),
     BeginBody = "{\"rows\":[\r\n",
     {ok, Resp, BeginBody}.

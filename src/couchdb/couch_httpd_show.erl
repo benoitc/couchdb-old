@@ -146,7 +146,6 @@ make_map_send_row_fun(QueryServer, Req) ->
             true -> 
                 {stop, ""};
             _ ->
-                ?LOG_ERROR("RowFront ~p",[RowFront]),
                 Chunk = RowFront ++ binary_to_list(RowBody),
                 case Chunk of
                     [] -> ok;
@@ -232,7 +231,7 @@ output_map_list(#httpd{mochi_req=MReq}=Req, Lang, ListSrc, View, Group, Db, Quer
     end).
 
 make_reduce_start_resp_fun(QueryServer, Req, Db, CurrentEtag) ->
-    fun(Req2, _Etag, _, _) ->
+    fun(Req2, _Etag) ->
         JsonResp = couch_query_servers:render_reduce_head(QueryServer, 
             Req2, Db),
         JsonResp2 = apply_etag(JsonResp, CurrentEtag),
@@ -354,7 +353,7 @@ output_reduce_list(#httpd{mochi_req=MReq}=Req, Lang, ListSrc, View, Group, Db, Q
 finish_list(Req, Db, QueryServer, Etag, FoldResult, StartListRespFun, TotalRows) ->
     {Resp, BeginBody} = case FoldResult of
         {_, _, undefined, _} ->
-            {ok, Resp2, BeginBody2} = StartListRespFun(Req, Etag, TotalRows, null),
+            {ok, Resp2, BeginBody2} = render_head_for_empty_list(StartListRespFun, Req, Etag, TotalRows),
             {Resp2, BeginBody2};
         {_, _, Resp0, _} ->
             {Resp0, ""}
@@ -370,6 +369,11 @@ finish_list(Req, Db, QueryServer, Etag, FoldResult, StartListRespFun, TotalRows)
     end,
     send_chunk(Resp, []).
 
+render_head_for_empty_list(StartListRespFun, Req, Etag, null) ->
+    StartListRespFun(Req, Etag);
+render_head_for_empty_list(StartListRespFun, Req, Etag, TotalRows) ->
+    StartListRespFun(Req, Etag, TotalRows, null).
+    
 send_doc_show_response(Lang, ShowSrc, DocId, nil, #httpd{mochi_req=MReq}=Req, Db) ->
     % compute etag with no doc
     Headers = MReq:get(headers),
