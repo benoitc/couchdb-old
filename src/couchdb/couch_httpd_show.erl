@@ -143,8 +143,7 @@ make_map_send_row_fun(QueryServer, Req) ->
                 data = RowBody
             } = couch_httpd_external:parse_external_response(JsonResp),
             case StopIter of
-            true -> 
-                {stop, ""};
+            true -> {stop, ""};
             _ ->
                 Chunk = RowFront ++ binary_to_list(RowBody),
                 case Chunk of
@@ -260,12 +259,10 @@ make_reduce_send_row_fun(QueryServer, Req, Db) ->
             _ ->
                 Chunk = RowFront ++ binary_to_list(RowBody),
                 case Chunk of
-                    [] -> 
-                        {ok, ""};
-                    _ -> 
-                        send_chunk(Resp, Chunk),
-                        {ok, ""}
-                end
+                    [] -> ok;
+                    _ -> send_chunk(Resp, Chunk)
+                end,
+                {ok, ""}
             end
         catch
             throw:Error ->
