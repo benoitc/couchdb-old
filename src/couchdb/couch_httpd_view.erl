@@ -213,6 +213,7 @@ make_reduce_fold_funs(Req, GroupLevel, _QueryArgs, Etag, HelperFuns) ->
     (_Key, _Red, {0, _AccSkip, Resp, RowAcc}) ->
         % we've exhausted limit rows, stop
         {stop, {0, _AccSkip, Resp, RowAcc}};
+
     (_Key, Red, {AccLimit, 0, undefined, RowAcc0}) when GroupLevel == 0 ->
         % we haven't started responding yet and group=false
         {ok, Resp2, RowAcc} = StartRespFun(Req, Etag, RowAcc0),
@@ -222,19 +223,19 @@ make_reduce_fold_funs(Req, GroupLevel, _QueryArgs, Etag, HelperFuns) ->
         % group=false but we've already started the response
         {Go, RowAcc2} = SendRowFun(Resp, {null, Red}, RowAcc),
         {Go, {AccLimit - 1, 0, Resp, RowAcc2}};
+
     (Key, Red, {AccLimit, 0, undefined, RowAcc0})
-            when is_integer(GroupLevel) 
-            andalso is_list(Key) ->
+            when is_integer(GroupLevel), is_list(Key) ->
         % group_level and we haven't responded yet
         {ok, Resp2, RowAcc} = StartRespFun(Req, Etag, RowAcc0),
         {Go, RowAcc2} = SendRowFun(Resp2, {lists:sublist(Key, GroupLevel), Red}, RowAcc),    
         {Go, {AccLimit - 1, 0, Resp2, RowAcc2}};
     (Key, Red, {AccLimit, 0, Resp, RowAcc})
-            when is_integer(GroupLevel) 
-            andalso is_list(Key) ->
+            when is_integer(GroupLevel), is_list(Key) ->
         % group_level and we've already started the response
         {Go, RowAcc2} = SendRowFun(Resp, {lists:sublist(Key, GroupLevel), Red}, RowAcc),
         {Go, {AccLimit - 1, 0, Resp, RowAcc2}};
+
     (Key, Red, {AccLimit, 0, undefined, RowAcc0}) ->
         % group=true and we haven't responded yet
         {ok, Resp2, RowAcc} = StartRespFun(Req, Etag, RowAcc0),
