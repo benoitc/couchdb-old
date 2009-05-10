@@ -207,55 +207,43 @@ make_reduce_fold_funs(Req, GroupLevel, _QueryArgs, Etag, HelperFuns) ->
         end,
         
     RespFun = fun
-    (_Key, _Red, {AccLimit, AccSkip, Resp, AccSeparator}) when AccSkip > 0 ->
+    (_Key, _Red, {AccLimit, AccSkip, Resp, RowAcc}) when AccSkip > 0 ->
         % keep skipping
-        {ok, {AccLimit, AccSkip - 1, Resp, AccSeparator}};
-    (_Key, _Red, {0, _AccSkip, Resp, AccSeparator}) ->
+        {ok, {AccLimit, AccSkip - 1, Resp, RowAcc}};
+    (_Key, _Red, {0, _AccSkip, Resp, RowAcc}) ->
         % we've exhausted limit rows, stop
-        {stop, {0, _AccSkip, Resp, AccSeparator}};
-    (_Key, Red, {AccLimit, 0, undefined, AccSeparator}) when GroupLevel == 0 ->
+        {stop, {0, _AccSkip, Resp, RowAcc}};
+    (_Key, Red, {AccLimit, 0, undefined, RowAcc0}) when GroupLevel == 0 ->
         % we haven't started responding yet and group=false
-        {ok, Resp2, RowSep} = StartRespFun(Req, Etag),
-        SendRowFun(Resp2, {null, Red}, RowSep),
-        {ok, {AccLimit - 1, 0, Resp2, AccSeparator}};
-    (_Key, Red, {AccLimit, 0, Resp, AccSeparator}) when GroupLevel == 0 ->
+        {ok, Resp2, RowAcc} = StartRespFun(Req, Etag, RowAcc0),
+        {Go, RowAcc2} = SendRowFun(Resp2, {null, Red}, RowAcc),
+        {Go, {AccLimit - 1, 0, Resp2, RowAcc2}};
+    (_Key, Red, {AccLimit, 0, Resp, RowAcc}) when GroupLevel == 0 ->
         % group=false but we've already started the response
-        SendRowFun(Resp, {null, Red}, nil),
-        {ok, {AccLimit - 1, 0, Resp, AccSeparator}};
-    (Key, Red, {AccLimit, 0, undefined, AccSeparator})
+        {Go, RowAcc2} = SendRowFun(Resp, {null, Red}, RowAcc),
+        {Go, {AccLimit - 1, 0, Resp, RowAcc2}};
+    (Key, Red, {AccLimit, 0, undefined, RowAcc0})
             when is_integer(GroupLevel) 
             andalso is_list(Key) ->
         % group_level and we haven't responded yet
-        {ok, Resp2, RowSep} = StartRespFun(Req, Etag),
-        RowResult = case SendRowFun(Resp2, {lists:sublist(Key, GroupLevel), Red}, RowSep) of
-        stop -> stop;
-        _ -> ok
-        end,        
-        {RowResult, {AccLimit - 1, 0, Resp2, AccSeparator}};
-    (Key, Red, {AccLimit, 0, Resp, AccSeparator})
+        {ok, Resp2, RowAcc} = StartRespFun(Req, Etag, RowAcc0),
+        {Go, RowAcc2} = SendRowFun(Resp2, {lists:sublist(Key, GroupLevel), Red}, RowAcc),    
+        {Go, {AccLimit - 1, 0, Resp2, RowAcc2}};
+    (Key, Red, {AccLimit, 0, Resp, RowAcc})
             when is_integer(GroupLevel) 
             andalso is_list(Key) ->
         % group_level and we've already started the response
-        RowResult = case SendRowFun(Resp, {lists:sublist(Key, GroupLevel), Red}, nil) of
-        stop -> stop;
-        _ -> ok
-        end,
-        {RowResult, {AccLimit - 1, 0, Resp, AccSeparator}};
-    (Key, Red, {AccLimit, 0, undefined, AccSeparator}) ->
+        {Go, RowAcc2} = SendRowFun(Resp, {lists:sublist(Key, GroupLevel), Red}, RowAcc),
+        {Go, {AccLimit - 1, 0, Resp, RowAcc2}};
+    (Key, Red, {AccLimit, 0, undefined, RowAcc0}) ->
         % group=true and we haven't responded yet
-        {ok, Resp2, RowSep} = StartRespFun(Req, Etag),
-        RowResult = case SendRowFun(Resp2, {Key, Red}, RowSep) of
-        stop -> stop;
-        _ -> ok
-        end,
-        {RowResult, {AccLimit - 1, 0, Resp2, AccSeparator}};
-    (Key, Red, {AccLimit, 0, Resp, AccSeparator}) ->
+        {ok, Resp2, RowAcc} = StartRespFun(Req, Etag, RowAcc0),
+        {Go, RowAcc2} = SendRowFun(Resp2, {Key, Red}, RowAcc),
+        {Go, {AccLimit - 1, 0, Resp2, RowAcc2}};
+    (Key, Red, {AccLimit, 0, Resp, RowAcc}) ->
         % group=true and we've already started the response
-        RowResult = case SendRowFun(Resp, {Key, Red}, nil) of
-        stop -> stop;
-        _ -> ok
-        end,
-        {RowResult, {AccLimit - 1, 0, Resp, AccSeparator}}
+        {Go, RowAcc2} = SendRowFun(Resp, {Key, Red}, RowAcc),
+        {Go, {AccLimit - 1, 0, Resp, RowAcc2}}
     end,
     {ok, GroupRowsFun, RespFun}.
     
@@ -530,7 +518,7 @@ apply_default_helper_funs(#reduce_fold_helper_funs{
     send_row = SendRow
 }=Helpers) ->
     StartResp2 = case StartResp of
-    undefined -> fun json_reduce_start_resp/2;
+    undefined -> fun json_reduce_start_resp/3;
     _ -> StartResp
     end,
 
@@ -585,17 +573,13 @@ send_json_view_row(Resp, Db, {{Key, DocId}, Value}, IncludeDocs, {RowFront, []})
     send_chunk(Resp, RowFront ++  ?JSON_ENCODE(JsonObj)),
     {ok, {",\r\n", []}}.
 
-json_reduce_start_resp(Req, Etag) ->
+json_reduce_start_resp(Req, Etag, _Acc0) ->
     {ok, Resp} = start_json_response(Req, 200, [{"Etag", Etag}]),
-    BeginBody = "{\"rows\":[\r\n",
-    {ok, Resp, BeginBody}.
+    {ok, Resp, "{\"rows\":[\r\n"}.
 
 send_json_reduce_row(Resp, {Key, Value}, RowFront) ->
-    RowFront2 = case RowFront of
-    nil -> ",\r\n";
-    _ -> RowFront
-    end,
-    send_chunk(Resp, RowFront2 ++ ?JSON_ENCODE({[{key, Key}, {value, Value}]})).    
+    send_chunk(Resp, RowFront ++ ?JSON_ENCODE({[{key, Key}, {value, Value}]})),
+    {ok, ",\r\n"}.    
 
 view_group_etag(Group) ->
     view_group_etag(Group, nil).
@@ -608,7 +592,7 @@ view_group_etag(#group{sig=Sig,current_seq=CurrentSeq}, Extra) ->
     couch_httpd:make_etag({Sig, CurrentSeq, Extra}).
 
 % the view row has an error
-view_row_obj(Db, {{Key, error}, Value}, _IncludeDocs) ->
+view_row_obj(_Db, {{Key, error}, Value}, _IncludeDocs) ->
     {[{key, Key}, {error, Value}]};
 % include docs in the view output
 view_row_obj(Db, {{Key, DocId}, {Props}}, true) ->
@@ -622,7 +606,7 @@ view_row_obj(Db, {{Key, DocId}, {Props}}, true) ->
 view_row_obj(Db, {{Key, DocId}, Value}, true) ->
     view_row_with_doc(Db, {{Key, DocId}, Value}, nil);
 % the normal case for rendering a view row
-view_row_obj(Db, {{Key, DocId}, Value}, _IncludeDocs) ->
+view_row_obj(_Db, {{Key, DocId}, Value}, _IncludeDocs) ->
     {[{id, DocId}, {key, Key}, {value, Value}]}.
 
 view_row_with_doc(Db, {{Key, DocId}, Value}, Rev) ->

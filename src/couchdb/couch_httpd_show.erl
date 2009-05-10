@@ -134,7 +134,7 @@ make_map_start_resp_fun(QueryServer, Req, Db, CurrentEtag) ->
     end.
 
 make_map_send_row_fun(QueryServer, Req) ->
-    fun(Resp, Db2, {{Key, DocId}, Value}, IncludeDocs, RowFront) ->
+    fun(Resp, Db2, {{Key, DocId}, Value}, _IncludeDocs, RowFront) ->
         try
             JsonResp = couch_query_servers:render_list_row(QueryServer, 
                 Req, Db2, {{Key, DocId}, Value}),
@@ -231,7 +231,7 @@ output_map_list(#httpd{mochi_req=MReq}=Req, Lang, ListSrc, View, Group, Db, Quer
     end).
 
 make_reduce_start_resp_fun(QueryServer, Req, Db, CurrentEtag) ->
-    fun(Req2, _Etag) ->
+    fun(Req2, _Etag, _Acc) ->
         JsonResp = couch_query_servers:render_reduce_head(QueryServer, 
             Req2, Db),
         JsonResp2 = apply_etag(JsonResp, CurrentEtag),
@@ -255,21 +255,16 @@ make_reduce_send_row_fun(QueryServer, Req, Db) ->
                 stop = StopIter,
                 data = RowBody
             } = couch_httpd_external:parse_external_response(JsonResp),
-            RowFront2 = case RowFront of
-            nil -> [];
-            _ -> RowFront
-            end,
             case StopIter of
-            true -> stop;
+            true -> {stop, ""};
             _ ->
-                Chunk = RowFront2 ++ binary_to_list(RowBody),
+                Chunk = RowFront ++ binary_to_list(RowBody),
                 case Chunk of
                     [] -> 
-                        % {ok, Resp, {RowFront2, Acc}};
-                        {ok, Resp};
+                        {ok, ""};
                     _ -> 
-                        send_chunk(Resp, Chunk)%,
-                        % {ok, Resp, {RowFront2, Acc}}
+                        send_chunk(Resp, Chunk),
+                        {ok, ""}
                 end
             end
         catch
@@ -370,7 +365,7 @@ finish_list(Req, Db, QueryServer, Etag, FoldResult, StartListRespFun, TotalRows)
     send_chunk(Resp, []).
 
 render_head_for_empty_list(StartListRespFun, Req, Etag, null) ->
-    StartListRespFun(Req, Etag);
+    StartListRespFun(Req, Etag, []);
 render_head_for_empty_list(StartListRespFun, Req, Etag, TotalRows) ->
     StartListRespFun(Req, Etag, TotalRows, null).
     
