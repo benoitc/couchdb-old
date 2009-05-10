@@ -130,11 +130,11 @@ make_map_start_resp_fun(QueryServer, Req, Db, CurrentEtag) ->
         } = couch_httpd_external:parse_external_response(JsonResp),
         JsonHeaders = couch_httpd_external:default_or_content_type(CType, ExtHeaders),
         {ok, Resp} = start_chunked_response(Req, Code, JsonHeaders),
-        {ok, Resp, {binary_to_list(BeginBody), []}}
+        {ok, Resp, binary_to_list(BeginBody)}
     end.
 
 make_map_send_row_fun(QueryServer, Req) ->
-    fun(Resp, Db2, {{Key, DocId}, Value}, IncludeDocs, {RowFront, Acc}) ->
+    fun(Resp, Db2, {{Key, DocId}, Value}, IncludeDocs, RowFront) ->
         try
             JsonResp = couch_query_servers:render_list_row(QueryServer, 
                 Req, Db2, {{Key, DocId}, Value}),
@@ -144,7 +144,7 @@ make_map_send_row_fun(QueryServer, Req) ->
             } = couch_httpd_external:parse_external_response(JsonResp),
             case StopIter of
             true -> 
-                {stop, {RowFront, Acc}};
+                {stop, RowFront};
             _ ->
                 RowFront2 = case RowFront of
                 nil -> [];
@@ -155,7 +155,7 @@ make_map_send_row_fun(QueryServer, Req) ->
                     [] -> ok;
                     _ -> send_chunk(Resp, Chunk)
                 end,
-                {ok, {RowFront, Acc}}
+                {ok, RowFront}
             end
         catch
             throw:Error ->
@@ -268,8 +268,12 @@ make_reduce_send_row_fun(QueryServer, Req, Db) ->
             _ ->
                 Chunk = RowFront2 ++ binary_to_list(RowBody),
                 case Chunk of
-                    [] -> {ok, Resp};
-                    _ -> send_chunk(Resp, Chunk)
+                    [] -> 
+                        % {ok, Resp, {RowFront2, Acc}};
+                        {ok, Resp};
+                    _ -> 
+                        send_chunk(Resp, Chunk)%,
+                        % {ok, Resp, {RowFront2, Acc}}
                 end
             end
         catch
@@ -353,10 +357,6 @@ output_reduce_list(#httpd{mochi_req=MReq}=Req, Lang, ListSrc, View, Group, Db, Q
 finish_list(Req, Db, QueryServer, Etag, FoldResult, StartListRespFun, TotalRows) ->
     case FoldResult of
     {ok, Acc} ->
-        JsonTail = couch_query_servers:render_list_tail(QueryServer, Req, Db),
-        #extern_resp_args{
-            data = Tail
-        } = couch_httpd_external:parse_external_response(JsonTail),
         {Resp, BeginBody} = case Acc of
         {_, _, undefined, _} ->
             {ok, Resp2, BeginBody2} = StartListRespFun(Req, Etag, TotalRows, null),
@@ -364,6 +364,10 @@ finish_list(Req, Db, QueryServer, Etag, FoldResult, StartListRespFun, TotalRows)
         {_, _, Resp2, _} ->
             {Resp2, ""}
         end,
+        JsonTail = couch_query_servers:render_list_tail(QueryServer, Req, Db),
+        #extern_resp_args{
+            data = Tail
+        } = couch_httpd_external:parse_external_response(JsonTail),
         Chunk = BeginBody ++ binary_to_list(Tail),
         case Chunk of
             [] -> ok;
