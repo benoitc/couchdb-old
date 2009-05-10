@@ -177,14 +177,14 @@ output_reduce_view(Req, View, Group, QueryArgs, Keys) ->
     CurrentEtag = view_group_etag(Group),
     couch_httpd:etag_respond(Req, CurrentEtag, fun() ->
         {ok, GroupRowsFun, RespFun} = make_reduce_fold_funs(Req, GroupLevel, QueryArgs, CurrentEtag, #reduce_fold_helper_funs{}),
-        {Resp, _} = lists:foldl(
-            fun(Key, {Resp, AccSeparator}) ->
+        {Resp, _RedAcc3} = lists:foldl(
+            fun(Key, {Resp, RedAcc}) ->
                 % run the reduce once for each key in keys, with limit etc reapplied for each key
-                FoldAccInit = {Limit, Skip, Resp, AccSeparator},
-                {_, {_, _, Resp2, NewAcc}} = couch_view:fold_reduce(View, Dir, {Key, StartDocId}, 
+                FoldAccInit = {Limit, Skip, Resp, RedAcc},
+                {_, {_, _, Resp2, RedAcc2}} = couch_view:fold_reduce(View, Dir, {Key, StartDocId}, 
                     {Key, EndDocId}, GroupRowsFun, RespFun, FoldAccInit),
                 % Switch to comma
-                {Resp2, NewAcc}
+                {Resp2, RedAcc2}
             end,
         {undefined, []}, Keys), % Start with no comma
         finish_reduce_fold(Req, Resp)
