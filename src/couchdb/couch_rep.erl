@@ -369,10 +369,11 @@ attachment_loop(ReqId) ->
         {ibrowse_async_response_end, ReqId} -> ok
     end.
 
-attachment_stub_converter(DbS, Id, {Name, {stub, Type, Length}}) ->
+attachment_stub_converter(DbS, Id, Rev, {Name, {stub, Type, Length}}) ->
     #http_db{uri=DbUrl, headers=Headers} = DbS,
-    % TODO worry about revisions
-    Url = DbUrl ++ url_encode(Id) ++ "/" ++ url_encode(?b2l(Name)),
+    {Pos, [RevId|_]} = Rev,
+    Url = lists:flatten([DbUrl, url_encode(Id), "/", url_encode(?b2l(Name)),
+        "?rev=", couch_doc:rev_to_str({Pos,RevId})]),
     ?LOG_DEBUG("Attachment URL ~p", [Url]),
     {ok, RcvFun} = make_attachment_stub_receiver(Url, Headers, Name, 
         Type, Length),
@@ -604,22 +605,17 @@ enum_docs_since(Pid, DbSource, DbTarget, {StartSeq, RevsCount}) ->
     [] ->
         gen_server:call(Pid, {fin, {StartSeq, RevsCount}}, infinity);
     DocInfoList ->
-        SrcRevsList = lists:map(fun(SrcDocInfo) ->
-            #doc_info{id=Id,
-                rev=Rev,
-                conflict_revs=Conflicts,
-                deleted_conflict_revs=DelConflicts
-            } = SrcDocInfo,
-            SrcRevs = [Rev | Conflicts] ++ DelConflicts,
+        SrcRevsList = lists:map(fun(#doc_info{id=Id,revs=RevInfos}) ->
+            SrcRevs = [Rev || #rev_info{rev=Rev} <- RevInfos],
             {Id, SrcRevs}
         end, DocInfoList),        
         {ok, MissingRevs} = get_missing_revs(DbTarget, SrcRevsList),
         
         %% do we need to check for success here?
-        [ gen_server:call(Pid, {replicate_doc, Info}, infinity) 
+        [gen_server:call(Pid, {replicate_doc, Info}, infinity) 
             || Info <- MissingRevs ],
         
-        #doc_info{update_seq=LastSeq} = lists:last(DocInfoList),
+        #doc_info{high_seq=LastSeq} = lists:last(DocInfoList),
         RevsCount2 = RevsCount + length(SrcRevsList),
         gen_server:cast(Pid, {increment_update_seq, LastSeq}),
         
@@ -640,15 +636,15 @@ get_doc_info_list(#http_db{uri=DbUrl, headers=Headers}, StartSeq) ->
     {Results} = do_http_request(Url, get, Headers),
     lists:map(fun({RowInfoList}) ->
         {RowValueProps} = proplists:get_value(<<"value">>, RowInfoList),
+        Seq = proplists:get_value(<<"key">>, RowInfoList),
+        Revs = 
+            [#rev_info{rev=couch_doc:parse_rev(proplists:get_value(<<"rev">>, RowValueProps)), deleted = proplists:get_value(<<"deleted">>, RowValueProps, false)} | 
+                [#rev_info{rev=Rev,deleted=false} || Rev <- couch_doc:parse_revs(proplists:get_value(<<"conflicts">>, RowValueProps, []))] ++
+                [#rev_info{rev=Rev,deleted=true} || Rev <- couch_doc:parse_revs(proplists:get_value(<<"deleted_conflicts">>, RowValueProps, []))]],
         #doc_info{
             id=proplists:get_value(<<"id">>, RowInfoList),
-            rev=couch_doc:parse_rev(proplists:get_value(<<"rev">>, RowValueProps)),
-            update_seq = proplists:get_value(<<"key">>, RowInfoList),
-            conflict_revs =
-                couch_doc:parse_revs(proplists:get_value(<<"conflicts">>, RowValueProps, [])),
-            deleted_conflict_revs =
-                couch_doc:parse_revs(proplists:get_value(<<"deleted_conflicts">>, RowValueProps, [])),
-            deleted = proplists:get_value(<<"deleted">>, RowValueProps, false)
+            high_seq = Seq,
+            revs = Revs
         }
     end, proplists:get_value(<<"rows">>, Results));
 get_doc_info_list(DbSource, StartSeq) ->
@@ -712,8 +708,9 @@ open_doc_revs(#http_db{uri=DbUrl, headers=Headers} = DbS, DocId, Revs0,
         fun({[{<<"missing">>, Rev}]}) ->
             {{not_found, missing}, couch_doc:parse_rev(Rev)};
         ({[{<<"ok">>, JsonDoc}]}) ->
-        #doc{id=Id, attachments=Attach} = Doc = couch_doc:from_json_obj(JsonDoc),
-        Attach2 = [attachment_stub_converter(DbS,Id,A) || A <- Attach],
+        #doc{id=Id, revs=Rev, attachments=Attach} = Doc =
+            couch_doc:from_json_obj(JsonDoc),
+        Attach2 = [attachment_stub_converter(DbS,Id,Rev,A) || A <- Attach],
         {ok, Doc#doc{attachments=Attach2}}
         end, JsonResults),
     {ok, Results};
