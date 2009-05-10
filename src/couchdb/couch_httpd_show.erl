@@ -117,10 +117,10 @@ send_view_list_response(Lang, ListSrc, ViewName, DesignId, Req, Db, Keys) ->
         end
     end.
 
-make_map_start_resp_fun(QueryServer, Req, Db, CurrentEtag) ->
-    fun(Req2, _Etag, TotalViewCount, Offset, _Acc) ->
+make_map_start_resp_fun(QueryServer, Db) ->
+    fun(Req, CurrentEtag, TotalViewCount, Offset, _Acc) ->
         ExternalResp = couch_query_servers:render_list_head(QueryServer, 
-            Req2, Db, TotalViewCount, Offset),
+            Req, Db, TotalViewCount, Offset),
         JsonResp = apply_etag(ExternalResp, CurrentEtag),
         #extern_resp_args{
             code = Code,
@@ -179,7 +179,7 @@ output_map_list(#httpd{mochi_req=MReq}=Req, Lang, ListSrc, View, Group, Db, Quer
         % pass it into the view fold with closures
         {ok, QueryServer} = couch_query_servers:start_view_list(Lang, ListSrc),
 
-        StartListRespFun = make_map_start_resp_fun(QueryServer, Req, Db, CurrentEtag),
+        StartListRespFun = make_map_start_resp_fun(QueryServer, Db),
         SendListRowFun = make_map_send_row_fun(QueryServer, Req),
     
         FoldlFun = couch_httpd_view:make_view_fold_fun(Req, QueryArgs, CurrentEtag, Db, RowCount,
@@ -210,7 +210,7 @@ output_map_list(#httpd{mochi_req=MReq}=Req, Lang, ListSrc, View, Group, Db, Quer
         % pass it into the view fold with closures
         {ok, QueryServer} = couch_query_servers:start_view_list(Lang, ListSrc),
 
-        StartListRespFun = make_map_start_resp_fun(QueryServer, Req, Db, CurrentEtag),
+        StartListRespFun = make_map_start_resp_fun(QueryServer, Db),
         SendListRowFun = make_map_send_row_fun(QueryServer, Req),
 
         FoldAccInit = {Limit, SkipCount, undefined, []},
