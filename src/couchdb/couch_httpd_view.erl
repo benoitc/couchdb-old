@@ -189,65 +189,7 @@ output_reduce_view(Req, View, Group, QueryArgs, Keys) ->
         {undefined, []}, Keys), % Start with no comma
         finish_reduce_fold(Req, Resp)
     end).
-    
-make_reduce_fold_funs(Req, GroupLevel, _QueryArgs, Etag, HelperFuns) ->
-    #reduce_fold_helper_funs{
-        start_response = StartRespFun,
-        send_row = SendRowFun
-    } = apply_default_helper_funs(HelperFuns),
 
-    GroupRowsFun =
-        fun({_Key1,_}, {_Key2,_}) when GroupLevel == 0 ->
-            true;
-        ({Key1,_}, {Key2,_})
-                when is_integer(GroupLevel) and is_list(Key1) and is_list(Key2) ->
-            lists:sublist(Key1, GroupLevel) == lists:sublist(Key2, GroupLevel);
-        ({Key1,_}, {Key2,_}) ->
-            Key1 == Key2
-        end,
-        
-    RespFun = fun
-    (_Key, _Red, {AccLimit, AccSkip, Resp, RowAcc}) when AccSkip > 0 ->
-        % keep skipping
-        {ok, {AccLimit, AccSkip - 1, Resp, RowAcc}};
-    (_Key, _Red, {0, _AccSkip, Resp, RowAcc}) ->
-        % we've exhausted limit rows, stop
-        {stop, {0, _AccSkip, Resp, RowAcc}};
-
-    (_Key, Red, {AccLimit, 0, undefined, RowAcc0}) when GroupLevel == 0 ->
-        % we haven't started responding yet and group=false
-        {ok, Resp2, RowAcc} = StartRespFun(Req, Etag, RowAcc0),
-        {Go, RowAcc2} = SendRowFun(Resp2, {null, Red}, RowAcc),
-        {Go, {AccLimit - 1, 0, Resp2, RowAcc2}};
-    (_Key, Red, {AccLimit, 0, Resp, RowAcc}) when GroupLevel == 0 ->
-        % group=false but we've already started the response
-        {Go, RowAcc2} = SendRowFun(Resp, {null, Red}, RowAcc),
-        {Go, {AccLimit - 1, 0, Resp, RowAcc2}};
-
-    (Key, Red, {AccLimit, 0, undefined, RowAcc0})
-            when is_integer(GroupLevel), is_list(Key) ->
-        % group_level and we haven't responded yet
-        {ok, Resp2, RowAcc} = StartRespFun(Req, Etag, RowAcc0),
-        {Go, RowAcc2} = SendRowFun(Resp2, {lists:sublist(Key, GroupLevel), Red}, RowAcc),    
-        {Go, {AccLimit - 1, 0, Resp2, RowAcc2}};
-    (Key, Red, {AccLimit, 0, Resp, RowAcc})
-            when is_integer(GroupLevel), is_list(Key) ->
-        % group_level and we've already started the response
-        {Go, RowAcc2} = SendRowFun(Resp, {lists:sublist(Key, GroupLevel), Red}, RowAcc),
-        {Go, {AccLimit - 1, 0, Resp, RowAcc2}};
-
-    (Key, Red, {AccLimit, 0, undefined, RowAcc0}) ->
-        % group=true and we haven't responded yet
-        {ok, Resp2, RowAcc} = StartRespFun(Req, Etag, RowAcc0),
-        {Go, RowAcc2} = SendRowFun(Resp2, {Key, Red}, RowAcc),
-        {Go, {AccLimit - 1, 0, Resp2, RowAcc2}};
-    (Key, Red, {AccLimit, 0, Resp, RowAcc}) ->
-        % group=true and we've already started the response
-        {Go, RowAcc2} = SendRowFun(Resp, {Key, Red}, RowAcc),
-        {Go, {AccLimit - 1, 0, Resp, RowAcc2}}
-    end,
-    {ok, GroupRowsFun, RespFun}.
-    
 reverse_key_default(nil) -> {};
 reverse_key_default({}) -> nil;
 reverse_key_default(Key) -> Key.
@@ -441,9 +383,7 @@ make_view_fold_fun(Req, QueryArgs, Etag, Db,
         include_docs = IncludeDocs
     } = QueryArgs,
 
-    fun({{Key, DocId}, Value}, OffsetReds,
-                      {AccLimit, AccSkip, Resp, RowFunAcc}) ->
-        % ?LOG_ERROR("RowFunAcc ~p",[RowFunAcc]),
+    fun({{Key, DocId}, Value}, OffsetReds, {AccLimit, AccSkip, Resp, RowFunAcc}) ->
         PassedEnd = PassedEndFun(Key, DocId),
         case {PassedEnd, AccLimit, AccSkip, Resp} of
         {true, _, _, _} ->
@@ -457,26 +397,76 @@ make_view_fold_fun(Req, QueryArgs, Etag, Db,
         {_, _, _, undefined} ->
             % rendering the first row, first we start the response
             Offset = ReduceCountFun(OffsetReds),
-            {ok, Resp2, BeginAcc} = StartRespFun(Req, Etag,
-                TotalViewCount, Offset),            
-            case SendRowFun(Resp2, Db, {{Key, DocId}, Value}, 
-                    IncludeDocs, BeginAcc) of
-                {stop, RowFunAcc3} ->  
-                    {stop, {AccLimit - 1, 0, Resp2, RowFunAcc3}};
-                {ok, RowFunAcc2} -> 
-                    {ok, {AccLimit - 1, 0, Resp2, RowFunAcc2}}
-            end;
+            {ok, Resp2, RowFunAcc0} = StartRespFun(Req, Etag,
+                TotalViewCount, Offset),
+            {Go, RowFunAcc2} = SendRowFun(Resp2, Db, {{Key, DocId}, Value}, 
+                IncludeDocs, RowFunAcc0),
+            {Go, {AccLimit - 1, 0, Resp2, RowFunAcc2}};
         {_, AccLimit, _, Resp} when (AccLimit > 0) ->
             % rendering all other rows
-            case SendRowFun(Resp, Db, {{Key, DocId}, Value}, 
-                    IncludeDocs, RowFunAcc) of
-                {stop, RowFunAcc3} ->  
-                    {stop, {AccLimit - 1, 0, Resp, RowFunAcc3}};
-                {ok, RowFunAcc2} -> 
-                    {ok, {AccLimit - 1, 0, Resp, RowFunAcc2}}
-            end
+            {Go, RowFunAcc2} = SendRowFun(Resp, Db, {{Key, DocId}, Value}, 
+                IncludeDocs, RowFunAcc),
+            {Go, {AccLimit - 1, 0, Resp, RowFunAcc2}}
         end
     end.
+
+make_reduce_fold_funs(Req, GroupLevel, _QueryArgs, Etag, HelperFuns) ->
+    #reduce_fold_helper_funs{
+        start_response = StartRespFun,
+        send_row = SendRowFun
+    } = apply_default_helper_funs(HelperFuns),
+
+    GroupRowsFun =
+        fun({_Key1,_}, {_Key2,_}) when GroupLevel == 0 ->
+            true;
+        ({Key1,_}, {Key2,_})
+                when is_integer(GroupLevel) and is_list(Key1) and is_list(Key2) ->
+            lists:sublist(Key1, GroupLevel) == lists:sublist(Key2, GroupLevel);
+        ({Key1,_}, {Key2,_}) ->
+            Key1 == Key2
+        end,
+
+    RespFun = fun
+    (_Key, _Red, {AccLimit, AccSkip, Resp, RowAcc}) when AccSkip > 0 ->
+        % keep skipping
+        {ok, {AccLimit, AccSkip - 1, Resp, RowAcc}};
+    (_Key, _Red, {0, _AccSkip, Resp, RowAcc}) ->
+        % we've exhausted limit rows, stop
+        {stop, {0, _AccSkip, Resp, RowAcc}};
+
+    (_Key, Red, {AccLimit, 0, undefined, RowAcc0}) when GroupLevel == 0 ->
+        % we haven't started responding yet and group=false
+        {ok, Resp2, RowAcc} = StartRespFun(Req, Etag, RowAcc0),
+        {Go, RowAcc2} = SendRowFun(Resp2, {null, Red}, RowAcc),
+        {Go, {AccLimit - 1, 0, Resp2, RowAcc2}};
+    (_Key, Red, {AccLimit, 0, Resp, RowAcc}) when GroupLevel == 0 ->
+        % group=false but we've already started the response
+        {Go, RowAcc2} = SendRowFun(Resp, {null, Red}, RowAcc),
+        {Go, {AccLimit - 1, 0, Resp, RowAcc2}};
+
+    (Key, Red, {AccLimit, 0, undefined, RowAcc0})
+            when is_integer(GroupLevel), is_list(Key) ->
+        % group_level and we haven't responded yet
+        {ok, Resp2, RowAcc} = StartRespFun(Req, Etag, RowAcc0),
+        {Go, RowAcc2} = SendRowFun(Resp2, {lists:sublist(Key, GroupLevel), Red}, RowAcc),    
+        {Go, {AccLimit - 1, 0, Resp2, RowAcc2}};
+    (Key, Red, {AccLimit, 0, Resp, RowAcc})
+            when is_integer(GroupLevel), is_list(Key) ->
+        % group_level and we've already started the response
+        {Go, RowAcc2} = SendRowFun(Resp, {lists:sublist(Key, GroupLevel), Red}, RowAcc),
+        {Go, {AccLimit - 1, 0, Resp, RowAcc2}};
+
+    (Key, Red, {AccLimit, 0, undefined, RowAcc0}) ->
+        % group=true and we haven't responded yet
+        {ok, Resp2, RowAcc} = StartRespFun(Req, Etag, RowAcc0),
+        {Go, RowAcc2} = SendRowFun(Resp2, {Key, Red}, RowAcc),
+        {Go, {AccLimit - 1, 0, Resp2, RowAcc2}};
+    (Key, Red, {AccLimit, 0, Resp, RowAcc}) ->
+        % group=true and we've already started the response
+        {Go, RowAcc2} = SendRowFun(Resp, {Key, Red}, RowAcc),
+        {Go, {AccLimit - 1, 0, Resp, RowAcc2}}
+    end,
+    {ok, GroupRowsFun, RespFun}.
 
 apply_default_helper_funs(#view_fold_helper_funs{
     passed_end = PassedEnd,
@@ -557,12 +547,12 @@ json_view_start_resp(Req, Etag, TotalViewCount, Offset) ->
     {ok, Resp} = start_json_response(Req, 200, [{"Etag", Etag}]),
     BeginBody = io_lib:format("{\"total_rows\":~w,\"offset\":~w,\"rows\":[\r\n",
             [TotalViewCount, Offset]),
-    {ok, Resp, {BeginBody, []}}.
+    {ok, Resp, BeginBody}.
 
-send_json_view_row(Resp, Db, {{Key, DocId}, Value}, IncludeDocs, {RowFront, []}) ->
+send_json_view_row(Resp, Db, {{Key, DocId}, Value}, IncludeDocs, RowFront) ->
     JsonObj = view_row_obj(Db, {{Key, DocId}, Value}, IncludeDocs),
     send_chunk(Resp, RowFront ++  ?JSON_ENCODE(JsonObj)),
-    {ok, {",\r\n", []}}.
+    {ok, ",\r\n"}.
 
 json_reduce_start_resp(Req, Etag, _Acc0) ->
     {ok, Resp} = start_json_response(Req, 200, [{"Etag", Etag}]),
