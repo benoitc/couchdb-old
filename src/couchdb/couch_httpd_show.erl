@@ -130,12 +130,11 @@ make_map_start_resp_fun(QueryServer, Req, Db, CurrentEtag) ->
         } = couch_httpd_external:parse_external_response(JsonResp),
         JsonHeaders = couch_httpd_external:default_or_content_type(CType, ExtHeaders),
         {ok, Resp} = start_chunked_response(Req, Code, JsonHeaders),
-        {ok, Resp, binary_to_list(BeginBody)}
+        {ok, Resp, {binary_to_list(BeginBody), []}}
     end.
 
 make_map_send_row_fun(QueryServer, Req) ->
-    fun(Resp, Db2, {{Key, DocId}, Value}, 
-        {RowFront, IncludeDocs, Acc}) ->
+    fun(Resp, Db2, {{Key, DocId}, Value}, IncludeDocs, {RowFront, Acc}) ->
         try
             JsonResp = couch_query_servers:render_list_row(QueryServer, 
                 Req, Db2, {{Key, DocId}, Value}),
@@ -145,7 +144,7 @@ make_map_send_row_fun(QueryServer, Req) ->
             } = couch_httpd_external:parse_external_response(JsonResp),
             case StopIter of
             true -> 
-                {stop, {RowFront, IncludeDocs, Acc}};
+                {stop, {RowFront, Acc}};
             _ ->
                 RowFront2 = case RowFront of
                 nil -> [];
@@ -156,7 +155,7 @@ make_map_send_row_fun(QueryServer, Req) ->
                     [] -> ok;
                     _ -> send_chunk(Resp, Chunk)
                 end,
-                {ok, {RowFront, IncludeDocs, Acc}}
+                {ok, {RowFront, Acc}}
             end
         catch
             throw:Error ->

@@ -460,18 +460,19 @@ make_view_fold_fun(Req, QueryArgs, Etag, Db,
         {_, _, AccSkip, _} when AccSkip > 0 ->
             {ok, {AccLimit, AccSkip - 1, Resp, RowFunAcc}};
         {_, _, _, undefined} ->
+            % rendering the first row, first we start the response
             Offset = ReduceCountFun(OffsetReds),
-            {ok, Resp2, BeginBody} = StartRespFun(Req, Etag,
+            {ok, Resp2, BeginAcc} = StartRespFun(Req, Etag,
                 TotalViewCount, Offset),
-            FirstRowFunAcc = {BeginBody, IncludeDocs, []},
-            case SendRowFun(Resp2, Db, 
-                {{Key, DocId}, Value}, FirstRowFunAcc) of
+            case SendRowFun(Resp2, Db, {{Key, DocId}, Value}, 
+                    IncludeDocs, BeginAcc) of
             {stop, RowFunAcc3} ->  {stop, {AccLimit - 1, 0, Resp2, RowFunAcc3}};
             {ok, RowFunAcc2} -> {ok, {AccLimit - 1, 0, Resp2, RowFunAcc2}}
             end;
         {_, AccLimit, _, Resp} when (AccLimit > 0) ->
-            case SendRowFun(Resp, Db, 
-                {{Key, DocId}, Value}, RowFunAcc) of
+            % rendering all other rows
+            case SendRowFun(Resp, Db, {{Key, DocId}, Value}, 
+                    IncludeDocs, RowFunAcc) of
             {stop, RowFunAcc3} ->  {stop, {AccLimit - 1, 0, Resp, RowFunAcc3}};
             {ok, RowFunAcc2} -> {ok, {AccLimit - 1, 0, Resp, RowFunAcc2}}
             end
@@ -494,7 +495,7 @@ apply_default_helper_funs(#view_fold_helper_funs{
     end,
 
     SendRow2 = case SendRow of
-    undefined -> fun send_json_view_row/4;
+    undefined -> fun send_json_view_row/5;
     _ -> SendRow
     end,
 
@@ -557,16 +558,12 @@ json_view_start_resp(Req, Etag, TotalViewCount, Offset) ->
     {ok, Resp} = start_json_response(Req, 200, [{"Etag", Etag}]),
     BeginBody = io_lib:format("{\"total_rows\":~w,\"offset\":~w,\"rows\":[\r\n",
             [TotalViewCount, Offset]),
-    {ok, Resp, BeginBody}.
+    {ok, Resp, {BeginBody, []}}.
 
-send_json_view_row(Resp, Db, {{Key, DocId}, Value}, {RowFront, IncludeDocs, []}) ->
+send_json_view_row(Resp, Db, {{Key, DocId}, Value}, IncludeDocs, {RowFront, []}) ->
     JsonObj = view_row_obj(Db, {{Key, DocId}, Value}, IncludeDocs),
-    RowFront2 = case RowFront of
-    nil -> ",\r\n";
-    _ -> RowFront
-    end,
-    send_chunk(Resp, RowFront2 ++  ?JSON_ENCODE(JsonObj)),
-    {ok, {nil, IncludeDocs, []}}.
+    send_chunk(Resp, RowFront ++  ?JSON_ENCODE(JsonObj)),
+    {ok, {",\r\n", []}}.
 
 json_reduce_start_resp(Req, Etag, _, _) ->
     {ok, Resp} = start_json_response(Req, 200, [{"Etag", Etag}]),
