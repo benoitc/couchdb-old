@@ -144,18 +144,15 @@ make_map_send_row_fun(QueryServer, Req) ->
             } = couch_httpd_external:parse_external_response(JsonResp),
             case StopIter of
             true -> 
-                {stop, RowFront};
+                {stop, ""};
             _ ->
-                RowFront2 = case RowFront of
-                nil -> [];
-                _ -> RowFront
-                end,
-                Chunk = RowFront2 ++ binary_to_list(RowBody),
+                ?LOG_ERROR("RowFront ~p",[RowFront]),
+                Chunk = RowFront ++ binary_to_list(RowBody),
                 case Chunk of
                     [] -> ok;
                     _ -> send_chunk(Resp, Chunk)
                 end,
-                {ok, RowFront}
+                {ok, ""}
             end
         catch
             throw:Error ->
@@ -193,7 +190,7 @@ output_map_list(#httpd{mochi_req=MReq}=Req, Lang, ListSrc, View, Group, Db, Quer
                 send_row = SendListRowFun
             }),
         FoldAccInit = {Limit, SkipCount, undefined, []},
-        FoldResult = couch_view:fold(View, Start, Dir, FoldlFun, FoldAccInit),
+        {ok, FoldResult} = couch_view:fold(View, Start, Dir, FoldlFun, FoldAccInit),
         finish_list(Req, Db, QueryServer, CurrentEtag, FoldResult, StartListRespFun, RowCount)
     end);
 
@@ -218,7 +215,7 @@ output_map_list(#httpd{mochi_req=MReq}=Req, Lang, ListSrc, View, Group, Db, Quer
         SendListRowFun = make_map_send_row_fun(QueryServer, Req),
 
         FoldAccInit = {Limit, SkipCount, undefined, []},
-        FoldResult = lists:foldl(
+        {ok, FoldResult} = lists:foldl(
             fun(Key, {ok, FoldAcc}) ->
                 FoldlFun = couch_httpd_view:make_view_fold_fun(Req, QueryArgs#view_query_args{
                         start_key = Key,
@@ -312,7 +309,7 @@ output_reduce_list(#httpd{mochi_req=MReq}=Req, Lang, ListSrc, View, Group, Db, Q
                 send_row = SendListRowFun
             }),
         FoldAccInit = {Limit, SkipCount, undefined, []},
-        FoldResult = couch_view:fold_reduce(View, Dir, {StartKey, StartDocId},
+        {ok, FoldResult} = couch_view:fold_reduce(View, Dir, {StartKey, StartDocId},
             {EndKey, EndDocId}, GroupRowsFun, RespFun,
             FoldAccInit),
         finish_list(Req, Db, QueryServer, CurrentEtag, FoldResult, StartListRespFun, null)
@@ -346,7 +343,7 @@ output_reduce_list(#httpd{mochi_req=MReq}=Req, Lang, ListSrc, View, Group, Db, Q
                 send_row = SendListRowFun
             }),
         FoldAccInit = {Limit, SkipCount, undefined, []},
-        FoldResult = lists:foldl(
+        {ok, FoldResult} = lists:foldl(
             fun(Key, {ok, FoldAcc}) ->
                 couch_view:fold_reduce(View, Dir, {Key, StartDocId},
                     {Key, EndDocId}, GroupRowsFun, RespFun, FoldAcc)
@@ -355,28 +352,23 @@ output_reduce_list(#httpd{mochi_req=MReq}=Req, Lang, ListSrc, View, Group, Db, Q
     end).
 
 finish_list(Req, Db, QueryServer, Etag, FoldResult, StartListRespFun, TotalRows) ->
-    case FoldResult of
-    {ok, Acc} ->
-        {Resp, BeginBody} = case Acc of
+    {Resp, BeginBody} = case FoldResult of
         {_, _, undefined, _} ->
             {ok, Resp2, BeginBody2} = StartListRespFun(Req, Etag, TotalRows, null),
             {Resp2, BeginBody2};
-        {_, _, Resp2, _} ->
-            {Resp2, ""}
-        end,
-        JsonTail = couch_query_servers:render_list_tail(QueryServer, Req, Db),
-        #extern_resp_args{
-            data = Tail
-        } = couch_httpd_external:parse_external_response(JsonTail),
-        Chunk = BeginBody ++ binary_to_list(Tail),
-        case Chunk of
-            [] -> ok;
-            _ -> send_chunk(Resp, Chunk)
-        end,
-        send_chunk(Resp, []);
-    Error ->
-        throw(Error)
-    end.
+        {_, _, Resp0, _} ->
+            {Resp0, ""}
+    end,
+    JsonTail = couch_query_servers:render_list_tail(QueryServer, Req, Db),
+    #extern_resp_args{
+        data = Tail
+    } = couch_httpd_external:parse_external_response(JsonTail),
+    Chunk = BeginBody ++ binary_to_list(Tail),
+    case Chunk of
+        [] -> ok;
+        _ -> send_chunk(Resp, Chunk)
+    end,
+    send_chunk(Resp, []).
 
 send_doc_show_response(Lang, ShowSrc, DocId, nil, #httpd{mochi_req=MReq}=Req, Db) ->
     % compute etag with no doc

@@ -179,6 +179,7 @@ output_reduce_view(Req, View, Group, QueryArgs, Keys) ->
         {ok, GroupRowsFun, RespFun} = make_reduce_fold_funs(Req, GroupLevel, QueryArgs, CurrentEtag, #reduce_fold_helper_funs{}),
         {Resp, _} = lists:foldl(
             fun(Key, {Resp, AccSeparator}) ->
+                % run the reduce once for each key in keys, with limit etc reapplied for each key
                 FoldAccInit = {Limit, Skip, Resp, AccSeparator},
                 {_, {_, _, Resp2, NewAcc}} = couch_view:fold_reduce(View, Dir, {Key, StartDocId}, 
                     {Key, EndDocId}, GroupRowsFun, RespFun, FoldAccInit),
@@ -204,20 +205,29 @@ make_reduce_fold_funs(Req, GroupLevel, _QueryArgs, Etag, HelperFuns) ->
         ({Key1,_}, {Key2,_}) ->
             Key1 == Key2
         end,
-    RespFun = fun(_Key, _Red, {AccLimit, AccSkip, Resp, AccSeparator}) when AccSkip > 0 ->
+        
+    RespFun = fun
+    (_Key, _Red, {AccLimit, AccSkip, Resp, AccSeparator}) when AccSkip > 0 ->
+        % keep skipping
         {ok, {AccLimit, AccSkip - 1, Resp, AccSeparator}};
-    (_Key, _Red, {0, 0, Resp, AccSeparator}) ->
-        {stop, {0, 0, Resp, AccSeparator}};
-    (_Key, Red, {AccLimit, 0, Resp, AccSeparator}) when GroupLevel == 0 ->
-        {ok, Resp2, RowSep} = case Resp of
-        undefined -> StartRespFun(Req, Etag, null, null);
-        _ -> {ok, Resp, nil}
-        end,
+    (_Key, _Red, {0, _AccSkip, Resp, AccSeparator}) ->
+        % we've exhausted limit rows, stop
+        {stop, {0, _AccSkip, Resp, AccSeparator}};
+    (_Key, Red, {AccLimit, 0, undefined, AccSeparator}) when GroupLevel == 0 ->
+        % we haven't started responding yet and group=false
+        {ok, Resp2, RowSep} = StartRespFun(Req, Etag, null, null),
         RowResult = case SendRowFun(Resp2, {null, Red}, RowSep) of
         stop -> stop;
         _ -> ok
         end,
         {RowResult, {AccLimit - 1, 0, Resp2, AccSeparator}};
+    (_Key, Red, {AccLimit, 0, Resp, AccSeparator}) when GroupLevel == 0 ->
+        % group=false but we've already responded
+        RowResult = case SendRowFun(Resp, {null, Red}, nil) of
+        stop -> stop;
+        _ -> ok
+        end,
+        {RowResult, {AccLimit - 1, 0, Resp, AccSeparator}};
     (Key, Red, {AccLimit, 0, Resp, AccSeparator})
             when is_integer(GroupLevel) 
             andalso is_list(Key) ->
@@ -463,18 +473,22 @@ make_view_fold_fun(Req, QueryArgs, Etag, Db,
             % rendering the first row, first we start the response
             Offset = ReduceCountFun(OffsetReds),
             {ok, Resp2, BeginAcc} = StartRespFun(Req, Etag,
-                TotalViewCount, Offset),
+                TotalViewCount, Offset),            
             case SendRowFun(Resp2, Db, {{Key, DocId}, Value}, 
                     IncludeDocs, BeginAcc) of
-            {stop, RowFunAcc3} ->  {stop, {AccLimit - 1, 0, Resp2, RowFunAcc3}};
-            {ok, RowFunAcc2} -> {ok, {AccLimit - 1, 0, Resp2, RowFunAcc2}}
+                {stop, RowFunAcc3} ->  
+                    {stop, {AccLimit - 1, 0, Resp2, RowFunAcc3}};
+                {ok, RowFunAcc2} -> 
+                    {ok, {AccLimit - 1, 0, Resp2, RowFunAcc2}}
             end;
         {_, AccLimit, _, Resp} when (AccLimit > 0) ->
             % rendering all other rows
             case SendRowFun(Resp, Db, {{Key, DocId}, Value}, 
                     IncludeDocs, RowFunAcc) of
-            {stop, RowFunAcc3} ->  {stop, {AccLimit - 1, 0, Resp, RowFunAcc3}};
-            {ok, RowFunAcc2} -> {ok, {AccLimit - 1, 0, Resp, RowFunAcc2}}
+                {stop, RowFunAcc3} ->  
+                    {stop, {AccLimit - 1, 0, Resp, RowFunAcc3}};
+                {ok, RowFunAcc2} -> 
+                    {ok, {AccLimit - 1, 0, Resp, RowFunAcc2}}
             end
         end
     end.
