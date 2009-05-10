@@ -392,6 +392,7 @@ make_view_fold_fun(Req, QueryArgs, Etag, Db, TotalViewCount, HelperFuns) ->
             % we've done "limit" rows, stop foldling
             {stop, {0, 0, Resp, RowFunAcc}};
         {_, _, AccSkip, _} when AccSkip > 0 ->
+            % just keep skipping
             {ok, {AccLimit, AccSkip - 1, Resp, RowFunAcc}};
         {_, _, _, undefined} ->
             % rendering the first row, first we start the response
