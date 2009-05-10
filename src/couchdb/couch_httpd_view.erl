@@ -590,41 +590,38 @@ view_group_etag(#group{sig=Sig,current_seq=CurrentSeq}, Extra) ->
     % track of the last Db seq that caused an index change.
     couch_httpd:make_etag({Sig, CurrentSeq, Extra}).
 
-view_row_obj(Db, {{Key, DocId}, Value}, IncludeDocs) ->
-    case DocId of
-    error ->
-        {[{key, Key}, {error, Value}]};
-    _ ->
-        case IncludeDocs of
-        true ->
-            Rev = case Value of
-            {Props} ->
-                case proplists:get_value(<<"_rev">>, Props) of
-                undefined ->
-                    nil;
-                Rev0 ->
-                    couch_doc:parse_rev(Rev0)
-                end;
-            _ ->
-                nil
-            end,
-            ?LOG_DEBUG("Include Doc: ~p ~p", [DocId, Rev]),
-            case (catch couch_httpd_db:couch_doc_open(Db, DocId, Rev, [])) of
-              {{not_found, missing}, _RevId} ->
-                  {[{id, DocId}, {key, Key}, {value, Value}, {error, missing}]};
-              {not_found, missing} ->
-                  {[{id, DocId}, {key, Key}, {value, Value}, {error, missing}]};
-              {not_found, deleted} ->
-                  {[{id, DocId}, {key, Key}, {value, Value}]};
-              Doc ->
-                JsonDoc = couch_doc:to_json_obj(Doc, []), 
-                {[{id, DocId}, {key, Key}, {value, Value}, {doc, JsonDoc}]}
-            end;
-        _ ->
-            {[{id, DocId}, {key, Key}, {value, Value}]}
-        end
-    end.
+% the view row has an error
+view_row_obj(Db, {{Key, error}, Value}, _IncludeDocs) ->
+    {[{key, Key}, {error, Value}]};
+% include docs in the view output
+view_row_obj(Db, {{Key, DocId}, {Props}}, true) ->
+    Rev = case proplists:get_value(<<"_rev">>, Props) of
+    undefined ->
+        nil;
+    Rev0 ->
+        couch_doc:parse_rev(Rev0)
+    end,
+    view_row_with_doc(Db, {{Key, DocId}, {Props}}, Rev);
+view_row_obj(Db, {{Key, DocId}, Value}, true) ->
+    view_row_with_doc(Db, {{Key, DocId}, Value}, nil);
+% the normal case for rendering a view row
+view_row_obj(Db, {{Key, DocId}, Value}, _IncludeDocs) ->
+    {[{id, DocId}, {key, Key}, {value, Value}]}.
 
+view_row_with_doc(Db, {{Key, DocId}, Value}, Rev) ->
+    ?LOG_DEBUG("Include Doc: ~p ~p", [DocId, Rev]),
+    case (catch couch_httpd_db:couch_doc_open(Db, DocId, Rev, [])) of
+      {{not_found, missing}, _RevId} ->
+          {[{id, DocId}, {key, Key}, {value, Value}, {error, missing}]};
+      {not_found, missing} ->
+          {[{id, DocId}, {key, Key}, {value, Value}, {error, missing}]};
+      {not_found, deleted} ->
+          {[{id, DocId}, {key, Key}, {value, Value}]};
+      Doc ->
+        JsonDoc = couch_doc:to_json_obj(Doc, []), 
+        {[{id, DocId}, {key, Key}, {value, Value}, {doc, JsonDoc}]}
+    end.
+    
 finish_view_fold(Req, TotalRows, FoldResult) ->
     case FoldResult of
     {ok, {_, _, undefined, _}} ->
