@@ -362,8 +362,7 @@ validate_view_query(extra, {Key, _}, Args) ->
             Args
     end.
 
-make_view_fold_fun(Req, QueryArgs, Etag, Db,
-    TotalViewCount, HelperFuns) ->
+make_view_fold_fun(Req, QueryArgs, Etag, Db, TotalViewCount, HelperFuns) ->
     #view_query_args{
         end_key = EndKey,
         end_docid = EndDocId,
@@ -398,7 +397,7 @@ make_view_fold_fun(Req, QueryArgs, Etag, Db,
             % rendering the first row, first we start the response
             Offset = ReduceCountFun(OffsetReds),
             {ok, Resp2, RowFunAcc0} = StartRespFun(Req, Etag,
-                TotalViewCount, Offset),
+                TotalViewCount, Offset, RowFunAcc),
             {Go, RowFunAcc2} = SendRowFun(Resp2, Db, {{Key, DocId}, Value}, 
                 IncludeDocs, RowFunAcc0),
             {Go, {AccLimit - 1, 0, Resp2, RowFunAcc2}};
@@ -479,7 +478,7 @@ apply_default_helper_funs(#view_fold_helper_funs{
     end,
 
     StartResp2 = case StartResp of
-    undefined -> fun json_view_start_resp/4;
+    undefined -> fun json_view_start_resp/5;
     _ -> StartResp
     end,
 
@@ -543,7 +542,7 @@ make_passed_end_fun(rev, EndKey, EndDocId, InclusiveEnd) ->
         end
     end.
 
-json_view_start_resp(Req, Etag, TotalViewCount, Offset) ->
+json_view_start_resp(Req, Etag, TotalViewCount, Offset, _Acc) ->
     {ok, Resp} = start_json_response(Req, 200, [{"Etag", Etag}]),
     BeginBody = io_lib:format("{\"total_rows\":~w,\"offset\":~w,\"rows\":[\r\n",
             [TotalViewCount, Offset]),

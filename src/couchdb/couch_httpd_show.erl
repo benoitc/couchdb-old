@@ -118,7 +118,7 @@ send_view_list_response(Lang, ListSrc, ViewName, DesignId, Req, Db, Keys) ->
     end.
 
 make_map_start_resp_fun(QueryServer, Req, Db, CurrentEtag) ->
-    fun(Req2, _Etag, TotalViewCount, Offset) ->
+    fun(Req2, _Etag, TotalViewCount, Offset, _Acc) ->
         ExternalResp = couch_query_servers:render_list_head(QueryServer, 
             Req2, Db, TotalViewCount, Offset),
         JsonResp = apply_etag(ExternalResp, CurrentEtag),
@@ -367,7 +367,7 @@ finish_list(Req, Db, QueryServer, Etag, FoldResult, StartListRespFun, TotalRows)
 render_head_for_empty_list(StartListRespFun, Req, Etag, null) ->
     StartListRespFun(Req, Etag, []);
 render_head_for_empty_list(StartListRespFun, Req, Etag, TotalRows) ->
-    StartListRespFun(Req, Etag, TotalRows, null).
+    StartListRespFun(Req, Etag, TotalRows, null, []).
     
 send_doc_show_response(Lang, ShowSrc, DocId, nil, #httpd{mochi_req=MReq}=Req, Db) ->
     % compute etag with no doc
