@@ -39,106 +39,95 @@ couchTests.list_views = function(debug) {
       }
     },
     lists: {
-      simpleForm: stringFun(function(head, row, req, row_info) {
-        if (row) {
-          // we ignore headers on rows and tail
-          return {
-                  body : '\n<li>Key: '+row.key
-                  +' Value: '+row.value
-                  +' LineNo: '+row_info.row_number+'</li>'
-          };
-        } else if (head) {
-          // we return an object (like those used by external and show)
-          // so that we can specify headers
-          return {
-            body : '<h1>Total Rows: '
+      simpleForm: stringFun(function(head, req) {
+        // beginResponse call is optional, it's where you'd set headers
+        beginResponse(); 
+
+        // head
+        sendChunk('<h1>Total Rows: '
               + head.total_rows
               + ' Offset: ' + head.offset
-              + '</h1><ul>'
-          };
-        } else {
-          // tail
-          return {body : '</ul>'+
-              '<p>FirstKey: '+(row_info ? row_info.first_key : '')+ 
-              ' LastKey: '+(row_info ? row_info.prev_key : '')+'</p>'};
-        }
-      }),
-      acceptSwitch: stringFun(function(head, row, req, row_info) {
-        return respondWith(req, {
-          html : function() {
-            // If you're outputting text and you're not setting
-            // any headers, you can just return a string.
-            if (head) {
-              return "HTML <ul>";
-            } else if (row) {
-              return '\n<li>Key: '
-                +row.key+' Value: '+row.value
-                +' LineNo: '+row_info.row_number+'</li>';
-            } else { // tail
-              return '</ul>';
+              + '</h1><ul>');
 
+        // rows
+        var row, prevKey, firstKey = null;
+        while (row = nextRow()) {
+          if (!firstKey) firstKey = row.key;
+          prevKey = row.key;
+          sendChunk('\n<li>Key: '+row.key
+          +' Value: '+row.value
+          +' LineNo: '+row_info.row_number+'</li>');
+        }
+
+        // tail
+        return '</ul><p>FirstKey: '+ firstKey + ' LastKey: '+ prevKey+'</p>';
+      }),
+      acceptSwitch: stringFun(function(head, req) {
+        // respondWith takes care of setting the proper headers
+        respondWith(req, {
+          html : function() {
+            sendChunk("HTML <ul>");
+
+            var row;
+            while (row = nextRow()) {
+              sendChunk('\n<li>Key: '
+                +row.key+' Value: '+row.value
+                +' LineNo: '+row_info.row_number+'</li>');
             }
+
+            // tail
+            return '</ul>';
           },
           xml : function() {
-            if (head) {
-              return '<feed xmlns="http://www.w3.org/2005/Atom">'
-                +'<title>Test XML Feed</title>';
-            } else if (row) {
-              // Becase Safari can't stand to see that dastardly
-              // E4X outside of a string. Outside of tests you
-              // can just use E4X literals.
+            sendChunk('<feed xmlns="http://www.w3.org/2005/Atom">'
+              +'<title>Test XML Feed</title>');
+
+            while (row = nextRow()) {
               var entry = new XML('<entry/>');
               entry.id = row.id;
               entry.title = row.key;
               entry.content = row.value;
-              // We'll also let you return just an E4X object
-              // if you aren't setting headers.
-              return entry;
-            } else {
-              return "</feed>";
+              sendChunk(entry);
             }
-          }
-        })
-      }),
-      qsParams: stringFun(function(head, row, req, row_info) {
-        if(head) return {body: req.query.foo};
-        else return {body: "\n"};
-      }),
-      stopIter: stringFun(function(head, row, req, row_info) {
-        if(head) {
-          return {body: "head"};
-        } else if(row) {
-          if(row_info.row_number > 2) return {stop: true};
-          return {body: " " + row_info.row_number};
-        } else {
-          return {body: " tail"};
-        }
-      }),
-      stopIter2: stringFun(function(head, row, req, row_info) {
-        return respondWith(req, {
-          html: function() {
-            if(head) {
-              return "head";
-            } else if(row) {
-              if(row_info.row_number > 2) return {stop: true};
-              return " " + row_info.row_number;
-            } else {
-              return " tail";
-            }
+            return "</feed>";
           }
         });
       }),
-      emptyList: stringFun(function(head, row, req, row_info) {
-        return { body: "" };
+      qsParams: stringFun(function(req) {
+        return req.query.foo + "\n";
+      }),
+      stopIter: stringFun(function(req) {
+        sendChunk("head");
+        var row, row_number = 0;
+        while(row = nextRow()) {
+          if(row_number > 2) break;
+          sendChunk(" " + row_number);
+          row_number += 1;
+        };
+        return " tail";
+      }),
+      stopIter2: stringFun(function(req) {
+        respondWith(req, {
+          html: function() {
+            sendChunk("head");
+            var row, row_number = 0;
+            while(row = nextRow()) {
+              if(row_number > 2) break;
+              sendChunk(" " + row_number);
+              row_number += 1;
+            };
+            return " tail";
+          }
+        });
+      }),
+      emptyList: stringFun(function() {
+        return "";
       }),
       rowError : stringFun(function(head, row, req, row_info) {
-        if (head) {
-          return "head";
-        } else if(row) {
-          return missingValue;
-        } else {
-          return "tail"
-        }
+        sendChunk("head");
+        var row = nextRow();
+        sendChunk(fooBarBam); // intentional error
+        return "tail";
       })
     }
   };
