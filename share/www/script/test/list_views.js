@@ -97,6 +97,7 @@ couchTests.list_views = function(debug) {
         return req.query.foo + "\n";
       }),
       stopIter: stringFun(function(req) {
+        beginResponse({"content-type" : "text/plain"}); 
         sendChunk("head");
         var row, row_number = 0;
         while(row = nextRow()) {
@@ -237,6 +238,7 @@ couchTests.list_views = function(debug) {
   
   // aborting iteration
   var xhr = CouchDB.request("GET", "/test_suite_db/_design/lists/_list/stopIter/basicView");
+  T("content type" == "text/plain");
   T(xhr.responseText.match(/^head 0 1 2 tail$/) && "basic stop");
   xhr = CouchDB.request("GET", "/test_suite_db/_design/lists/_list/stopIter2/basicView");
   T(xhr.responseText.match(/^head 0 1 2 tail$/) && "stop 2");
