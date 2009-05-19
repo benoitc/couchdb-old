@@ -13,23 +13,64 @@
 
 COUCH_ROOT = "#{File.dirname(__FILE__)}/../../.." unless defined?(COUCH_ROOT)
 
-RUN_COUCHJS = "#{COUCH_ROOT}/bin/couchjs #{COUCH_ROOT}/share/server/main.js "
+RUN_COUCHJS = "#{COUCH_ROOT}/bin/couchjs #{COUCH_ROOT}/share/server/main.js"
 
-def runCouchJS &block
-  puts "running couchjs"
-  IO.popen("#{RUN_COUCHJS}") do |couchjs|
-    while line = couchjs.gets 
-      input = block.call line
-      couchjs.puts input
+require 'open3'
+require 'spec'
+require 'json'
+
+class CJS
+  def self.run
+    # puts "launching #{RUN_COUCHJS}"
+    if block_given?
+      Open3.popen3(RUN_COUCHJS) do |jsin, jsout, jserr|
+        js = CJS.new(jsin, jsout, jserr)
+        yield js
+      end
+    else
+      jsin, jsout, jserr = Open3.popen3(RUN_COUCHJS)
+      CJS.new(jsin, jsout, jserr)
     end
-  end  
+  end
+  def initialize jsin, jsout, jserr
+    @jsin = jsin
+    @jsout = jsout
+    @jserr = jserr
+  end
+  def close
+    @jsin.close
+    @jsout.close
+    @jserr.close
+  end
+  def r json
+    @jsin.puts json.to_json
+    JSON.parse("[#{@jsout.gets.chomp}]")[0]
+  end
 end
 
-commands = %w{}
-
-runCouchJS do |row|
-  return %{["reset"]}
-  resp = commands.pop
-  puts resp
-  
+describe "couchjs" do
+  before(:all) do
+    @js = CJS.run
+  end
+  before(:each) do
+    @js.r(["reset"])
+  end
+  after(:all) do
+    @js.close
+  end
+  it "should reset" do
+    @js.r(["reset"]).should == true    
+  end
+  it "should run map funs" do
+    @js.r(["add_fun", %{function(doc){emit("foo",doc.a); emit("bar",doc.a)}}]).should == true
+    @js.r(["add_fun", %{function(doc){emit("baz",doc.a)}}]).should == true
+    rows = @js.r(["map_doc", {:a => "b"}])
+    rows[0][0].should == ["foo", "b"]
+    rows[0][1].should == ["bar", "b"]
+    rows[1][0].should == ["baz", "b"]
+  end
 end
+
+
+
+
