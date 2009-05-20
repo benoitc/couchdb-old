@@ -135,21 +135,28 @@ make_map_start_resp_fun(QueryServer, Db) ->
 
 make_map_send_row_fun(QueryServer, Req) ->
     fun(Resp, Db2, {{Key, DocId}, Value}, _IncludeDocs, RowFront) ->
+        ?LOG_ERROR("danger",[]),
         try
             JsonResp = couch_query_servers:render_list_row(QueryServer, 
                 Req, Db2, {{Key, DocId}, Value}),
+            ?LOG_ERROR("JsonResp ~p",[JsonResp]),
             #extern_resp_args{
                 stop = StopIter,
                 data = RowBody
             } = couch_httpd_external:parse_external_response(JsonResp),
-            case StopIter of
-            true -> {stop, ""};
-            _ ->
+            ?LOG_ERROR("danger",[]),
+            case {StopIter, RowBody} of
+            {_, 0} -> 
+                {stop, ""};
+            {true, _} -> 
+                ?LOG_ERROR("true",[]),
                 Chunk = RowFront ++ binary_to_list(RowBody),
-                case Chunk of
-                    [] -> ok;
-                    _ -> send_chunk(Resp, Chunk)
-                end,
+                send_non_empty_chunk(Resp, Chunk),
+                {stop, ""};
+            _ ->
+                ?LOG_ERROR("{StopIter, RowBody} ~p",[{StopIter, RowBody}]),
+                Chunk = RowFront ++ binary_to_list(RowBody),
+                send_non_empty_chunk(Resp, Chunk),
                 {ok, ""}
             end
         catch
@@ -157,6 +164,12 @@ make_map_send_row_fun(QueryServer, Req) ->
                 send_chunked_error(Resp, Error),
                 throw({already_sent, Resp, Error})
         end
+    end.
+
+send_non_empty_chunk(Resp, Chunk) ->
+    case Chunk of
+        [] -> ok;
+        _ -> send_chunk(Resp, Chunk)
     end.
 
 output_map_list(#httpd{mochi_req=MReq}=Req, Lang, ListSrc, View, Group, Db, QueryArgs, nil) ->

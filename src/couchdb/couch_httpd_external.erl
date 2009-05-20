@@ -118,6 +118,10 @@ parse_external_response({Response}) ->
                     ctype="application/json"};
             {<<"body">>, Value} ->
                 Args#extern_resp_args{data=Value, ctype="text/html"};
+            {<<"chunk">>, Value} ->
+                Args#extern_resp_args{data=Value, ctype="text/html"};
+            {<<"tail">>, Value} ->
+                Args#extern_resp_args{data=Value, stop=true, ctype="text/html"};
             {<<"base64">>, Value} ->
                 Args#extern_resp_args{
                     data=couch_util:decodeBase64(Value),        

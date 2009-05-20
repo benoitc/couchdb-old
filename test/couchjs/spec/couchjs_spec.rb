@@ -11,6 +11,10 @@
 # the License.
 
 
+# run:
+# spec test/couchjs/spec/couchjs_spec.rb -f specdoc --color
+
+
 COUCH_ROOT = "#{File.dirname(__FILE__)}/../../.." unless defined?(COUCH_ROOT)
 
 RUN_COUCHJS = "#{COUCH_ROOT}/bin/couchjs #{COUCH_ROOT}/share/server/main.js"
@@ -191,7 +195,63 @@ describe "couchjs" do
       @js.r(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == {"chunk"=>"bacon"}
       @js.r(["list_row", {"key"=>"baz"}]).should == {"chunk"=>"baz"}
       @js.r(["list_row", {"key"=>"foom"}]).should == {"chunk"=>"foom"}
-      @js.r(["end_list"]).should == {"body"=>"tail"}
+      @js.r(["list_tail"]).should == {"body"=>"tail"}
+    end
+    it "should list all rows" do
+      @js.r(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == {"chunk"=>"bacon"}
+      @js.r(["list_row", {"key"=>"baz"}]).should == {"chunk"=>"baz"}
+      @js.r(["list_row", {"key"=>"foom"}]).should == {"chunk"=>"foom"}
+      @js.r(["list_tail"]).should == {"body"=>"tail"}
+    end
+  end
+  describe "only goes to 2 list" do
+    before(:all) do
+      @fun = <<-JS
+        function(head, req) {
+          sendChunk("bacon")
+          var row, i = 0;
+          while(row = getRow()) {
+            sendChunk(row.key);        
+            i += 1;
+            if (i > 2) {
+              return('breaking');
+            }
+          };
+        }
+        JS
+      @js.reset!
+      @js.add_fun(@fun).should == true
+    end
+    it "should end early" do
+      @js.r(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == {"chunk"=>"bacon"}
+      @js.r(["list_row", {"key"=>"baz"}]).should == {"chunk"=>"baz"}
+      @js.r(["list_row", {"key"=>"foom"}]).should == {"chunk"=>"foom"}
+      @js.r(["list_row", {"key"=>"fooz"}]).should == {"chunk"=>"fooz"}
+      @js.r(["list_row", {"key"=>"foox"}]).should == {"body"=>"breaking"}
+    end
+  end
+  
+  describe "raw list" do
+    before(:all) do
+      @fun = <<-JS
+        function(head, req) {
+          sendChunk("head");
+          var row;
+          while(row = getRow()) {
+            log("row: "+toJSON(row));
+            sendChunk(row.key);        
+          };
+          return "tail";
+        };
+        JS
+      @js.reset!
+      @js.add_fun(@fun).should == true
+    end
+    it "should should list em" do
+      @js.r(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == "head"
+      m = @js.r(["list_row", {"key"=>"baz"}]) rescue nil
+      m.should == "baz" 
+      # @js.r(["list_row", {"key"=>"foom"}]).should == "foom"
     end
   end
 end

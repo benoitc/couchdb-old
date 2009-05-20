@@ -93,7 +93,7 @@ readjson(OsProc) when is_record(OsProc, os_proc) ->
     case ?JSON_DECODE(Line) of
     {[{<<"log">>,Msg}]} when is_binary(Msg) ->
         % we got a message to log. Log it and continue
-        ?LOG_INFO("OS Process Log Message: ~s", [Msg]),
+        ?LOG_INFO("OS Process :: ~s", [Msg]),
         readjson(OsProc);
     {[{<<"error">>, Id}, {<<"reason">>, Reason}]} ->
         throw({list_to_atom(binary_to_list(Id)),Reason});
