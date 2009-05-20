@@ -62,3 +62,8 @@ etc/couchdb/default_dev.ini
 etc/couchdb/local_dev.ini
 utils/run
 tmp
+
+
+# for me
+hovercraft
+*.diff
