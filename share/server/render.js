@@ -180,7 +180,6 @@ registerType("json", "application/json", "text/x-json");
 //  Send chunk
 
 function sendChunk(chunk, nl) {
-  log("chunk: "+chunk);
   if (nl) {
     print(['',chunk,'\n'].join(''));    
   } else {
@@ -221,7 +220,10 @@ var Render = (function() {
     },
     list : function(head, req) {
       // log("run list yo");
+      var oldLog = plog;
+      plog = function(){};
       runRenderFunction(funs[0], [head, req], funsrc[0]);
+      plog = oldLog;
     },
     listBegin : function(head, req) {
       row_info = { first_key: null, row_number: 0, prev_key: null };

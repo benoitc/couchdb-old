@@ -54,13 +54,16 @@ class CJS
     run(["add_fun", fun])
   end
   def run json
+    rrun json
+    jsgets
+  end
+  def rrun json
     line = json.to_json
     puts "run: #{line}" if @trace
     @jsin.puts line
-    jsgets
   end
   def rgets
-    @jsout.gets
+    @jsout.gets.chomp
   end
   def jsgets
     resp = rgets
@@ -215,6 +218,7 @@ describe "couchjs" do
       @fun = <<-JS
         function(head, req) {
           sendChunk("first chunk");
+          sendChunk("second chunk");
           var row;
           while(row = getRow()) {
             log("row: "+toJSON(row));
@@ -227,10 +231,12 @@ describe "couchjs" do
       @js.add_fun(@fun).should == true
     end
     it "should should list em" do
-      pending
-      @js.run(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == "first chunk"
-      m = @js.run(["list_row", {"key"=>"baz"}])
-      m.should == "baz" 
+      # pending
+      @js.rrun(["list", {"foo"=>"bar"}, {"q" => "ok"}])
+      @js.rgets.should == "first chunk"
+      @js.rgets.should == "second chunk"
+      m = @js.rrun(["list_row", {"key"=>"baz"}])
+      @js.rgets.should == "baz" 
       # @js.run(["list_row", {"key"=>"foom"}]).should == "foom"
     end
   end
