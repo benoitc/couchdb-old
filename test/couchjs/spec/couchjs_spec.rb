@@ -110,6 +110,7 @@ describe "couchjs" do
   # it "should rereduce"
   # it "should rereduce"
   # it "should validate"
+  
   describe "_show" do
     before(:all) do
       @fun = <<-JS
@@ -123,28 +124,6 @@ describe "couchjs" do
       @js.r(["show_doc", @fun, 
         {:title => "Best ever", :body => "Doc body"}])["body"].should ==
           "Best ever - Doc body"
-    end
-  end
-  describe "old _list" do
-    before(:all) do
-      @fun = <<-JS
-        function(head, row, req) {
-          if (head) return head.head;
-          if (row) return row.body;
-          return "tail";
-        }
-        JS
-      @js.reset!
-      @js.add_fun(@fun).should == true
-    end
-    it "should begin" do
-      @js.r(["list_begin", {"head"=>"ok"}, nil, {"req" => "ok"}])["body"].should == "ok"
-    end
-    it "should row" do
-      @js.r(["list_row", {"key" => "yo", "title" => "foo", "body" => "bar"}, {"req" => "bar"}])["body"].should == "bar"
-    end
-    it "should tail" do
-      @js.r(["list_tail", {"req" => "bar"}])["body"].should == "tail"      
     end
   end
   describe "basic new list" do
@@ -162,19 +141,19 @@ describe "couchjs" do
       @js.reset!
       @js.add_fun(@fun).should == true
     end
-    it "should new list" do
-      @js.r(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == {"chunk"=>"bacon"}
-      @js.g.should == {"chunk"=>"ok"}
-      @js.g.should == {"chunk"=>"bar"}
-      @js.r(["list_row", {"key"=>"baz"}]).should == {"chunk"=>"baz"}
-      @js.g.should == {"body"=>"tail"}
-    end
-    it "should error if it gets a non-row in the middle" do
-      @js.r(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == {"chunk"=>"bacon"}
-      @js.g.should == {"chunk"=>"ok"}
-      @js.g.should == {"chunk"=>"bar"}
-      lambda {@js.r(["reset"])}.should raise_error
-    end
+    # it "should new list" do
+    #   @js.r(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == {"chunk"=>"bacon"}
+    #   @js.g.should == {"chunk"=>"ok"}
+    #   @js.g.should == {"chunk"=>"bar"}
+    #   @js.r(["list_row", {"key"=>"baz"}]).should == {"chunk"=>"baz"}
+    #   @js.g.should == {"body"=>"tail"}
+    # end
+    # it "should error if it gets a non-row in the middle" do
+    #   @js.r(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == {"chunk"=>"bacon"}
+    #   @js.g.should == {"chunk"=>"ok"}
+    #   @js.g.should == {"chunk"=>"bar"}
+    #   lambda {@js.r(["reset"])}.should raise_error
+    # end
   end
   describe "multi-row new list" do
     before(:all) do
@@ -191,18 +170,18 @@ describe "couchjs" do
       @js.reset!
       @js.add_fun(@fun).should == true
     end
-    it "should list all rows" do
-      @js.r(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == {"chunk"=>"bacon"}
-      @js.r(["list_row", {"key"=>"baz"}]).should == {"chunk"=>"baz"}
-      @js.r(["list_row", {"key"=>"foom"}]).should == {"chunk"=>"foom"}
-      @js.r(["list_tail"]).should == {"body"=>"tail"}
-    end
-    it "should list all rows" do
-      @js.r(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == {"chunk"=>"bacon"}
-      @js.r(["list_row", {"key"=>"baz"}]).should == {"chunk"=>"baz"}
-      @js.r(["list_row", {"key"=>"foom"}]).should == {"chunk"=>"foom"}
-      @js.r(["list_tail"]).should == {"body"=>"tail"}
-    end
+    # it "should list all rows" do
+    #   @js.r(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == {"chunk"=>"bacon"}
+    #   @js.r(["list_row", {"key"=>"baz"}]).should == {"chunk"=>"baz"}
+    #   @js.r(["list_row", {"key"=>"foom"}]).should == {"chunk"=>"foom"}
+    #   @js.r(["list_tail"]).should == {"body"=>"tail"}
+    # end
+    # it "should list all rows" do
+    #   @js.r(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == {"chunk"=>"bacon"}
+    #   @js.r(["list_row", {"key"=>"baz"}]).should == {"chunk"=>"baz"}
+    #   @js.r(["list_row", {"key"=>"foom"}]).should == {"chunk"=>"foom"}
+    #   @js.r(["list_tail"]).should == {"body"=>"tail"}
+    # end
   end
   describe "only goes to 2 list" do
     before(:all) do
@@ -222,13 +201,13 @@ describe "couchjs" do
       @js.reset!
       @js.add_fun(@fun).should == true
     end
-    it "should end early" do
-      @js.r(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == {"chunk"=>"bacon"}
-      @js.r(["list_row", {"key"=>"baz"}]).should == {"chunk"=>"baz"}
-      @js.r(["list_row", {"key"=>"foom"}]).should == {"chunk"=>"foom"}
-      @js.r(["list_row", {"key"=>"fooz"}]).should == {"chunk"=>"fooz"}
-      @js.r(["list_row", {"key"=>"foox"}]).should == {"body"=>"breaking"}
-    end
+    # it "should end early" do
+    #   @js.r(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == {"chunk"=>"bacon"}
+    #   @js.r(["list_row", {"key"=>"baz"}]).should == {"chunk"=>"baz"}
+    #   @js.r(["list_row", {"key"=>"foom"}]).should == {"chunk"=>"foom"}
+    #   @js.r(["list_row", {"key"=>"fooz"}]).should == {"chunk"=>"fooz"}
+    #   @js.r(["list_row", {"key"=>"foox"}]).should == {"body"=>"breaking"}
+    # end
   end
   
   describe "raw list" do
