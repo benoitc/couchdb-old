@@ -55,7 +55,9 @@ class CJS
     @jsin.puts line
     jsgets
   end
-  
+  def g
+    jsgets
+  end
   def jsgets
     resp = @jsout.gets
     # err = @jserr.gets
@@ -83,7 +85,7 @@ describe "couchjs" do
   before(:all) do
     # puts `clear`
     `cd #{COUCH_ROOT} && make`
-    @js = CJS.run
+    @js = CJS.run :trace
   end
   after(:all) do
     @js.close
@@ -131,17 +133,21 @@ describe "couchjs" do
       @js.reset!
       @js.add_fun(@fun).should == true
     end
-    it "should list" do
+    it "should begin" do
       @js.r(["list_begin", {"head"=>"ok"}, nil, {"req" => "ok"}])["body"].should == "ok"
+    end
+    it "should row" do
       @js.r(["list_row", {"key" => "yo", "title" => "foo", "body" => "bar"}, {"req" => "bar"}])["body"].should == "bar"
-      @js.r(["list_tail", {"req" => "bar"}])["body"].should == "tail"
+    end
+    it "should tail" do
+      @js.r(["list_tail", {"req" => "bar"}])["body"].should == "tail"      
     end
   end
-  describe "new list" do
+  describe "basic new list" do
     before(:all) do
       @fun = <<-JS
         function(head, req) {
-          sendChunk("chunk")
+          sendChunk("bacon")
           sendChunk(req.q);
           sendChunk(head.foo);
           var row = getRow();
@@ -152,11 +158,43 @@ describe "couchjs" do
       @js.reset!
       @js.add_fun(@fun).should == true
     end
-    # it "should list" do
-    #   # @js.r(["list", {"head"=>"foo"}, {"q" => "ok"}]).should == "chunk"
-    #   @js.r(["list_row", {"key" => "yo", "title" => "foo", "body" => "bar"}, {"req" => "bar"}])["body"].should == "bar"
-    #   @js.r(["list_tail", {"req" => "bar"}])["body"].should == "tail"
-    # end
+    it "should new list" do
+      @js.r(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == {"chunk"=>"bacon"}
+      @js.g.should == {"chunk"=>"ok"}
+      @js.g.should == {"chunk"=>"bar"}
+      @js.r(["list_row", {"key"=>"baz"}]).should == {"chunk"=>"baz"}
+      @js.g.should == {"body"=>"tail"}
+    end
+    it "should error if it gets a non-row in the middle" do
+      @js.r(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == {"chunk"=>"bacon"}
+      @js.g.should == {"chunk"=>"ok"}
+      @js.g.should == {"chunk"=>"bar"}
+      lambda {@js.r(["reset"])}.should raise_error
+    end
+  end
+  describe "multi-row new list" do
+    before(:all) do
+      @fun = <<-JS
+        function(head, req) {
+          sendChunk("bacon")
+          var row;
+          log("start getRow loop");
+          while(row = getRow()) {
+            log(row);
+            sendChunk(row.key);        
+          };
+          return "tail";
+        }
+        JS
+      @js.reset!
+      @js.add_fun(@fun).should == true
+    end
+    it "should list all rows" do
+      @js.r(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == {"chunk"=>"bacon"}
+      @js.r(["list_row", {"key"=>"baz"}]).should == {"chunk"=>"baz"}
+      @js.r(["list_row", {"key"=>"foom"}]).should == {"chunk"=>"foom"}
+      @js.r(["end_list"]).should == {"body"=>"tail"}
+    end
   end
 end
 

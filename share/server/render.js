@@ -181,6 +181,21 @@ function sendChunk(chunk) {
   respond({"chunk":chunk});
 };
 
+function getRow() {
+  var line = readline();
+  log("getRow() line: "+line);
+  var json = eval(line);
+  if (json[0] == "end_list") return null;
+  if (json[0] != "list_row") {
+    respond({
+      error: "query_server_error",
+      reason: "not a row '" + json[0] + "'"});
+    quit();  
+  }
+  log("row: " + toJSON(json[1]))
+  return json[1];
+};
+
 ////
 ////  Render dispatcher
 ////
@@ -193,11 +208,12 @@ var Render = (function() {
   
   return {
     showDoc : function(funSrc, doc, req) {
+      log("show doc show");
       var formFun = compileFunction(funSrc);
-      runRenderFunction(formFun, [doc, req], funSrc, true, renderHelpers);
+      runRenderFunction(formFun, [doc, req], funSrc, true);
     },
     list : function(head, req) {
-      // log("run list yo")
+      log("run list yo");
       runRenderFunction(funs[0], [head, req], funsrc[0]);
     },
     listBegin : function(head, req) {
@@ -218,18 +234,14 @@ var Render = (function() {
   }
 })();
 
-function runRenderFunction(renderFun, args, funSrc, htmlErrors, context) {
-  responseSent = false;
-  context = context || null;
+function runRenderFunction(renderFun, args, funSrc, htmlErrors) {
   try {
-    var resp = renderFun.apply(context, args);
-    if (!responseSent) {
+    var resp = renderFun.apply(null, args);
       if (resp) {
         respond(maybeWrapResponse(resp));       
       } else {
         respond({error:"render_error",reason:"undefined response from render function"});
       }      
-    }
   } catch(e) {
     var logMessage = "function raised error: "+e.toString();
     // log(logMessage);
