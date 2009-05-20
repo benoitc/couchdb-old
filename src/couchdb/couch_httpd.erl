@@ -177,6 +177,10 @@ handle_request(MochiReq, DefaultFun,
             % ?LOG_DEBUG("Minor error in HTTP request: ~p",[Error]),
             % ?LOG_DEBUG("Stacktrace: ~p",[erlang:get_stacktrace()]),
             send_error(HttpReq, Error);
+        error:badarg ->
+            ?LOG_ERROR("Badarg error in HTTP request",[]),
+            ?LOG_ERROR("Stacktrace: ~p",[erlang:get_stacktrace()]),
+            send_error(HttpReq, badarg);
         Tag:Error ->
             ?LOG_ERROR("Uncaught error in HTTP request: ~p",[{Tag, Error}]),
             ?LOG_INFO("Stacktrace: ~p",[erlang:get_stacktrace()]),

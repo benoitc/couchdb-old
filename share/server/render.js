@@ -178,14 +178,15 @@ registerType("url_encoded_form", "application/x-www-form-urlencoded");
 registerType("json", "application/json", "text/x-json");
 
 function sendChunk(chunk) {
-  respond({"chunk":chunk});
+  log("chunk: "+chunk);
+  respond({"chunk":['',chunk].join('')});
 };
 
 function getRow() {
   var line = readline();
   // log("getRow() line: "+line);
   var json = eval(line);
-  if (json[0] == "end_list") return null;
+  if (json[0] == "list_tail") return null;
   if (json[0] != "list_row") {
     respond({
       error: "query_server_error",
