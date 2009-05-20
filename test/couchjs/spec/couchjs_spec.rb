@@ -107,14 +107,14 @@ describe "couchjs" do
     before(:all) do
       @fun = <<-JS
         function(head, row, req) {
-          if (head) return head
+          if (head) return head.head;
         }
         JS
       @js.reset!
       @js.add_fun(@fun).should == true
     end
     it "should list" do
-      @js.r(["list_begin", {"head"=>"ok"}, {"req" => "ok"}]).should == "start,head"
+      @js.r(["list_begin", {"head"=>"ok"}, nil, {"req" => "ok"}]).should == "start,head"
       @js.r(["list_row", {"key" => "yo", "title" => "foo", "body" => "bar"}, {"req" => "ok"}]).should == "foo - bar"
     end
   end
