@@ -39,6 +39,14 @@ couchTests.list_views = function(debug) {
       }
     },
     lists: {
+      basicBasic : stringFun(function(head, req) {
+        sendChunk("bacon");
+        var row;
+        while(row = getRow()) {
+          sendChunk(row.key);        
+        };
+        return "tail";
+      }),
       simpleForm: stringFun(function(head, req) {
         // beginResponse call is optional, it's where you'd set headers
         beginResponse(); 
