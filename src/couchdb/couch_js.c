@@ -271,8 +271,8 @@ Print(JSContext *context, JSObject *obj, uintN argc, jsval *argv, jsval *rval) {
         JS_free(context, bytes);
     }
     n++;
-    if (n)
-        fputc('\n', stdout);
+    // if (n)
+    //     fputc('\n', stdout);
     fflush(stdout);
     return JS_TRUE;
 }

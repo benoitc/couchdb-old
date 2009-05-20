@@ -17,7 +17,7 @@
 
 COUCH_ROOT = "#{File.dirname(__FILE__)}/../../.." unless defined?(COUCH_ROOT)
 
-RUN_COUCHJS = "#{COUCH_ROOT}/bin/couchjs #{COUCH_ROOT}/share/server/main.js"
+RUN_COUCHJS = "#{COUCH_ROOT}/src/couchdb/couchjs #{COUCH_ROOT}/share/server/main.js"
 
 require 'open3'
 require 'spec'
@@ -25,7 +25,7 @@ require 'json'
 
 class CJS
   def self.run trace = false
-    # puts "launching #{RUN_COUCHJS}"
+    puts "launching #{RUN_COUCHJS}"
     if block_given?
       Open3.popen3(RUN_COUCHJS) do |jsin, jsout, jserr|
         js = CJS.new(jsin, jsout, jserr, trace)
@@ -63,14 +63,15 @@ class CJS
     @jsin.puts line
   end
   def rgets
-    @jsout.gets.chomp
+    resp = @jsout.gets
+    puts "got: #{resp}"  if @trace
+    resp
   end
   def jsgets
     resp = rgets
     # err = @jserr.gets
     # puts "err: #{err}" if err
     if resp
-      puts "got: #{resp}"  if @trace
       rj = JSON.parse("[#{resp.chomp}]")[0]
       if rj.respond_to?(:[]) && !rj.is_a?(Array) && 
         if rj["log"]
@@ -124,9 +125,10 @@ describe "couchjs" do
       @js.reset!
     end
     it "should show" do
-      @js.run(["show_doc", @fun, 
-        {:title => "Best ever", :body => "Doc body"}])["body"].should ==
-          "Best ever - Doc body"
+      @js.rrun(["show_doc", @fun, 
+        {:title => "Best ever", :body => "Doc body"}])
+      @js.rgets.should ==
+          "Best ever - Doc body\n"
     end
   end
   describe "basic new list" do
@@ -217,8 +219,9 @@ describe "couchjs" do
     before(:all) do
       @fun = <<-JS
         function(head, req) {
-          sendChunk("first chunk");
-          sendChunk("second chunk");
+          sendChunk("first chunk", true);
+          sendChunk("second chunk ");
+          sendChunk("third chunk\\n");
           var row;
           while(row = getRow()) {
             sendChunk(row.key);        
@@ -232,10 +235,13 @@ describe "couchjs" do
     it "should should list em" do
       # pending
       @js.rrun(["list", {"foo"=>"bar"}, {"q" => "ok"}])
-      @js.rgets.should == "first chunk"
-      @js.rgets.should == "second chunk"
+      @js.rgets.should == "first chunk\n"
+      @js.rgets.should == "second chunk third chunk\n"
       m = @js.rrun(["list_row", {"key"=>"baz"}])
-      @js.rgets.should == "baz" 
+      m = @js.rrun(["list_row", {"key"=>"bam"}])
+      m = @js.rrun(["list_row", {"key"=>"bar"}])
+      m = @js.rrun(["list_tail"])
+      @js.rgets.should == "bazbambartail\n" 
       # @js.run(["list_row", {"key"=>"foom"}]).should == "foom"
     end
   end
