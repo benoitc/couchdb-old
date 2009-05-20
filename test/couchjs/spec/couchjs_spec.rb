@@ -216,7 +216,7 @@ describe "couchjs" do
   end
   
   describe "raw list" do
-    before(:all) do
+    before(:each) do
       @fun = <<-JS
         function(head, req) {
           sendChunk("first chunk", true);
@@ -242,7 +242,13 @@ describe "couchjs" do
       m = @js.rrun(["list_row", {"key"=>"bar"}])
       m = @js.rrun(["list_tail"])
       @js.rgets.should == "bazbambartail\n" 
-      # @js.run(["list_row", {"key"=>"foom"}]).should == "foom"
+      @js.reset!
+    end
+    it "should error if it gets a non-row in the middle" do
+      @js.rrun(["list", {"foo"=>"bar"}, {"q" => "ok"}])
+      @js.rgets.should == "first chunk\n"
+      @js.rgets.should == "second chunk third chunk\n"
+      lambda {@js.run(["reset"])}.should raise_error
     end
   end
 end
