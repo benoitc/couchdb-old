@@ -235,7 +235,7 @@ describe "couchjs" do
     before(:all) do
       @fun = <<-JS
         function(head, req) {
-          sendChunk("head");
+          sendChunk("first chunk");
           var row;
           while(row = getRow()) {
             log("row: "+toJSON(row));
@@ -248,8 +248,8 @@ describe "couchjs" do
       @js.add_fun(@fun).should == true
     end
     it "should should list em" do
-      @js.r(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == "head"
-      m = @js.r(["list_row", {"key"=>"baz"}]) rescue nil
+      @js.r(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == "first chunk"
+      m = @js.r(["list_row", {"key"=>"baz"}])
       m.should == "baz" 
       # @js.r(["list_row", {"key"=>"foom"}]).should == "foom"
     end
