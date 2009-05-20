@@ -227,6 +227,7 @@ describe "couchjs" do
       @js.add_fun(@fun).should == true
     end
     it "should should list em" do
+      pending
       @js.run(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == "first chunk"
       m = @js.run(["list_row", {"key"=>"baz"}])
       m.should == "baz" 
