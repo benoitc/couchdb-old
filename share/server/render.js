@@ -183,7 +183,7 @@ function sendChunk(chunk) {
 
 function getRow() {
   var line = readline();
-  log("getRow() line: "+line);
+  // log("getRow() line: "+line);
   var json = eval(line);
   if (json[0] == "end_list") return null;
   if (json[0] != "list_row") {
@@ -192,7 +192,7 @@ function getRow() {
       reason: "not a row '" + json[0] + "'"});
     quit();  
   }
-  log("row: " + toJSON(json[1]))
+  // log("row: " + toJSON(json[1]))
   return json[1];
 };
 
@@ -208,12 +208,12 @@ var Render = (function() {
   
   return {
     showDoc : function(funSrc, doc, req) {
-      log("show doc show");
+      // log("show doc show");
       var formFun = compileFunction(funSrc);
       runRenderFunction(formFun, [doc, req], funSrc, true);
     },
     list : function(head, req) {
-      log("run list yo");
+      // log("run list yo");
       runRenderFunction(funs[0], [head, req], funsrc[0]);
     },
     listBegin : function(head, req) {
