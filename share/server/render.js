@@ -178,6 +178,9 @@ registerType("url_encoded_form", "application/x-www-form-urlencoded");
 registerType("json", "application/json", "text/x-json");
 
 //  Send chunk
+function startResponse(headers) {
+  respond({"headers":headers})
+}
 
 function sendChunk(chunk, nl) {
   if (nl) {
@@ -247,7 +250,7 @@ function runRenderFunction(renderFun, args, funSrc, htmlErrors) {
   try {
     var resp = renderFun.apply(null, args);
       if (resp) {
-        sendChunk(resp, true);
+        respond({body:resp});
       } else {
         respond({error:"render_error",reason:"undefined response from render function"});
       }      

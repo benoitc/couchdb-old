@@ -251,6 +251,27 @@ describe "couchjs" do
       lambda {@js.run(["reset"])}.should raise_error
     end
   end
+  
+  describe "raw list with headers" do
+    before(:each) do
+      @fun = <<-JS
+        function(head, req) {
+          startResponse({"Content-Type" : "text/plain"});
+          sendChunk("first chunk", true);
+          return "tail";
+        };
+        JS
+      @js.reset!
+      @js.add_fun(@fun).should == true
+    end
+    it "should description" do
+      @js.rrun(["list", {"foo"=>"bar"}, {"q" => "ok"}])
+      @js.jsgets.should == {"headers" => {"Content-Type"=>"text/plain"}}
+      @js.rgets.should == "first chunk\n"
+      @js.rgets.should == "tail\n"
+      @js.rgets.should == "tailx\n"
+    end
+  end
 end
 
 
