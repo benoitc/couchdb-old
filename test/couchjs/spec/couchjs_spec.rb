@@ -53,21 +53,37 @@ class CJS
     line = json.to_json
     puts "run: #{line}" if @trace
     @jsin.puts line
+    jsgets
+  end
+  
+  def jsgets
     resp = @jsout.gets
     # err = @jserr.gets
     # puts "err: #{err}" if err
     if resp
       puts "got: #{resp}"  if @trace
-      JSON.parse("[#{resp.chomp}]")[0]
+      rj = JSON.parse("[#{resp.chomp}]")[0]
+      if rj.respond_to?(:[]) && !rj.is_a?(Array) && 
+        if rj["log"]
+          log = rj["log"]
+          puts "log: #{log}" #if @trace
+          rj = jsgets
+        elsif rj["error"]
+          throw rj
+        end
+      end
+      rj
     else
-      throw "error"
+      throw "no response"
     end
   end
 end
 
 describe "couchjs" do
   before(:all) do
-    @js = CJS.run true
+    # puts `clear`
+    `cd #{COUCH_ROOT} && make`
+    @js = CJS.run
   end
   after(:all) do
     @js.close
@@ -84,10 +100,10 @@ describe "couchjs" do
     rows[0][1].should == ["bar", "b"]
     rows[1][0].should == ["baz", "b"]
   end
-  it "should reduce"
-  it "should rereduce"
-  it "should rereduce"
-  it "should validate"
+  # it "should reduce"
+  # it "should rereduce"
+  # it "should rereduce"
+  # it "should validate"
   describe "_show" do
     before(:all) do
       @fun = <<-JS
@@ -108,15 +124,39 @@ describe "couchjs" do
       @fun = <<-JS
         function(head, row, req) {
           if (head) return head.head;
+          if (row) return row.body;
+          return "tail";
         }
         JS
       @js.reset!
       @js.add_fun(@fun).should == true
     end
     it "should list" do
-      @js.r(["list_begin", {"head"=>"ok"}, nil, {"req" => "ok"}]).should == "start,head"
-      @js.r(["list_row", {"key" => "yo", "title" => "foo", "body" => "bar"}, {"req" => "ok"}]).should == "foo - bar"
+      @js.r(["list_begin", {"head"=>"ok"}, nil, {"req" => "ok"}])["body"].should == "ok"
+      @js.r(["list_row", {"key" => "yo", "title" => "foo", "body" => "bar"}, {"req" => "bar"}])["body"].should == "bar"
+      @js.r(["list_tail", {"req" => "bar"}])["body"].should == "tail"
     end
+  end
+  describe "new list" do
+    before(:all) do
+      @fun = <<-JS
+        function(head, req) {
+          sendChunk("chunk")
+          sendChunk(req.q);
+          sendChunk(head.foo);
+          var row = getRow();
+          sendChunk(row.key)
+          return "tail";
+        }
+        JS
+      @js.reset!
+      @js.add_fun(@fun).should == true
+    end
+    # it "should list" do
+    #   # @js.r(["list", {"head"=>"foo"}, {"q" => "ok"}]).should == "chunk"
+    #   @js.r(["list_row", {"key" => "yo", "title" => "foo", "body" => "bar"}, {"req" => "bar"}])["body"].should == "bar"
+    #   @js.r(["list_tail", {"req" => "bar"}])["body"].should == "tail"
+    # end
   end
 end
 
