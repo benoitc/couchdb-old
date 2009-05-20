@@ -180,7 +180,7 @@ describe "couchjs" do
           var row;
           //log("start getRow loop");
           while(row = getRow()) {
-            log(row);
+            //log(row);
             sendChunk(row.key);        
           };
           return "tail";
