@@ -177,9 +177,15 @@ registerType("url_encoded_form", "application/x-www-form-urlencoded");
 // http://www.ietf.org/rfc/rfc4627.txt
 registerType("json", "application/json", "text/x-json");
 
-function sendChunk(chunk) {
+//  Send chunk
+
+function sendChunk(chunk, nl) {
   log("chunk: "+chunk);
-  respond({"chunk":['',chunk].join('')});
+  if (nl) {
+    print(['',chunk,'\n'].join(''));    
+  } else {
+    print(['',chunk].join(''));    
+  }
 };
 
 function getRow() {
