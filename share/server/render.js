@@ -177,6 +177,10 @@ registerType("url_encoded_form", "application/x-www-form-urlencoded");
 // http://www.ietf.org/rfc/rfc4627.txt
 registerType("json", "application/json", "text/x-json");
 
+function sendChunk(chunk) {
+  respond({"chunk":chunk});
+};
+
 ////
 ////  Render dispatcher
 ////
@@ -186,10 +190,15 @@ registerType("json", "application/json", "text/x-json");
 
 var Render = (function() {
   var row_info;
+  
   return {
     showDoc : function(funSrc, doc, req) {
       var formFun = compileFunction(funSrc);
-      runRenderFunction(formFun, [doc, req], funSrc);
+      runRenderFunction(formFun, [doc, req], funSrc, true, renderHelpers);
+    },
+    list : function(head, req) {
+      // log("run list yo")
+      runRenderFunction(funs[0], [head, req], funsrc[0]);
     },
     listBegin : function(head, req) {
       row_info = { first_key: null, row_number: 0, prev_key: null };
@@ -209,10 +218,11 @@ var Render = (function() {
   }
 })();
 
-function runRenderFunction(renderFun, args, funSrc, htmlErrors) {
+function runRenderFunction(renderFun, args, funSrc, htmlErrors, context) {
   responseSent = false;
+  context = context || null;
   try {
-    var resp = renderFun.apply(null, args);
+    var resp = renderFun.apply(context, args);
     if (!responseSent) {
       if (resp) {
         respond(maybeWrapResponse(resp));       
