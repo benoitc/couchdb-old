@@ -20,22 +20,23 @@ require 'spec'
 require 'json'
 
 class CJS
-  def self.run
+  def self.run trace = false
     # puts "launching #{RUN_COUCHJS}"
     if block_given?
       Open3.popen3(RUN_COUCHJS) do |jsin, jsout, jserr|
-        js = CJS.new(jsin, jsout, jserr)
+        js = CJS.new(jsin, jsout, jserr, trace)
         yield js
       end
     else
       jsin, jsout, jserr = Open3.popen3(RUN_COUCHJS)
-      CJS.new(jsin, jsout, jserr)
+      CJS.new(jsin, jsout, jserr, trace)
     end
   end
-  def initialize jsin, jsout, jserr
+  def initialize jsin, jsout, jserr, trace = false
     @jsin = jsin
     @jsout = jsout
     @jserr = jserr
+    @trace = trace
   end
   def close
     @jsin.close
@@ -50,13 +51,13 @@ class CJS
   end
   def r json
     line = json.to_json
-    # puts "run: #{line}"
+    puts "run: #{line}" if @trace
     @jsin.puts line
     resp = @jsout.gets
     # err = @jserr.gets
     # puts "err: #{err}" if err
     if resp
-      # puts "got: #{resp}"
+      puts "got: #{resp}"  if @trace
       JSON.parse("[#{resp.chomp}]")[0]
     else
       throw "error"
@@ -66,7 +67,7 @@ end
 
 describe "couchjs" do
   before(:all) do
-    @js = CJS.run
+    @js = CJS.run true
   end
   after(:all) do
     @js.close
@@ -102,17 +103,19 @@ describe "couchjs" do
           "Best ever - Doc body"
     end
   end
-  describe "_list" do
+  describe "old _list" do
     before(:all) do
       @fun = <<-JS
-        function(doc, req) {
-          return [doc.title, doc.body].join(' - ')
+        function(head, row, req) {
+          if (head) return head
         }
         JS
       @js.reset!
       @js.add_fun(@fun).should == true
     end
     it "should list" do
+      @js.r(["list_begin", {"head"=>"ok"}, {"req" => "ok"}]).should == "start,head"
+      @js.r(["list_row", {"key" => "yo", "title" => "foo", "body" => "bar"}, {"req" => "ok"}]).should == "foo - bar"
     end
   end
 end
