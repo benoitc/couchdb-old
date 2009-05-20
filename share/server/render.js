@@ -162,8 +162,6 @@ registerType("text", "text/plain", "txt");
 registerType("html", "text/html");
 registerType("xhtml", "application/xhtml+xml", "xhtml");
 registerType("xml", "application/xml", "text/xml", "application/x-xml");
-// http://www.ietf.org/rfc/rfc4627.txt
-registerType("json", "application/json", "text/x-json");
 registerType("js", "text/javascript", "application/javascript", "application/x-javascript");
 registerType("css", "text/css");
 registerType("ics", "text/calendar");
@@ -171,10 +169,20 @@ registerType("csv", "text/csv");
 registerType("rss", "application/rss+xml");
 registerType("atom", "application/atom+xml");
 registerType("yaml", "application/x-yaml", "text/yaml");
+
 // just like Rails
 registerType("multipart_form", "multipart/form-data");
 registerType("url_encoded_form", "application/x-www-form-urlencoded");
 
+// http://www.ietf.org/rfc/rfc4627.txt
+registerType("json", "application/json", "text/x-json");
+
+////
+////  Render dispatcher
+////
+////
+////
+////
 
 var Render = (function() {
   var row_info;
@@ -214,7 +222,7 @@ function runRenderFunction(renderFun, args, funSrc, htmlErrors) {
     }
   } catch(e) {
     var logMessage = "function raised error: "+e.toString();
-    log(logMessage);
+    // log(logMessage);
     // log("stacktrace: "+e.stack);
     var errorMessage = htmlErrors ? htmlRenderError(e, funSrc) : logMessage;
     respond({
