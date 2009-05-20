@@ -178,7 +178,7 @@ describe "couchjs" do
         function(head, req) {
           sendChunk("bacon")
           var row;
-          log("start getRow loop");
+          //log("start getRow loop");
           while(row = getRow()) {
             log(row);
             sendChunk(row.key);        
