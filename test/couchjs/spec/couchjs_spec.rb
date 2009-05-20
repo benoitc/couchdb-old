@@ -221,7 +221,6 @@ describe "couchjs" do
           sendChunk("second chunk");
           var row;
           while(row = getRow()) {
-            log("row: "+toJSON(row));
             sendChunk(row.key);        
           };
           return "tail";

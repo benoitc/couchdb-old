@@ -108,9 +108,5 @@ log = function(message) {
   } else if (typeof message != "string") {
     message = toJSON(message);
   }
-  plog(message);
-};
-
-function plog(m) {
-  print(toJSON({log: m}));
+  print(toJSON({log: message}));
 };
