@@ -59,11 +59,11 @@ class CJS
     @jsin.puts line
     jsgets
   end
-  def g
-    jsgets
+  def rgets
+    @jsout.gets
   end
   def jsgets
-    resp = @jsout.gets
+    resp = rgets
     # err = @jserr.gets
     # puts "err: #{err}" if err
     if resp
@@ -143,15 +143,15 @@ describe "couchjs" do
     end
     # it "should new list" do
     #   @js.run(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == {"chunk"=>"bacon"}
-    #   @js.g.should == {"chunk"=>"ok"}
-    #   @js.g.should == {"chunk"=>"bar"}
+    #   @js.jsgets.should == {"chunk"=>"ok"}
+    #   @js.jsgets.should == {"chunk"=>"bar"}
     #   @js.run(["list_row", {"key"=>"baz"}]).should == {"chunk"=>"baz"}
-    #   @js.g.should == {"body"=>"tail"}
+    #   @js.jsgets.should == {"body"=>"tail"}
     # end
     # it "should error if it gets a non-row in the middle" do
     #   @js.run(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == {"chunk"=>"bacon"}
-    #   @js.g.should == {"chunk"=>"ok"}
-    #   @js.g.should == {"chunk"=>"bar"}
+    #   @js.jsgets.should == {"chunk"=>"ok"}
+    #   @js.jsgets.should == {"chunk"=>"bar"}
     #   lambda {@js.run(["reset"])}.should raise_error
     # end
   end
