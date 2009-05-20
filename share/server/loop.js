@@ -20,6 +20,7 @@ try {
   sandbox.log = log;
   sandbox.toJSON = toJSON;
   sandbox.respondWith = respondWith;
+  sandbox.sendChunk = sendChunk;
   sandbox.registerType = registerType;
 } catch (e) {}
 
@@ -38,6 +39,7 @@ var dispatch = {
   "rereduce"   : Views.rereduce,
   "validate"   : Validate.validate,
   "show_doc"   : Render.showDoc,
+  "list"       : Render.list,
   "list_begin" : Render.listBegin,
   "list_row"   : Render.listRow,
   "list_tail"  : Render.listTail 
