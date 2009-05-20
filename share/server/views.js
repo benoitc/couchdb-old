@@ -121,7 +121,7 @@ var Views = (function() {
           buf.push("[]");
         }
       }
-      print("[" + buf.join(", ") + "]");
+      print("[" + buf.join(", ") + "]\n");
     }
   }
 })();

@@ -128,7 +128,7 @@ respondWith = function(req, responders) {
   }
   var rFunc = responders[bestKey || responders.fallback || "html"];
   if (rFunc) {      
-    var resp = maybeWrapResponse(rFunc());
+    var resp = rFunc();
     resp["headers"] = resp["headers"] || {};
     resp["headers"]["Content-Type"] = bestMime;
     respond(resp);
@@ -247,7 +247,7 @@ function runRenderFunction(renderFun, args, funSrc, htmlErrors) {
   try {
     var resp = renderFun.apply(null, args);
       if (resp) {
-        respond(maybeWrapResponse(resp));       
+        sendChunk(resp, true);
       } else {
         respond({error:"render_error",reason:"undefined response from render function"});
       }      
@@ -280,11 +280,3 @@ function htmlRenderError(e, funSrc) {
   return {body:msg};
 };
 
-function maybeWrapResponse(resp) {
-  var type = typeof resp;
-  if ((type == "string") || (type == "xml")) {
-    return {body:resp};
-  } else {
-    return resp;
-  }
-};
