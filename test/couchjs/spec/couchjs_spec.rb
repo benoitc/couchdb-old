@@ -42,18 +42,31 @@ class CJS
     @jsout.close
     @jserr.close
   end
+  def reset!
+    r(["reset"])
+  end
+  def add_fun(fun)
+    r(["add_fun", fun])
+  end
   def r json
-    @jsin.puts json.to_json
-    JSON.parse("[#{@jsout.gets.chomp}]")[0]
+    line = json.to_json
+    # puts "run: #{line}"
+    @jsin.puts line
+    resp = @jsout.gets
+    # err = @jserr.gets
+    # puts "err: #{err}" if err
+    if resp
+      # puts "got: #{resp}"
+      JSON.parse("[#{resp.chomp}]")[0]
+    else
+      throw "error"
+    end
   end
 end
 
 describe "couchjs" do
   before(:all) do
     @js = CJS.run
-  end
-  before(:each) do
-    @js.r(["reset"])
   end
   after(:all) do
     @js.close
@@ -62,12 +75,45 @@ describe "couchjs" do
     @js.r(["reset"]).should == true    
   end
   it "should run map funs" do
+    @js.reset!
     @js.r(["add_fun", %{function(doc){emit("foo",doc.a); emit("bar",doc.a)}}]).should == true
     @js.r(["add_fun", %{function(doc){emit("baz",doc.a)}}]).should == true
     rows = @js.r(["map_doc", {:a => "b"}])
     rows[0][0].should == ["foo", "b"]
     rows[0][1].should == ["bar", "b"]
     rows[1][0].should == ["baz", "b"]
+  end
+  it "should reduce"
+  it "should rereduce"
+  it "should rereduce"
+  it "should validate"
+  describe "_show" do
+    before(:all) do
+      @fun = <<-JS
+        function(doc, req) {
+          return [doc.title, doc.body].join(' - ')
+        }
+        JS
+      @js.reset!
+    end
+    it "should show" do
+      @js.r(["show_doc", @fun, 
+        {:title => "Best ever", :body => "Doc body"}])["body"].should ==
+          "Best ever - Doc body"
+    end
+  end
+  describe "_list" do
+    before(:all) do
+      @fun = <<-JS
+        function(doc, req) {
+          return [doc.title, doc.body].join(' - ')
+        }
+        JS
+      @js.reset!
+      @js.add_fun(@fun).should == true
+    end
+    it "should list" do
+    end
   end
 end
 
