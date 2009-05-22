@@ -230,7 +230,9 @@ describe "couchjs" do
           return "tail";
         };
         JS
-        @js.run(["reset"]).should == true    
+      # next fun is for reference
+      # @fun = "function(){return 'ok';}"
+      @js.run(["reset"]).should == true    
       @js.add_fun(@fun).should == true
     end
     it "should should list em" do
@@ -247,11 +249,14 @@ describe "couchjs" do
       @js.jsgets.should == {"end" => "tail"}
       @js.reset!
     end
-    it "should error if it gets a non-row in the middle" do
+    it "should reset if it gets a non-row in the middle" do
       @js.rrun(["list", {"foo"=>"bar"}, {"q" => "ok"}])
       @js.rgets.should == "first chunk\n"
       @js.rgets.should == "second chunk third chunk\n"
       lambda {@js.run(["reset"])}.should raise_error
+    end
+    it "should reset properly" do
+      
     end
   end
   
