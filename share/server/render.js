@@ -81,11 +81,14 @@ function startResponse(headers) {
   respond({"headers":headers})
 }
 
+var needsNewline;
 function sendChunk(chunk, nl) {
   if (nl) {
-    print(['',chunk,'\n'].join(''));    
+    print(['',chunk,'\n'].join('')); 
+    needsNewline = false;   
   } else {
     print(['',chunk].join(''));    
+    needsNewline = true;   
   }
 };
 
