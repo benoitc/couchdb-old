@@ -256,7 +256,7 @@ describe "couchjs" do
       lambda {@js.run(["reset"])}.should raise_error
     end
     it "should reset properly" do
-      
+      pending
     end
   end
   
