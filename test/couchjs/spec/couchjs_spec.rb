@@ -115,22 +115,23 @@ describe "couchjs" do
   # it "should rereduce"
   # it "should validate"
   
-  describe "_show" do
-    before(:all) do
-      @fun = <<-JS
-        function(doc, req) {
-          return [doc.title, doc.body].join(' - ')
-        }
-        JS
-      @js.reset!
-    end
-    it "should show" do
-      @js.rrun(["show_doc", @fun, 
-        {:title => "Best ever", :body => "Doc body"}])
-      @js.rgets.should ==
-          "Best ever - Doc body\n"
-    end
-  end
+  # describe "_show" do
+  #   before(:all) do
+  #     @fun = <<-JS
+  #       function(doc, req) {
+  #         return [doc.title, doc.body].join(' - ')
+  #       }
+  #       JS
+  #     @js.reset!
+  #   end
+  #   it "should show" do
+  #     @js.rrun(["show_doc", @fun, 
+  #       {:title => "Best ever", :body => "Doc body"}])
+  #     @js.rgets.should ==
+  #         "Best ever - Doc body\n"
+  #   end
+  # end
+  
   describe "basic new list" do
     before(:all) do
       @fun = <<-JS
@@ -233,7 +234,7 @@ describe "couchjs" do
       @js.add_fun(@fun).should == true
     end
     it "should should list em" do
-      # pending
+      pending
       @js.rrun(["list", {"foo"=>"bar"}, {"q" => "ok"}])
       @js.rgets.should == "first chunk\n"
       @js.rgets.should == "second chunk third chunk\n"
@@ -241,7 +242,9 @@ describe "couchjs" do
       m = @js.rrun(["list_row", {"key"=>"bam"}])
       m = @js.rrun(["list_row", {"key"=>"bar"}])
       m = @js.rrun(["list_tail"])
+      # pending
       @js.rgets.should == "bazbambartail\n" 
+      @js.jsgets.should == {"end" => "tail"}
       @js.reset!
     end
     it "should error if it gets a non-row in the middle" do
@@ -268,8 +271,7 @@ describe "couchjs" do
       @js.rrun(["list", {"foo"=>"bar"}, {"q" => "ok"}])
       @js.jsgets.should == {"headers" => {"Content-Type"=>"text/plain"}}
       @js.rgets.should == "first chunk\n"
-      @js.rgets.should == "tail\n"
-      @js.rgets.should == "tailx\n"
+      @js.jsgets.should == {"end" => "tail"}
     end
   end
 end
