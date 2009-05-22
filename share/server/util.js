@@ -96,6 +96,9 @@ function recursivelySeal(obj) {
 function respond(obj) {
   // responseSent = true;
   try {
+    if (needsNewline) {
+      print('\n');
+    }
     print(toJSON(obj)+"\n");  
   } catch(e) {
     log("Error converting object to JSON: " + e.toString());
