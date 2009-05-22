@@ -98,12 +98,19 @@ var Views = (function() {
 
       recursivelySeal(doc); // seal to prevent map functions from changing doc
       */
-      var buf = [];
+      // var buf = [];
+      print("[");
+      var comma = false;
       for (var i = 0; i < funs.length; i++) {
         map_results = [];
+        if (comma) {
+          print(',');
+        } else {
+          comma = true;
+        }
         try {
           funs[i](doc);
-          buf.push(toJSON(map_results));
+          print(toJSON(map_results));
         } catch (err) {
           if (err == "fatal_error") {
             // Only if it's a "fatal_error" do we exit. What's a fatal error?
@@ -118,10 +125,10 @@ var Views = (function() {
               reason: "function raised fatal exception"};
           }
           log("function raised exception (" + err + ") with doc._id " + doc._id);
-          buf.push("[]");
+          print("[]");
         }
       }
-      print("[" + buf.join(", ") + "]\n");
+      print("]\n");
     }
   }
 })();
