@@ -230,11 +230,11 @@ describe "couchjs" do
           return "tail";
         };
         JS
-      @js.reset!
+        @js.run(["reset"]).should == true    
       @js.add_fun(@fun).should == true
     end
     it "should should list em" do
-      pending
+      # pending
       @js.rrun(["list", {"foo"=>"bar"}, {"q" => "ok"}])
       @js.rgets.should == "first chunk\n"
       @js.rgets.should == "second chunk third chunk\n"
@@ -243,7 +243,7 @@ describe "couchjs" do
       m = @js.rrun(["list_row", {"key"=>"bar"}])
       m = @js.rrun(["list_tail"])
       # pending
-      @js.rgets.should == "bazbambartail\n" 
+      @js.rgets.should == "bazbambar\n" 
       @js.jsgets.should == {"end" => "tail"}
       @js.reset!
     end
