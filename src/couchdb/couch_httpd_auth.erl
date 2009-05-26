@@ -230,8 +230,14 @@ handle_login_req(#httpd{method='POST', mochi_req=MochiReq}=Req, #db{}=Db) ->
             Secret = proplists:get_value(<<"secret">>, AuthDoc, nil),
             {NowMS, NowS, _} = erlang:now(),
             CurrentTime = NowMS * 1000000 + NowS,
-            Headers = [cookie_auth_cookie(?b2l(UserName), <<Secret/binary, UserSalt/binary>>, CurrentTime)],
-            send_json(Req#httpd{req_body=ReqBody}, 200, Headers,
+            Cookie = cookie_auth_cookie(?b2l(UserName), <<Secret/binary, UserSalt/binary>>, CurrentTime),
+            {Code, Headers} = case couch_httpd:qs_value(Req, "next", nil) of
+                nil ->
+                    {200, [Cookie]};
+                Redirect ->
+                    {302, [Cookie, {<<"Location">>, couch_httpd:absolute_uri(Redirect)}]}
+            end,
+            send_json(Req#httpd{req_body=ReqBody}, Code, Headers,
                 {[{ok, true}]});
         _Else ->
             throw({unauthorized, <<"Name or password is incorrect.">>})
@@ -239,20 +245,25 @@ handle_login_req(#httpd{method='POST', mochi_req=MochiReq}=Req, #db{}=Db) ->
 % Login handler for per-node user db
 handle_login_req(#httpd{method='POST'}=Req, DbName) ->
     case couch_db:open(?l2b(DbName), [{user_ctx, #user_ctx{roles=[<<"_admin">>]}}]) of
-    {ok, Db} -> handle_login_req(Req, Db)
+        {ok, Db} -> handle_login_req(Req, Db)
     end;
 handle_login_req(Req, _Db) ->
     send_method_not_allowed(Req, "POST").
 
 % Logout handler for per-db user db
 handle_logout_req(#httpd{method='POST'}=Req, #db{}=_Db) ->
-    send_json(Req, 200, [
-        mochiweb_cookies:cookie("AuthSession", "", [{path, "/"}, {http_only, true}])
-    ], {[{ok, true}]});
+    Cookie = mochiweb_cookies:cookie("AuthSession", "", [{path, "/"}, {http_only, true}]),
+    {Code, Headers} = case couch_httpd:qs_value(Req, "next", nil) of
+        nil ->
+            {200, [Cookie]};
+        Redirect ->
+            {302, [Cookie, {<<"Location">>, couch_httpd:absolute_uri(Redirect)}]}
+    end,
+    send_json(Req, Code, Headers, {[{ok, true}]});
 % Logout handler for per-node user db
 handle_logout_req(#httpd{method='POST'}=Req, DbName) ->
     case couch_db:open(?l2b(DbName), [{user_ctx, #user_ctx{roles=[<<"_admin">>]}}]) of
-    {ok, Db} -> handle_logout_req(Req, Db)
+        {ok, Db} -> handle_logout_req(Req, Db)
     end;
 handle_logout_req(Req, _Db) ->
     send_method_not_allowed(Req, "POST").
