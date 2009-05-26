@@ -96,6 +96,13 @@ couchTests.cookie_auth = function(debug) {
       T(!userDb.login('Jason Davies', "2.71828").ok);
       T(!userDb.login('Robert Allen Zimmerman', 'd00d').ok);
 
+      // test redirect
+      xhr = CouchDB.request("POST", "/test_suite_db/_login?next=/", {
+        headers: {"Content-Type": "application/x-www-form-urlencoded"},
+        body: "username=Jason%20Davies&password="+encodeURIComponent(password)
+      });
+      T(xhr.status == 200);
+
     } finally {
       // Make sure we erase any auth cookies so we don't affect other tests
       T((new CouchDB("test_suite_db")).logout().ok);

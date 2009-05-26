@@ -235,7 +235,7 @@ handle_login_req(#httpd{method='POST', mochi_req=MochiReq}=Req, #db{}=Db) ->
                 nil ->
                     {200, [Cookie]};
                 Redirect ->
-                    {302, [Cookie, {<<"Location">>, couch_httpd:absolute_uri(Req, Redirect)}]}
+                    {302, [Cookie, {"Location", couch_httpd:absolute_uri(Req, Redirect)}]}
             end,
             send_json(Req#httpd{req_body=ReqBody}, Code, Headers,
                 {[{ok, true}]});
@@ -257,7 +257,7 @@ handle_logout_req(#httpd{method='POST'}=Req, #db{}=_Db) ->
         nil ->
             {200, [Cookie]};
         Redirect ->
-            {302, [Cookie, {<<"Location">>, couch_httpd:absolute_uri(Req, Redirect)}]}
+            {302, [Cookie, {"Location", couch_httpd:absolute_uri(Req, Redirect)}]}
     end,
     send_json(Req, Code, Headers, {[{ok, true}]});
 % Logout handler for per-node user db
