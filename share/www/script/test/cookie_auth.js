@@ -33,20 +33,13 @@ couchTests.cookie_auth = function(debug) {
         {"Cookie": "blah", "X-CouchDB-WWW-Authenticate": "Cookie"}
       );
 
-      // 256-bit key
-      var nStr = ("115b8b69 2e0e0456 92cf280b 436735c7 7a5a9e8a 9e7ed56c" +
-          "965f87db 5b2a2ece 3").replace(/ /g, '');
-
-      var n = new BigInteger(nStr, 16);
       var password = "3.141592653589";
-      var x = new BigInteger(hex_sha1("999" + password), 16);
-      var verifier = new BigInteger("2").modPow(x, n);
 
       // Create a user
       T(invalidCookieDb.save({
         _id: "a1",
-        salt: "999",
-        verifier: verifier.toString(16).toUpperCase(),
+        salt: "123",
+        password_sha: "8da1CtkFvb58LWrnup5chgdZVUs=",
         username: "Jason Davies",
         author: "Jason Davies",
         type: "user",
@@ -99,7 +92,7 @@ couchTests.cookie_auth = function(debug) {
         T(userDb.last_req.status == 403);
       }
 
-      // TODO login() should really throw an exception here...
+      // TODO should login() throw an exception here?
       T(!userDb.login('Jason Davies', "2.71828").ok);
       T(!userDb.login('Robert Allen Zimmerman', 'd00d').ok);
 
