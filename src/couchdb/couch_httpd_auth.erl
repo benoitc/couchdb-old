@@ -207,126 +207,34 @@ cookie_auth_cookie(User, Secret, TimeStamp) ->
         couch_util:encodeBase64Url(SessionData ++ ":" ++ ?b2l(Hash)),
         [{path, "/"}, {http_only, true}]). % TODO add {secure, true} when SSL is detected
 
-bin2int(Bin) ->
-    L = 8 * size(Bin),
-    <<Int:L>> = Bin,
-    Int.
-
-hex(N) when N < 10 ->
-    $0+N;
-hex(N) when N >= 10, N < 16 ->
-    $A+(N-10).
-
-int(C) when $0 =< C, C =< $9 ->
-    C - $0;
-int(C) when $A =< C, C =< $F ->
-    C - $A + 10;
-int(C) when $a =< C, C =< $f ->
-    C - $a + 10.
-    
-to_hex(N) when N < 256 ->
-    [hex(N div 16), hex(N rem 16)].
- 
-list_to_hexstr([]) -> 
-    [];
-list_to_hexstr([H|T]) ->
-    to_hex(H) ++ list_to_hexstr(T).
-
-bin_to_hexstr(Bin) ->
-    list_to_hexstr(binary_to_list(Bin)).
-
-hexstr_to_bin(S) ->
-    list_to_binary(hexstr_to_list(S)).
-
-hexstr_to_list([X,Y|T]) ->
-    [int(X)*16 + int(Y) | hexstr_to_list(T)];
-hexstr_to_list([]) ->
-    [].
-
 % Login handler for per-db user db
 handle_login_req(#httpd{method='POST', mochi_req=MochiReq}=Req, #db{}=Db) ->
-    {ok, #doc{body={AuthDoc}}} = open_auth_doc(Db),
-    Secret = proplists:get_value(<<"secret">>, AuthDoc, nil),
-    % 256-bit key
-    % 115b8b692e0e045692cf280b436735c77a5a9e8a9e7ed56c965f87db5b2a2ece3
-    Mod = <<33:32/integer, 16#01:8,
-            16#15b8b692:32, 16#e0e04569:32, 16#2cf280b4:32, 16#36735c77:32,
-            16#a5a9e8a9:32, 16#e7ed56c9:32, 16#65f87db5:32, 16#b2a2ece3:32>>,
-    ModInt = crypto:erlint(Mod),
-    Generator = crypto:mpint(2),
-    % k = H(N, g), in SRP-6a
-    ModHex = ?l2b(integer_to_list(ModInt, 16)),
-    GeneratorHex = ?l2b(integer_to_list(crypto:erlint(Generator), 16)),
-    Multiplier = bin2int(crypto:sha(<<ModHex/binary, GeneratorHex/binary>>)),
     ReqBody = MochiReq:recv_body(),
-    {Props} = ?JSON_DECODE(ReqBody),
-    UserName = proplists:get_value(<<"username">>, Props, nil),
+    Form = case MochiReq:get_primary_header_value("content-type") of
+        "application/x-www-form-urlencoded" ++ _ ->
+            mochiweb_util:parse_qs(ReqBody);
+        _ ->
+            []
+    end,
+    UserName = ?l2b(proplists:get_value("username", Form, "")),
+    Password = ?l2b(proplists:get_value("password", Form, "")),
     User = case get_user(Db, UserName) of
-    nil -> [];
-    Result -> Result
+        nil -> [];
+        Result -> Result
     end,
     UserSalt = proplists:get_value(<<"salt">>, User, <<>>),
-    Verifier = case proplists:get_value(<<"verifier">>, User, nil) of
-    nil -> crypto:erlint(crypto:rand_uniform(crypto:mpint(2), Mod));
-    V -> list_to_integer(?b2l(V), 16)
-    end,
-    case proplists:get_value(<<"M1">>, Props, nil) of
-    nil ->
-        % Generate random number b, 1 < b < n
-        PrivKey = crypto:rand_uniform(crypto:mpint(2), Mod),
-        % Compute ephemeral public key B = kv + g^b
-        B = Multiplier * Verifier + crypto:erlint(crypto:mod_exp(Generator, PrivKey, Mod)),
-        PrivKeySize = size(PrivKey),
-        <<EncryptionKey:PrivKeySize/binary, _Rest/binary>> = Secret,
-        EncryptedPrivKey = crypto:exor(PrivKey, EncryptionKey), 
-        {NowMS, NowS, _} = erlang:now(),
-        TimeStamp = NowMS * 1000000 + NowS,
-        send_json(Req#httpd{req_body=ReqBody}, 200, [],
-            {[{s, UserSalt},
-              {<<"B">>, ?l2b(integer_to_list(B, 16))},
-              {<<"b">>, ?l2b(bin_to_hexstr(EncryptedPrivKey))},
-              {<<"timestamp">>, ?l2b(integer_to_list(TimeStamp, 16))}]});
-    M1 ->
-        A = proplists:get_value(<<"A">>, Props, <<>>),
-        B = proplists:get_value(<<"B">>, Props, <<>>),
-        AInt = list_to_integer(?b2l(A), 16),
-        % Abort if A == 0 (mod N)
-        case AInt rem ModInt of
-        0 ->
-            throw({unauthorized, <<"Invalid public key sent by client.">>});
-        _Else ->
-            % u = H(A, B)
-            Scrambler = crypto:mpint(bin2int(crypto:sha(<<A/binary, B/binary>>))),
-            EncryptedPrivKey = hexstr_to_bin(?b2l(proplists:get_value(<<"b">>, Props, nil))),
-            PrivKeySize = size(EncryptedPrivKey),
-            <<EncryptionKey:PrivKeySize/binary, _Rest/binary>> = Secret,
-            PrivKey = crypto:exor(EncryptedPrivKey, EncryptionKey),
-            % S = (Av^u) ^ b
-            S = crypto:erlint(crypto:mod_exp(
-                    crypto:mpint(AInt *
-                        crypto:erlint(
-                            crypto:mod_exp(crypto:mpint(Verifier),
-                            Scrambler, Mod))),
-                    PrivKey, Mod)),
-            % K = H(S)
-            K = ?l2b(bin_to_hexstr(crypto:sha(?l2b(integer_to_list(S, 16))))),
-            % M[1] = H(A, B, K)
-            M1Verify = ?l2b(bin_to_hexstr(crypto:sha(<<A/binary, B/binary, K/binary>>))),
-            TimeStamp = list_to_integer(?b2l(proplists:get_value(<<"timestamp">>, Props, nil)), 16),
+    PasswordHash = couch_util:encodeBase64(crypto:sha(<<UserSalt/binary, Password/binary>>)),
+    case proplists:get_value(<<"password_sha">>, User, nil) of
+        ExpectedHash when ExpectedHash == PasswordHash ->
+            {ok, #doc{body={AuthDoc}}} = open_auth_doc(Db),
+            Secret = proplists:get_value(<<"secret">>, AuthDoc, nil),
             {NowMS, NowS, _} = erlang:now(),
             CurrentTime = NowMS * 1000000 + NowS,
-            Timeout = 600,
-            if
-            M1 == M1Verify andalso CurrentTime < TimeStamp + Timeout ->
-                % M[2] = H(A, M[1], K)
-                M2 = ?l2b(bin_to_hexstr(crypto:sha(<<A/binary, M1/binary, K/binary>>))),
-                Headers = [cookie_auth_cookie(?b2l(UserName), <<Secret/binary, UserSalt/binary>>, TimeStamp)],
-                send_json(Req#httpd{req_body=ReqBody}, 200, Headers,
-                    {[{<<"M2">>, M2}]});
-            true ->
-                throw({unauthorized, <<"Name or password is incorrect.">>})
-            end
-        end
+            Headers = [cookie_auth_cookie(?b2l(UserName), <<Secret/binary, UserSalt/binary>>, CurrentTime)],
+            send_json(Req#httpd{req_body=ReqBody}, 200, Headers,
+                {[{ok, true}]});
+        _Else ->
+            throw({unauthorized, <<"Name or password is incorrect.">>})
     end;
 % Login handler for per-node user db
 handle_login_req(#httpd{method='POST'}=Req, DbName) ->

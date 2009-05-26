@@ -243,19 +243,14 @@ function CouchDB(name, httpHeaders) {
   }
 
   this.login = function(username, password) {
-    var _db = this;
-    function req(body, callback) {
-      _db.last_req = _db.request("POST", _db.uri + "_login", {
-        body: body
-      });
-      return callback(JSON.parse(_db.last_req.responseText));
-    }
-    var data = {};
-    authSRP(req, username, password, function(_data) { data = _data; });
-    return data;
+    this.last_req = this.request("POST", this.uri + "_login", {
+      headers: {"Content-Type": "application/x-www-form-urlencoded"},
+      body: "username=" + encodeURIComponent(username) + "&password=" + encodeURIComponent(password)
+    });
+    return JSON.parse(this.last_req.responseText);
   }
 
-  this.logout = function(username, password) {
+  this.logout = function() {
     this.last_req = this.request("POST", this.uri + "_logout", {});
     return JSON.parse(this.last_req.responseText);
   }
