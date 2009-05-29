@@ -92,7 +92,7 @@ class QueryServerRunner
   end
 end
 
-describe "query-server normal case" do
+describe "query server normal case" do
   before(:all) do
     `cd #{COUCH_ROOT} && make`
     @qs = QueryServerRunner.run
