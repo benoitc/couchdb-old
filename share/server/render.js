@@ -76,34 +76,27 @@ registerType("url_encoded_form", "application/x-www-form-urlencoded");
 // http://www.ietf.org/rfc/rfc4627.txt
 registerType("json", "application/json", "text/x-json");
 
+
+
 //  Send chunk
-function startResponse(headers) {
-  respond({"headers":headers})
+function sendHeaders(headers) {
+  respond(["headers", headers]);
 }
 
-var needsNewline;
-function sendChunk(chunk, nl) {
-  if (nl) {
-    print(['',chunk,'\n'].join('')); 
-    needsNewline = false;   
-  } else {
-    print(['',chunk].join(''));    
-    needsNewline = true;   
-  }
+function sendChunk(chunk) {
+  respond(["chunk", chunk]);
 };
 
 function getRow() {
   var line = readline();
-  // log("getRow() line: "+line);
   var json = eval(line);
-  if (json[0] == "list_tail") return null;
+  if (json[0] == "list_end") return null;
   if (json[0] != "list_row") {
     respond({
       error: "query_server_error",
       reason: "not a row '" + json[0] + "'"});
-    quit();  
+    quit();
   }
-  // log("row: " + toJSON(json[1]))
   return json[1];
 };
 
@@ -135,10 +128,8 @@ var Render = (function() {
 function runRenderFunction(renderFun, args, funSrc, htmlErrors) {
   try {
     var resp = renderFun.apply(null, args);
-      if (resp && resp.body) {
-        respond(resp);
-      } else if (resp) {
-        respond({end:resp});
+      if (resp) {
+        respond(["end", resp]);
       } else {
         respond({error:"render_error",reason:"undefined response from render function"});
       }      
@@ -147,6 +138,7 @@ function runRenderFunction(renderFun, args, funSrc, htmlErrors) {
     // log(logMessage);
     // log("stacktrace: "+e.stack);
     var errorMessage = htmlErrors ? htmlRenderError(e, funSrc) : logMessage;
+    
     respond({
       error:"render_error",
       reason:errorMessage});
