@@ -23,7 +23,8 @@ require 'spec'
 require 'json'
 
 class CJS
-  def self.run trace = false
+  def self.run
+    trace = false
     puts "launching #{RUN_COUCHJS}"
     if block_given?
       Open3.popen3(RUN_COUCHJS) do |jsin, jsout, jserr|
@@ -94,7 +95,7 @@ end
 describe "couchjs normal case" do
   before(:all) do
     `cd #{COUCH_ROOT} && make`
-    @js = CJS.run :trace
+    @js = CJS.run
   end
   after(:all) do
     @js.close
@@ -123,12 +124,23 @@ describe "couchjs normal case" do
     it "should reduce" do
       kvs = (0...10).collect{|i|[i,i*2]}
       @js.run(["reduce", [@fun], kvs]).should == [true, [10]]
-      
     end
   end
-
+  describe "rereduce" do
+    before(:all) do
+      @fun = <<-JS
+        function(keys, values, rereduce) {
+          return sum(values);
+        }
+        JS
+      @js.reset!
+    end
+    it "should rereduce" do
+      vs = (0...10).collect{|i|i}
+      @js.run(["rereduce", [@fun], vs]).should == [true, [45]]
+    end
+  end
   
-  # it "should rereduce"
   # it "should validate"
   
   describe "show" do
@@ -253,7 +265,7 @@ end
 
 describe "couchjs exiting" do
   before(:each) do
-    @js = CJS.run :trace
+    @js = CJS.run
   end
   after(:each) do
     @js.close
