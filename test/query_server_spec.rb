@@ -11,10 +11,10 @@
 # the License.
 
 
-# to run:
-# spec test/query_server/query_server_spec.rb -f specdoc --color
+# to run (require ruby and rspec):
+# spec test/query_server_spec.rb -f specdoc --color
 
-COUCH_ROOT = "#{File.dirname(__FILE__)}/../../.." unless defined?(COUCH_ROOT)
+COUCH_ROOT = "#{File.dirname(__FILE__)}/.." unless defined?(COUCH_ROOT)
 
 RUN_COUCHJS = "#{COUCH_ROOT}/src/couchdb/couchjs #{COUCH_ROOT}/share/server/main.js"
 
