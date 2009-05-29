@@ -111,8 +111,22 @@ describe "couchjs normal case" do
     rows[0][1].should == ["bar", "b"]
     rows[1][0].should == ["baz", "b"]
   end
-  # it "should reduce"
-  # it "should rereduce"
+  describe "reduce" do
+    before(:all) do
+      @fun = <<-JS
+        function(keys, values, rereduce) {
+          return values.length;
+        }
+        JS
+      @js.reset!
+    end
+    it "should reduce" do
+      @js.run(["reduce", [@fun], (0...10).to_a]).should == "x"
+      
+    end
+  end
+
+  
   # it "should rereduce"
   # it "should validate"
   
