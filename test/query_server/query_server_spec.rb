@@ -12,7 +12,7 @@
 
 
 # to run:
-# spec test/couchjs/spec/couchjs_spec.rb -f specdoc --color
+# spec test/query_server/query_server_spec.rb -f specdoc --color
 
 COUCH_ROOT = "#{File.dirname(__FILE__)}/../../.." unless defined?(COUCH_ROOT)
 
@@ -92,7 +92,7 @@ class QueryServerRunner
   end
 end
 
-describe "couchjs normal case" do
+describe "query-server normal case" do
   before(:all) do
     `cd #{COUCH_ROOT} && make`
     @qs = QueryServerRunner.run
@@ -263,7 +263,7 @@ describe "couchjs normal case" do
   end
 end
 
-describe "couchjs exiting" do
+describe "query server that exits" do
   before(:each) do
     @qs = QueryServerRunner.run
   end
