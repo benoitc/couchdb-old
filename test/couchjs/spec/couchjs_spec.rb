@@ -116,108 +116,40 @@ describe "couchjs normal case" do
   # it "should rereduce"
   # it "should validate"
   
-  # describe "_show" do
-  #   before(:all) do
-  #     @fun = <<-JS
-  #       function(doc, req) {
-  #         return [doc.title, doc.body].join(' - ')
-  #       }
-  #       JS
-  #     @js.reset!
-  #   end
-  #   it "should show" do
-  #     @js.rrun(["show_doc", @fun, 
-  #       {:title => "Best ever", :body => "Doc body"}])
-  #     @js.rgets.should ==
-  #         "Best ever - Doc body\n"
-  #   end
-  # end
-  
-  describe "basic new list" do
+  describe "show" do
     before(:all) do
       @fun = <<-JS
-        function(head, req) {
-          sendChunk("bacon")
-          sendChunk(req.q);
-          sendChunk(head.foo);
-          var row = getRow();
-          sendChunk(row.key)
-          return "tail";
+        function(doc, req) {
+          return [doc.title, doc.body].join(' - ')
         }
         JS
       @js.reset!
-      @js.add_fun(@fun).should == true
     end
-    # it "should new list" do
-    #   @js.run(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == {"chunk"=>"bacon"}
-    #   @js.jsgets.should == {"chunk"=>"ok"}
-    #   @js.jsgets.should == {"chunk"=>"bar"}
-    #   @js.run(["list_row", {"key"=>"baz"}]).should == {"chunk"=>"baz"}
-    #   @js.jsgets.should == {"body"=>"tail"}
-    # end
-    # it "should error if it gets a non-row in the middle" do
-    #   @js.run(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == {"chunk"=>"bacon"}
-    #   @js.jsgets.should == {"chunk"=>"ok"}
-    #   @js.jsgets.should == {"chunk"=>"bar"}
-    #   lambda {@js.run(["reset"])}.should raise_error
-    # end
-  end
-  describe "multi-row new list" do
-    before(:all) do
-      @fun = <<-JS
-        function(head, req) {
-          sendChunk("bacon")
-          var row;
-          while(row = getRow()) {
-            sendChunk(row.key);        
-          };
-          return "tail";
-        }
-        JS
-      @js.reset!
-      @js.add_fun(@fun).should == true
+    it "should show" do
+      @js.rrun(["show", @fun, 
+        {:title => "Best ever", :body => "Doc body"}])
+      @js.jsgets.should == ["end", "Best ever - Doc body"]
     end
-    # it "should list all rows" do
-    #   @js.run(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == {"chunk"=>"bacon"}
-    #   @js.run(["list_row", {"key"=>"baz"}]).should == {"chunk"=>"baz"}
-    #   @js.run(["list_row", {"key"=>"foom"}]).should == {"chunk"=>"foom"}
-    #   @js.run(["list_tail"]).should == {"body"=>"tail"}
-    # end
-    # it "should list all rows" do
-    #   @js.run(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == {"chunk"=>"bacon"}
-    #   @js.run(["list_row", {"key"=>"baz"}]).should == {"chunk"=>"baz"}
-    #   @js.run(["list_row", {"key"=>"foom"}]).should == {"chunk"=>"foom"}
-    #   @js.run(["list_tail"]).should == {"body"=>"tail"}
-    # end
-  end
-  describe "only goes to 2 list" do
-    before(:all) do
-      @fun = <<-JS
-        function(head, req) {
-          sendChunk("bacon")
-          var row, i = 0;
-          while(row = getRow()) {
-            sendChunk(row.key);        
-            i += 1;
-            if (i > 2) {
-              return('breaking');
-            }
-          };
-        }
-        JS
-      @js.reset!
-      @js.add_fun(@fun).should == true
-    end
-    # it "should end early" do
-    #   @js.run(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == {"chunk"=>"bacon"}
-    #   @js.run(["list_row", {"key"=>"baz"}]).should == {"chunk"=>"baz"}
-    #   @js.run(["list_row", {"key"=>"foom"}]).should == {"chunk"=>"foom"}
-    #   @js.run(["list_row", {"key"=>"fooz"}]).should == {"chunk"=>"fooz"}
-    #   @js.run(["list_row", {"key"=>"foox"}]).should == {"body"=>"breaking"}
-    # end
   end
   
-  # show should be the same, only with doc instead of head
+  describe "show with headers" do
+    before(:all) do
+      @fun = <<-JS
+        function(doc, req) {
+          sendHeaders({"X-Plankton":"Rusty"});
+          return [doc.title, doc.body].join(' - ')
+        }
+        JS
+      @js.reset!
+    end
+    it "should show" do
+      @js.rrun(["show", @fun, 
+        {:title => "Best ever", :body => "Doc body"}])
+      @js.jsgets.should == ["headers", {"X-Plankton"=>"Rusty"}]
+      @js.jsgets.should == ["end", "Best ever - Doc body"]
+    end
+  end
+    
   describe "raw list with headers" do
     before(:each) do
       @fun = <<-JS
@@ -240,7 +172,7 @@ describe "couchjs normal case" do
     end
   end
   
-  describe "raw list with rows" do
+  describe "list with rows" do
     before(:each) do
       @fun = <<-JS
         function(head, req) {
@@ -266,10 +198,42 @@ describe "couchjs normal case" do
       @js.get_chunk.should == "bam"
       @js.rrun(["list_end"])
       @js.jsgets.should == ["end", "tail"]
-      @js.reset!
+    end
+    it "should work with zero rows" do
+      @js.rrun(["list", {"foo"=>"bar"}, {"q" => "ok"}])
+      @js.get_chunk.should == "first chunk"
+      @js.get_chunk.should == "ok"
+      @js.rrun(["list_end"])
+      @js.jsgets.should == ["end", "tail"]
     end
   end
 
+  describe "only goes to 2 list" do
+    before(:all) do
+      @fun = <<-JS
+        function(head, req) {
+          sendChunk("bacon")
+          var row, i = 0;
+          while(row = getRow()) {
+            sendChunk(row.key);        
+            i += 1;
+            if (i > 2) {
+              return('early');
+            }
+          };
+        }
+        JS
+      @js.reset!
+      @js.add_fun(@fun).should == true
+    end
+    it "should end early" do
+      @js.run(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == ["chunk", "bacon"]
+      @js.run(["list_row", {"key"=>"baz"}]).should ==  ["chunk", "baz"]
+      @js.run(["list_row", {"key"=>"foom"}]).should == ["chunk", "foom"]
+      @js.run(["list_row", {"key"=>"fooz"}]).should == ["chunk", "fooz"]
+      @js.run(["list_row", {"key"=>"foox"}]).should == ["end" , "early"]
+    end
+  end
 end
 
 describe "couchjs exiting" do
@@ -279,6 +243,44 @@ describe "couchjs exiting" do
   after(:each) do
     @js.close
   end
+  
+  describe "only goes to 2 list" do
+    before(:each) do
+      @fun = <<-JS
+        function(head, req) {
+          sendChunk("bacon")
+          var row, i = 0;
+          while(row = getRow()) {
+            sendChunk(row.key);        
+            i += 1;
+            if (i > 2) {
+              return('early');
+            }
+          };
+        }
+        JS
+      @js.reset!
+      @js.add_fun(@fun).should == true
+    end
+    it "should exit if erlang sends too many rows" do
+      @js.run(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == ["chunk", "bacon"]
+      @js.run(["list_row", {"key"=>"baz"}]).should ==  ["chunk", "baz"]
+      @js.run(["list_row", {"key"=>"foom"}]).should == ["chunk", "foom"]
+      @js.run(["list_row", {"key"=>"fooz"}]).should == ["chunk", "fooz"]
+      @js.run(["list_row", {"key"=>"foox"}]).should == ["end" , "early"]
+      @js.rrun(["list_row", {"key"=>"woox"}])
+      @js.jsgets["error"].should == "query_server_error"
+      begin
+        @js.run(["reset"])
+        "raise before this".should == true
+      rescue RuntimeError => e
+        e.message.should == "no response"
+      rescue Errno::EPIPE
+        true.should == true
+      end
+    end
+  end
+  
   describe "raw list" do
     before(:each) do
       @fun = <<-JS
@@ -300,7 +302,14 @@ describe "couchjs exiting" do
       @js.get_chunk.should == "first chunk"
       @js.get_chunk.should == "ok"
       @js.run(["reset"])["error"].should == "query_server_error"
-      lambda {@js.run(["reset"])}.should raise_error(Errno::EPIPE)
+      begin
+        @js.run(["reset"])
+        "raise before this".should == true
+      rescue RuntimeError => e
+        e.message.should == "no response"
+      rescue Errno::EPIPE
+        true.should == true
+      end
     end
   end  
 end

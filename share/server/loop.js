@@ -34,17 +34,14 @@ try {
 var line, cmd, cmdkey;
 
 var dispatch = {
-  "reset"      : State.reset,
-  "add_fun"    : State.addFun,
-  "map_doc"    : Views.mapDoc,
-  "reduce"     : Views.reduce,
-  "rereduce"   : Views.rereduce,
-  "validate"   : Validate.validate,
-  "show_doc"   : Render.showDoc,
-  "list"       : Render.list,
-  "list_begin" : Render.listBegin,
-  "list_row"   : Render.listRow,
-  "list_tail"  : Render.listTail 
+  "reset"    : State.reset,
+  "add_fun"  : State.addFun,
+  "map_doc"  : Views.mapDoc,
+  "reduce"   : Views.reduce,
+  "rereduce" : Views.rereduce,
+  "validate" : Validate.validate,
+  "show"     : Render.show,
+  "list"     : Render.list
 };
 
 while (line = eval(readline())) {

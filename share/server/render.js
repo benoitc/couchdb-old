@@ -116,11 +116,7 @@ var Render = (function() {
       runRenderFunction(formFun, [doc, req], funSrc, true);
     },
     list : function(head, req) {
-      // log("run list yo");
-      // var oldLog = plog;
-      // plog = function(){};
       runRenderFunction(funs[0], [head, req], funsrc[0]);
-      // plog = oldLog;
     }
   }
 })();
