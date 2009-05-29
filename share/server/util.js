@@ -108,5 +108,5 @@ log = function(message) {
   } else if (typeof message != "string") {
     message = toJSON(message);
   }
-  print(toJSON({log: message}));
+  respond({log: message});
 };
