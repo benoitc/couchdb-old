@@ -11,9 +11,8 @@
 # the License.
 
 
-# run:
+# to run:
 # spec test/couchjs/spec/couchjs_spec.rb -f specdoc --color
-
 
 COUCH_ROOT = "#{File.dirname(__FILE__)}/../../.." unless defined?(COUCH_ROOT)
 
@@ -53,6 +52,11 @@ class CJS
   def add_fun(fun)
     run(["add_fun", fun])
   end
+  def get_chunk
+    resp = jsgets
+    raise "not a chunk" unless resp.first == "chunk"
+    return resp[1]
+  end
   def run json
     rrun json
     jsgets
@@ -78,20 +82,17 @@ class CJS
           log = rj["log"]
           puts "log: #{log}" #if @trace
           rj = jsgets
-        elsif rj["error"]
-          throw rj
         end
       end
       rj
     else
-      throw "no response"
+      raise "no response"
     end
   end
 end
 
-describe "couchjs" do
+describe "couchjs normal case" do
   before(:all) do
-    # puts `clear`
     `cd #{COUCH_ROOT} && make`
     @js = CJS.run :trace
   end
@@ -216,56 +217,14 @@ describe "couchjs" do
     # end
   end
   
-  describe "raw list" do
-    before(:each) do
-      @fun = <<-JS
-        function(head, req) {
-          sendChunk("first chunk", true);
-          sendChunk("second chunk ");
-          sendChunk("third chunk\\n");
-          var row;
-          while(row = getRow()) {
-            sendChunk(row.key);        
-          };
-          return "tail";
-        };
-        JS
-      # next fun is for reference
-      # @fun = "function(){return 'ok';}"
-      @js.run(["reset"]).should == true    
-      @js.add_fun(@fun).should == true
-    end
-    it "should should list em" do
-      # pending
-      @js.rrun(["list", {"foo"=>"bar"}, {"q" => "ok"}])
-      @js.rgets.should == "first chunk\n"
-      @js.rgets.should == "second chunk third chunk\n"
-      m = @js.rrun(["list_row", {"key"=>"baz"}])
-      m = @js.rrun(["list_row", {"key"=>"bam"}])
-      m = @js.rrun(["list_row", {"key"=>"bar"}])
-      m = @js.rrun(["list_tail"])
-      # pending
-      @js.rgets.should == "bazbambar\n" 
-      @js.jsgets.should == {"end" => "tail"}
-      @js.reset!
-    end
-    it "should reset if it gets a non-row in the middle" do
-      @js.rrun(["list", {"foo"=>"bar"}, {"q" => "ok"}])
-      @js.rgets.should == "first chunk\n"
-      @js.rgets.should == "second chunk third chunk\n"
-      lambda {@js.run(["reset"])}.should raise_error
-    end
-    it "should reset properly" do
-      pending
-    end
-  end
-  
+  # show should be the same, only with doc instead of head
   describe "raw list with headers" do
     before(:each) do
       @fun = <<-JS
         function(head, req) {
-          startResponse({"Content-Type" : "text/plain"});
-          sendChunk("first chunk", true);
+          sendHeaders({"Content-Type" : "text/plain"});
+          sendChunk("first chunk");
+          sendChunk('second "chunk"');
           return "tail";
         };
         JS
@@ -273,14 +232,77 @@ describe "couchjs" do
       @js.add_fun(@fun).should == true
     end
     it "should description" do
-      @js.rrun(["list", {"foo"=>"bar"}, {"q" => "ok"}])
-      @js.jsgets.should == {"headers" => {"Content-Type"=>"text/plain"}}
-      @js.rgets.should == "first chunk\n"
-      @js.jsgets.should == {"end" => "tail"}
+      @js.rrun(["list", {"total_rows"=>1000}, {"q" => "ok"}])
+      @js.jsgets.should == ["headers", {"Content-Type"=>"text/plain"}]
+      @js.jsgets.should == ["chunk", "first chunk"]
+      @js.jsgets.should == ["chunk", 'second "chunk"']
+      @js.jsgets.should == ["end", "tail"]
     end
   end
+  
+  describe "raw list with rows" do
+    before(:each) do
+      @fun = <<-JS
+        function(head, req) {
+          sendChunk("first chunk");
+          sendChunk(req.q);
+          var row;
+          while(row = getRow()) {
+            sendChunk(row.key);        
+          };
+          return "tail";
+        };
+        JS
+      @js.run(["reset"]).should == true    
+      @js.add_fun(@fun).should == true
+    end
+    it "should should list em" do
+      @js.rrun(["list", {"foo"=>"bar"}, {"q" => "ok"}])
+      @js.get_chunk.should == "first chunk"
+      @js.get_chunk.should == "ok"
+      @js.rrun(["list_row", {"key"=>"baz"}])
+      @js.get_chunk.should == "baz"
+      @js.rrun(["list_row", {"key"=>"bam"}])
+      @js.get_chunk.should == "bam"
+      @js.rrun(["list_end"])
+      @js.jsgets.should == ["end", "tail"]
+      @js.reset!
+    end
+  end
+
 end
 
-
+describe "couchjs exiting" do
+  before(:each) do
+    @js = CJS.run :trace
+  end
+  after(:each) do
+    @js.close
+  end
+  describe "raw list" do
+    before(:each) do
+      @fun = <<-JS
+        function(head, req) {
+          sendChunk("first chunk");
+          sendChunk(req.q);
+          var row;
+          while(row = getRow()) {
+            sendChunk(row.key);        
+          };
+          return "tail";
+        };
+        JS
+      @js.run(["reset"]).should == true    
+      @js.add_fun(@fun).should == true
+    end
+    it "should exit if it gets a non-row in the middle" do
+      @js.rrun(["list", {"foo"=>"bar"}, {"q" => "ok"}])
+      @js.get_chunk.should == "first chunk"
+      @js.get_chunk.should == "ok"
+      @js.run(["reset"])["error"].should == "query_server_error"
+      lambda {@js.run(["reset"])}.should raise_error(Errno::EPIPE)
+    end
+  end  
+end
 
 
