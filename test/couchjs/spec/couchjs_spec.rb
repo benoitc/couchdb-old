@@ -121,7 +121,8 @@ describe "couchjs normal case" do
       @js.reset!
     end
     it "should reduce" do
-      @js.run(["reduce", [@fun], (0...10).to_a]).should == "x"
+      kvs = (0...10).collect{|i|[i,i*2]}
+      @js.run(["reduce", [@fun], kvs]).should == [true, [10]]
       
     end
   end

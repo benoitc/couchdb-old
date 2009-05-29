@@ -55,12 +55,13 @@ var Views = (function() {
         reason: "Reduce output must shrink more rapidly. Current output: '"+reduce_line+"'"
       };
     } else {
-      print("[true," + reduce_line + "]");
+      print("[true," + reduce_line + "]\n");
     }
   };
   
   return {
     reduce : function(reduceFuns, kvs) {
+      log("reduce start");
       var keys = new Array(kvs.length);
       var values = new Array(kvs.length);
       for(var i = 0; i < kvs.length; i++) {
