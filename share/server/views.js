@@ -99,7 +99,7 @@ var Views = (function() {
 
       recursivelySeal(doc); // seal to prevent map functions from changing doc
       */
-      // var buf = [];
+      var log_lines = [];
       print("[");
       var comma = false;
       for (var i = 0; i < funs.length; i++) {
@@ -125,11 +125,12 @@ var Views = (function() {
               error: "map_runtime_error",
               reason: "function raised fatal exception"};
           }
-          log("function raised exception (" + err + ") with doc._id " + doc._id);
+          log_lines.push("function raised exception (" + err + ") with doc._id " + doc._id);
           print("[]");
         }
       }
       print("]\n");
+      log(log_lines.join(', '));
     }
   }
 })();
