@@ -25,7 +25,7 @@ require 'json'
 class CJS
   def self.run
     trace = false
-    puts "launching #{RUN_COUCHJS}"
+    puts "launching #{RUN_COUCHJS}" if trace
     if block_given?
       Open3.popen3(RUN_COUCHJS) do |jsin, jsout, jserr|
         js = CJS.new(jsin, jsout, jserr, trace)
