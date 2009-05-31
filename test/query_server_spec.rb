@@ -153,24 +153,23 @@ describe "query server normal case" do
     end
   end
   # it "should validate"
-end
   
- #  describe "show" do
- #     before(:all) do
- #       @fun = <<-JS
- #         function(doc, req) {
- #           return [doc.title, doc.body].join(' - ')
- #         }
- #         JS
- #       @qs.reset!
- #     end
- #     it "should show" do
- #       @qs.rrun(["show", @fun, 
- #         {:title => "Best ever", :body => "Doc body"}])
- #       @qs.jsgets.should == ["end", "Best ever - Doc body"]
- #     end
- #   end
- #   
+  describe "show" do
+     before(:all) do
+       @fun = <<-JS
+         function(doc, req) {
+           return [doc.title, doc.body].join(' - ')
+         }
+         JS
+       @qs.reset!
+     end
+     it "should show" do
+       @qs.rrun(["show", @fun, 
+         {:title => "Best ever", :body => "Doc body"}])
+       @qs.jsgets.should == ["end", "Best ever - Doc body"]
+     end
+   end
+   
  #   describe "show with headers" do
  #     before(:all) do
  #       @fun = <<-JS
@@ -351,7 +350,9 @@ end
  #       end
  #     end
  #   end  
- # end
+
+end # query server
+
  # 
  # # tests for the generic "echo" external
  # 
