@@ -195,23 +195,25 @@ describe "query server normal case" do
      end
    end
    
- #   describe "show with headers" do
- #     before(:all) do
- #       @fun = <<-JS
- #         function(doc, req) {
- #           sendHeaders({"X-Plankton":"Rusty"});
- #           return [doc.title, doc.body].join(' - ')
- #         }
- #         JS
- #       @qs.reset!
- #     end
- #     it "should show" do
- #       @qs.rrun(["show", @fun, 
- #         {:title => "Best ever", :body => "Doc body"}])
- #       @qs.jsgets.should == ["headers", {"X-Plankton"=>"Rusty"}]
- #       @qs.jsgets.should == ["end", "Best ever - Doc body"]
- #     end
- #   end
+   describe "show with headers" do
+     before(:all) do
+       @fun = <<-JS
+         function(doc, req) {
+           return {
+             headers : {"X-Plankton":"Rusty"},
+             body : [doc.title, doc.body].join(' - ')
+           }
+           
+         }
+         JS
+       @qs.reset!
+     end
+     it "should show" do
+       @qs.rrun(["show_doc", @fun, 
+         {:title => "Best ever", :body => "Doc body"}])
+       @qs.jsgets.should == {"headers"=>{"X-Plankton"=>"Rusty"}, "body"=>"Best ever - Doc body"}
+     end
+   end
  #     
  #   describe "raw list with headers" do
  #     before(:each) do
