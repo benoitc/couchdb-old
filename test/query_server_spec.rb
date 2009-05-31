@@ -214,28 +214,27 @@ describe "query server normal case" do
        @qs.jsgets.should == {"headers"=>{"X-Plankton"=>"Rusty"}, "body"=>"Best ever - Doc body"}
      end
    end
- #     
- #   describe "raw list with headers" do
- #     before(:each) do
- #       @fun = <<-JS
- #         function(head, req) {
- #           sendHeaders({"Content-Type" : "text/plain"});
- #           sendChunk("first chunk");
- #           sendChunk('second "chunk"');
- #           return "tail";
- #         };
- #         JS
- #       @qs.reset!
- #       @qs.add_fun(@fun).should == true
- #     end
- #     it "should description" do
- #       @qs.rrun(["list", {"total_rows"=>1000}, {"q" => "ok"}])
- #       @qs.jsgets.should == ["headers", {"Content-Type"=>"text/plain"}]
- #       @qs.jsgets.should == ["chunk", "first chunk"]
- #       @qs.jsgets.should == ["chunk", 'second "chunk"']
- #       @qs.jsgets.should == ["end", "tail"]
- #     end
- #   end
+     
+   describe "list with headers" do
+     before(:each) do
+       @fun = <<-JS
+         function(head, row, req) {
+           if (head) return {headers : {"Content-Type" : "text/plain"}, code : 200, "body" : "foo"};
+           if (row) return 'some "text" here';
+           return "tail";
+         };
+         JS
+       @qs.reset!
+       @qs.add_fun(@fun).should == true
+     end
+     it "should description" do
+       @qs.rrun(["list_begin", {"total_rows"=>1000}, {"q" => "ok"}])
+       @qs.jsgets.should == {"headers"=>{"Content-Type"=>"text/plain"}, "code"=>200, "body"=>"foo"}
+       @qs.run(["list_row", {"foo"=>"bar"}, {"q" => "ok"}]).should == {"body"=>"some \"text\" here"}
+       @qs.run(["list_tail", {"foo"=>"bar"}, {"q" => "ok"}]).should == {"body"=>"tail"}
+
+     end
+   end
  #   
  #   describe "list with rows" do
  #     before(:each) do
