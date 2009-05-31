@@ -22,34 +22,10 @@ require 'spec'
 require 'json'
 
 
-JSON_REQ = {
-  "body"=>"undefined", 
-  "verb"=>"GET", 
-  "info"=>{
-    "disk_format_version"=>2, 
-    "purge_seq"=>0, 
-    "doc_count"=>9082, 
-    "instance_start_time"=>"1243713611467271", 
-    "update_seq"=>9512, 
-    "disk_size"=>27541604, 
-    "compact_running"=>false, 
-    "db_name"=>"toast", 
-    "doc_del_count"=>1
-  }, 
-  "cookie"=>{}, 
-  "form"=>{}, 
-  "query"=>{"q"=>"stuff"}, 
-  "path"=>["toast", "_ext"], 
-  "headers"=>{
-    "User-Agent"=>"curl/7.18.1 (i386-apple-darwin9.2.2) libcurl/7.18.1 zlib/1.2.3", 
-    "Host"=>"localhost:5984", 
-    "Accept"=>"*/*"
-  }
-}
 
 class OSProcessRunner
   def self.run
-    trace = false
+    trace = true
     puts "launching #{run_command}" if trace
     if block_given?
       Open3.popen3(run_command) do |jsin, jsout, jserr|
@@ -299,7 +275,6 @@ describe "query server normal case" do
 #     @ext.jsgets.should == ["info", "echo", "external server that prints its arguments as JSON"]
 #   end
 #   it "should echo the request" do
-
 #     @ext.rrun(['req', req_obj])
 #     @ext.jsgets.should == ["x"]
 #   end
