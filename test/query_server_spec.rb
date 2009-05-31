@@ -235,147 +235,84 @@ describe "query server normal case" do
 
      end
    end
- #   
- #   describe "list with rows" do
- #     before(:each) do
- #       @fun = <<-JS
- #         function(head, req) {
- #           sendChunk("first chunk");
- #           sendChunk(req.q);
- #           var row;
- #           while(row = getRow()) {
- #             sendChunk(row.key);        
- #           };
- #           return "tail";
- #         };
- #         JS
- #       @qs.run(["reset"]).should == true    
- #       @qs.add_fun(@fun).should == true
- #     end
- #     it "should should list em" do
- #       @qs.rrun(["list", {"foo"=>"bar"}, {"q" => "ok"}])
- #       @qs.get_chunk.should == "first chunk"
- #       @qs.get_chunk.should == "ok"
- #       @qs.rrun(["list_row", {"key"=>"baz"}])
- #       @qs.get_chunk.should == "baz"
- #       @qs.rrun(["list_row", {"key"=>"bam"}])
- #       @qs.get_chunk.should == "bam"
- #       @qs.rrun(["list_end"])
- #       @qs.jsgets.should == ["end", "tail"]
- #     end
- #     it "should work with zero rows" do
- #       @qs.rrun(["list", {"foo"=>"bar"}, {"q" => "ok"}])
- #       @qs.get_chunk.should == "first chunk"
- #       @qs.get_chunk.should == "ok"
- #       @qs.rrun(["list_end"])
- #       @qs.jsgets.should == ["end", "tail"]
- #     end
- #   end
- # 
- #   describe "only goes to 2 list" do
- #     before(:all) do
- #       @fun = <<-JS
- #         function(head, req) {
- #           sendChunk("bacon")
- #           var row, i = 0;
- #           while(row = getRow()) {
- #             sendChunk(row.key);        
- #             i += 1;
- #             if (i > 2) {
- #               return('early');
- #             }
- #           };
- #         }
- #         JS
- #       @qs.reset!
- #       @qs.add_fun(@fun).should == true
- #     end
- #     it "should end early" do
- #       @qs.run(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == ["chunk", "bacon"]
- #       @qs.run(["list_row", {"key"=>"baz"}]).should ==  ["chunk", "baz"]
- #       @qs.run(["list_row", {"key"=>"foom"}]).should == ["chunk", "foom"]
- #       @qs.run(["list_row", {"key"=>"fooz"}]).should == ["chunk", "fooz"]
- #       @qs.run(["list_row", {"key"=>"foox"}]).should == ["end" , "early"]
- #     end
- #   end
- # end
- # 
- # describe "query server that exits" do
- #   before(:each) do
- #     @qs = QueryServerRunner.run
- #   end
- #   after(:each) do
- #     @qs.close
- #   end
- #   
- #   describe "only goes to 2 list" do
- #     before(:each) do
- #       @fun = <<-JS
- #         function(head, req) {
- #           sendChunk("bacon")
- #           var row, i = 0;
- #           while(row = getRow()) {
- #             sendChunk(row.key);        
- #             i += 1;
- #             if (i > 2) {
- #               return('early');
- #             }
- #           };
- #         }
- #         JS
- #       @qs.reset!
- #       @qs.add_fun(@fun).should == true
- #     end
- #     it "should exit if erlang sends too many rows" do
- #       @qs.run(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == ["chunk", "bacon"]
- #       @qs.run(["list_row", {"key"=>"baz"}]).should ==  ["chunk", "baz"]
- #       @qs.run(["list_row", {"key"=>"foom"}]).should == ["chunk", "foom"]
- #       @qs.run(["list_row", {"key"=>"fooz"}]).should == ["chunk", "fooz"]
- #       @qs.run(["list_row", {"key"=>"foox"}]).should == ["end" , "early"]
- #       @qs.rrun(["list_row", {"key"=>"woox"}])
- #       @qs.jsgets["error"].should == "query_server_error"
- #       begin
- #         @qs.run(["reset"])
- #         "raise before this".should == true
- #       rescue RuntimeError => e
- #         e.message.should == "no response"
- #       rescue Errno::EPIPE
- #         true.should == true
- #       end
- #     end
- #   end
- #   
- #   describe "raw list" do
- #     before(:each) do
- #       @fun = <<-JS
- #         function(head, req) {
- #           sendChunk("first chunk");
- #           sendChunk(req.q);
- #           var row;
- #           while(row = getRow()) {
- #             sendChunk(row.key);        
- #           };
- #           return "tail";
- #         };
- #         JS
- #       @qs.run(["reset"]).should == true    
- #       @qs.add_fun(@fun).should == true
- #     end
- #     it "should exit if it gets a non-row in the middle" do
- #       @qs.rrun(["list", {"foo"=>"bar"}, {"q" => "ok"}])
- #       @qs.get_chunk.should == "first chunk"
- #       @qs.get_chunk.should == "ok"
- #       @qs.run(["reset"])["error"].should == "query_server_error"
- #       begin
- #         @qs.run(["reset"])
- #         "raise before this".should == true
- #       rescue RuntimeError => e
- #         e.message.should == "no response"
- #       rescue Errno::EPIPE
- #         true.should == true
- #       end
- #     end
- #   end  
+
+ 
+ describe "query server that exits" do
+   before(:each) do
+     @qs = QueryServerRunner.run
+   end
+   after(:each) do
+     @qs.close
+   end
+   
+   # describe "only goes to 2 list" do
+   #   before(:each) do
+   #     @fun = <<-JS
+   #       function(head, req) {
+   #         sendChunk("bacon")
+   #         var row, i = 0;
+   #         while(row = getRow()) {
+   #           sendChunk(row.key);        
+   #           i += 1;
+   #           if (i > 2) {
+   #             return('early');
+   #           }
+   #         };
+   #       }
+   #       JS
+   #     @qs.reset!
+   #     @qs.add_fun(@fun).should == true
+   #   end
+   #   it "should exit if erlang sends too many rows" do
+   #     @qs.run(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == ["chunk", "bacon"]
+   #     @qs.run(["list_row", {"key"=>"baz"}]).should ==  ["chunk", "baz"]
+   #     @qs.run(["list_row", {"key"=>"foom"}]).should == ["chunk", "foom"]
+   #     @qs.run(["list_row", {"key"=>"fooz"}]).should == ["chunk", "fooz"]
+   #     @qs.run(["list_row", {"key"=>"foox"}]).should == ["end" , "early"]
+   #     @qs.rrun(["list_row", {"key"=>"woox"}])
+   #     @qs.jsgets["error"].should == "query_server_error"
+   #     begin
+   #       @qs.run(["reset"])
+   #       "raise before this".should == true
+   #     rescue RuntimeError => e
+   #       e.message.should == "no response"
+   #     rescue Errno::EPIPE
+   #       true.should == true
+   #     end
+   #   end
+   # end
+   
+   describe "raw list" do
+     before(:each) do
+       @fun = <<-JS
+         function(head, req) {
+           sendChunk("first chunk");
+           sendChunk(req.q);
+           var row;
+           while(row = getRow()) {
+             sendChunk(row.key);        
+           };
+           return "tail";
+         };
+         JS
+       @qs.run(["reset"]).should == true    
+       @qs.add_fun(@fun).should == true
+     end
+     it "should exit if it gets a non-row in the middle" do
+       @qs.rrun(["list", {"foo"=>"bar"}, {"q" => "ok"}])
+       @qs.get_chunk.should == "first chunk"
+       @qs.get_chunk.should == "ok"
+       @qs.run(["reset"])["error"].should == "query_server_error"
+       begin
+         @qs.run(["reset"])
+         "raise before this".should == true
+       rescue RuntimeError => e
+         e.message.should == "no response"
+       rescue Errno::EPIPE
+         true.should == true
+       end
+     end
+   end  
 
 end # query server
 
