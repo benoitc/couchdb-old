@@ -313,7 +313,7 @@ describe "query server normal case" do
        end
      end
    end  
-
+ end
 end # query server
 
  # 
