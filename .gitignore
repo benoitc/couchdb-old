@@ -70,3 +70,4 @@ test/etap/temp.*
 # for make cover
 
 cover/*
+*.diff
