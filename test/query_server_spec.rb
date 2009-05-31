@@ -16,23 +16,23 @@
 
 COUCH_ROOT = "#{File.dirname(__FILE__)}/.." unless defined?(COUCH_ROOT)
 
-RUN_COUCHJS = "#{COUCH_ROOT}/src/couchdb/couchjs #{COUCH_ROOT}/share/server/main.js"
 
 require 'open3'
 require 'spec'
 require 'json'
 
-class QueryServerRunner
+
+class OSProcessRunner
   def self.run
-    trace = false
-    puts "launching #{RUN_COUCHJS}" if trace
+    trace = true
+    puts "launching #{run_command}" if trace
     if block_given?
-      Open3.popen3(RUN_COUCHJS) do |jsin, jsout, jserr|
+      Open3.popen3(run_command) do |jsin, jsout, jserr|
         js = QueryServerRunner.new(jsin, jsout, jserr, trace)
         yield js
       end
     else
-      jsin, jsout, jserr = Open3.popen3(RUN_COUCHJS)
+      jsin, jsout, jserr = Open3.popen3(run_command)
       QueryServerRunner.new(jsin, jsout, jserr, trace)
     end
   end
@@ -89,6 +89,18 @@ class QueryServerRunner
     else
       raise "no response"
     end
+  end
+end
+
+class QueryServerRunner < OSProcessRunner
+  def self.run_command
+    "#{COUCH_ROOT}/src/couchdb/couchjs #{COUCH_ROOT}/share/server/main.js"
+  end
+end
+
+class ExternalRunner < OSProcessRunner
+  def self.run_command
+    "#{COUCH_ROOT}/src/couchdb/couchjs #{COUCH_ROOT}/share/server/echo.js"
   end
 end
 
@@ -341,4 +353,50 @@ describe "query server that exits" do
   end  
 end
 
+# tests for the generic "echo" external
+
+external = <<EXTERNAL
+function(req, dbinfo) {
+  return toJSON([req, dbinfo]);
+}
+EXTERNAL
+
+describe "running an external" do
+  before(:all) do
+    @ext = ExternalRunner.run
+    
+  end
+  it "should respond to 'info'" do
+    @ext.rrun(['info'])
+    @ext.jsgets.should == ["info", "echo", "external server that prints its arguments as JSON"]
+  end
+  it "should echo the request" do
+    req_obj = {
+      "body"=>"undefined", 
+      "verb"=>"GET", 
+      "info"=>{
+        "disk_format_version"=>2, 
+        "purge_seq"=>0, 
+        "doc_count"=>9082, 
+        "instance_start_time"=>"1243713611467271", 
+        "update_seq"=>9512, 
+        "disk_size"=>27541604, 
+        "compact_running"=>false, 
+        "db_name"=>"toast", 
+        "doc_del_count"=>1
+      }, 
+      "cookie"=>{}, 
+      "form"=>{}, 
+      "query"=>{"q"=>"stuff"}, 
+      "path"=>["toast", "_ext"], 
+      "headers"=>{
+        "User-Agent"=>"curl/7.18.1 (i386-apple-darwin9.2.2) libcurl/7.18.1 zlib/1.2.3", 
+        "Host"=>"localhost:5984", 
+        "Accept"=>"*/*"
+      }
+    }
+    @ext.rrun(['req', req_obj])
+    @ext.jsgets.should == ["x"]
+  end
+end
 
