@@ -25,7 +25,7 @@ require 'json'
 
 class OSProcessRunner
   def self.run
-    trace = true
+    trace = false
     puts "launching #{run_command}" if trace
     if block_given?
       Open3.popen3(run_command) do |jsin, jsout, jserr|
