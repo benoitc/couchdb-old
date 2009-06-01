@@ -276,3 +276,122 @@ describe "query server normal case" do
   end
 end
 
+describe "query server that exits" do
+  before(:each) do
+    @qs = QueryServerRunner.run
+  end
+  after(:each) do
+    @qs.close
+  end
+  
+  describe "only goes to 2 list" do
+    before(:each) do
+      @fun = <<-JS
+        function(head, req) {
+          sendChunk("bacon")
+          var row, i = 0;
+          while(row = getRow()) {
+            sendChunk(row.key);        
+            i += 1;
+            if (i > 2) {
+              return('early');
+            }
+          };
+        }
+        JS
+      @qs.reset!
+      @qs.add_fun(@fun).should == true
+    end
+    it "should exit if erlang sends too many rows" do
+      @qs.run(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == ["chunk", "bacon"]
+      @qs.run(["list_row", {"key"=>"baz"}]).should ==  ["chunk", "baz"]
+      @qs.run(["list_row", {"key"=>"foom"}]).should == ["chunk", "foom"]
+      @qs.run(["list_row", {"key"=>"fooz"}]).should == ["chunk", "fooz"]
+      @qs.run(["list_row", {"key"=>"foox"}]).should == ["end" , "early"]
+      @qs.rrun(["list_row", {"key"=>"woox"}])
+      @qs.jsgets["error"].should == "query_server_error"
+      begin
+        @qs.run(["reset"])
+        "raise before this".should == true
+      rescue RuntimeError => e
+        e.message.should == "no response"
+      rescue Errno::EPIPE
+        true.should == true
+      end
+    end
+  end
+  
+  describe "raw list" do
+    before(:each) do
+      @fun = <<-JS
+        function(head, req) {
+          sendChunk("first chunk");
+          sendChunk(req.q);
+          var row;
+          while(row = getRow()) {
+            sendChunk(row.key);        
+          };
+          return "tail";
+        };
+        JS
+      @qs.run(["reset"]).should == true    
+      @qs.add_fun(@fun).should == true
+    end
+    it "should exit if it gets a non-row in the middle" do
+      @qs.rrun(["list", {"foo"=>"bar"}, {"q" => "ok"}])
+      @qs.get_chunk.should == "first chunk"
+      @qs.get_chunk.should == "ok"
+      @qs.run(["reset"])["error"].should == "query_server_error"
+      begin
+        @qs.run(["reset"])
+        "raise before this".should == true
+      rescue RuntimeError => e
+        e.message.should == "no response"
+      rescue Errno::EPIPE
+        true.should == true
+      end
+    end
+  end  
+end
+
+# # tests for the generic "echo" external
+# 
+# describe "running an external" do
+#   before(:all) do
+#     @ext = ExternalRunner.run
+#     
+#   end
+#   it "should respond to 'info'" do
+#     @ext.rrun(['info'])
+#     @ext.jsgets.should == ["info", "echo", "external server that prints its arguments as JSON"]
+#   end
+#   it "should echo the request" do
+#     req_obj = {
+#       "body"=>"undefined", 
+#       "verb"=>"GET", 
+#       "info"=>{
+#         "disk_format_version"=>2, 
+#         "purge_seq"=>0, 
+#         "doc_count"=>9082, 
+#         "instance_start_time"=>"1243713611467271", 
+#         "update_seq"=>9512, 
+#         "disk_size"=>27541604, 
+#         "compact_running"=>false, 
+#         "db_name"=>"toast", 
+#         "doc_del_count"=>1
+#       }, 
+#       "cookie"=>{}, 
+#       "form"=>{}, 
+#       "query"=>{"q"=>"stuff"}, 
+#       "path"=>["toast", "_ext"], 
+#       "headers"=>{
+#         "User-Agent"=>"curl/7.18.1 (i386-apple-darwin9.2.2) libcurl/7.18.1 zlib/1.2.3", 
+#         "Host"=>"localhost:5984", 
+#         "Accept"=>"*/*"
+#       }
+#     }
+#     @ext.rrun(['req', req_obj])
+#     @ext.jsgets.should == ["x"]
+#   end
+# end
+
