@@ -12,6 +12,8 @@
 
 
 # to run (requires ruby and rspec):
+# spec test/query_server_spec.rb 
+# or
 # spec test/query_server_spec.rb -f specdoc --color
 
 COUCH_ROOT = "#{File.dirname(__FILE__)}/.." unless defined?(COUCH_ROOT)
