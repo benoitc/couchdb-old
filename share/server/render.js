@@ -12,9 +12,10 @@
 
 // mimeparse.js
 // http://code.google.com/p/mimeparse/
+// MIT Licensed http://www.opensource.org/licenses/mit-license.php
 // Code with comments: http://mimeparse.googlecode.com/svn/trunk/mimeparse.js
 // Tests: http://mimeparse.googlecode.com/svn/trunk/mimeparse-js-test.html
-// Ported from version 0.1.2
+// Ported by Chris Anderson from version 0.1.2
 
 var Mimeparse = (function() {
   function strip(string) {

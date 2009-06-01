@@ -63,6 +63,12 @@ etc/couchdb/local_dev.ini
 utils/run
 tmp
 
+<<<<<<< HEAD:.gitignore
+
+# for me
+hovercraft
+*.diff
+=======
 # for make check
 
 test/etap/temp.*
@@ -70,3 +76,4 @@ test/etap/temp.*
 # for make cover
 
 cover/*
+>>>>>>> halorgium/master:.gitignore
