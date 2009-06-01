@@ -353,50 +353,44 @@ describe "query server that exits" do
   end  
 end
 
-# tests for the generic "echo" external
-
-external = <<EXTERNAL
-function(req, dbinfo) {
-  return toJSON([req, dbinfo]);
-}
-EXTERNAL
-
-describe "running an external" do
-  before(:all) do
-    @ext = ExternalRunner.run
-    
-  end
-  it "should respond to 'info'" do
-    @ext.rrun(['info'])
-    @ext.jsgets.should == ["info", "echo", "external server that prints its arguments as JSON"]
-  end
-  it "should echo the request" do
-    req_obj = {
-      "body"=>"undefined", 
-      "verb"=>"GET", 
-      "info"=>{
-        "disk_format_version"=>2, 
-        "purge_seq"=>0, 
-        "doc_count"=>9082, 
-        "instance_start_time"=>"1243713611467271", 
-        "update_seq"=>9512, 
-        "disk_size"=>27541604, 
-        "compact_running"=>false, 
-        "db_name"=>"toast", 
-        "doc_del_count"=>1
-      }, 
-      "cookie"=>{}, 
-      "form"=>{}, 
-      "query"=>{"q"=>"stuff"}, 
-      "path"=>["toast", "_ext"], 
-      "headers"=>{
-        "User-Agent"=>"curl/7.18.1 (i386-apple-darwin9.2.2) libcurl/7.18.1 zlib/1.2.3", 
-        "Host"=>"localhost:5984", 
-        "Accept"=>"*/*"
-      }
-    }
-    @ext.rrun(['req', req_obj])
-    @ext.jsgets.should == ["x"]
-  end
-end
+# # tests for the generic "echo" external
+# 
+# describe "running an external" do
+#   before(:all) do
+#     @ext = ExternalRunner.run
+#     
+#   end
+#   it "should respond to 'info'" do
+#     @ext.rrun(['info'])
+#     @ext.jsgets.should == ["info", "echo", "external server that prints its arguments as JSON"]
+#   end
+#   it "should echo the request" do
+#     req_obj = {
+#       "body"=>"undefined", 
+#       "verb"=>"GET", 
+#       "info"=>{
+#         "disk_format_version"=>2, 
+#         "purge_seq"=>0, 
+#         "doc_count"=>9082, 
+#         "instance_start_time"=>"1243713611467271", 
+#         "update_seq"=>9512, 
+#         "disk_size"=>27541604, 
+#         "compact_running"=>false, 
+#         "db_name"=>"toast", 
+#         "doc_del_count"=>1
+#       }, 
+#       "cookie"=>{}, 
+#       "form"=>{}, 
+#       "query"=>{"q"=>"stuff"}, 
+#       "path"=>["toast", "_ext"], 
+#       "headers"=>{
+#         "User-Agent"=>"curl/7.18.1 (i386-apple-darwin9.2.2) libcurl/7.18.1 zlib/1.2.3", 
+#         "Host"=>"localhost:5984", 
+#         "Accept"=>"*/*"
+#       }
+#     }
+#     @ext.rrun(['req', req_obj])
+#     @ext.jsgets.should == ["x"]
+#   end
+# end
 
