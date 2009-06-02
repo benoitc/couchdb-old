@@ -55,13 +55,12 @@ var Views = (function() {
         reason: "Reduce output must shrink more rapidly. Current output: '"+reduce_line+"'"
       };
     } else {
-      print("[true," + reduce_line + "]\n");
+      print("[true," + reduce_line + "]");
     }
   };
   
   return {
     reduce : function(reduceFuns, kvs) {
-      log("reduce start");
       var keys = new Array(kvs.length);
       var values = new Array(kvs.length);
       for(var i = 0; i < kvs.length; i++) {
@@ -99,19 +98,12 @@ var Views = (function() {
 
       recursivelySeal(doc); // seal to prevent map functions from changing doc
       */
-      var log_lines = [];
-      print("[");
-      var comma = false;
+      var buf = [];
       for (var i = 0; i < funs.length; i++) {
         map_results = [];
-        if (comma) {
-          print(',');
-        } else {
-          comma = true;
-        }
         try {
           funs[i](doc);
-          print(toJSON(map_results));
+          buf.push(toJSON(map_results));
         } catch (err) {
           if (err == "fatal_error") {
             // Only if it's a "fatal_error" do we exit. What's a fatal error?
@@ -125,12 +117,11 @@ var Views = (function() {
               error: "map_runtime_error",
               reason: "function raised fatal exception"};
           }
-          log_lines.push("function raised exception (" + err + ") with doc._id " + doc._id);
-          print("[]");
+          log("function raised exception (" + err + ") with doc._id " + doc._id);
+          buf.push("[]");
         }
       }
-      print("]\n");
-      log(log_lines.join(', '));
+      print("[" + buf.join(", ") + "]");
     }
   }
 })();
