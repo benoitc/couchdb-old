@@ -181,6 +181,10 @@ handle_request(MochiReq, DefaultFun,
             ?LOG_ERROR("Badarg error in HTTP request",[]),
             ?LOG_ERROR("Stacktrace: ~p",[erlang:get_stacktrace()]),
             send_error(HttpReq, badarg);
+        error:function_clause ->
+            ?LOG_ERROR("function_clause error in HTTP request",[]),
+            ?LOG_ERROR("Stacktrace: ~p",[erlang:get_stacktrace()]),
+            send_error(HttpReq, function_clause);
         Tag:Error ->
             ?LOG_ERROR("Uncaught error in HTTP request: ~p",[{Tag, Error}]),
             ?LOG_INFO("Stacktrace: ~p",[erlang:get_stacktrace()]),

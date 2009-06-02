@@ -402,6 +402,7 @@ send_doc_show_response(Lang, ShowSrc, DocId, #doc{revs=Revs}=Doc, #httpd{mochi_r
     couch_httpd:etag_respond(Req, CurrentEtag, fun() -> 
         ExternalResp = couch_query_servers:render_doc_show(Lang, ShowSrc, 
             DocId, Doc, Req, Db),
+        ?LOG_ERROR("ExternalResp ~p", [ExternalResp]),
         JsonResp = apply_etag(ExternalResp, CurrentEtag),
         couch_httpd_external:send_external_response(Req, JsonResp)
     end).

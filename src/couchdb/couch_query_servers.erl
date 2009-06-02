@@ -183,7 +183,7 @@ render_doc_show(Lang, ShowSrc, DocId, Doc, Req, Db) ->
         _ -> {{append_docid(DocId, JsonReqIn)}, couch_doc:to_json_obj(Doc, [revs])}
     end,
     try couch_os_process:prompt(Pid, 
-        [<<"show_doc">>, ShowSrc, JsonDoc, JsonReq]) of
+        [<<"show">>, ShowSrc, JsonDoc, JsonReq]) of
     FormResp ->
         FormResp
     after
