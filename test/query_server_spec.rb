@@ -154,6 +154,23 @@ describe "query server normal case" do
   end
   
   # it "should validate"
+  describe "validation" do
+    before(:all) do
+      @fun = <<-JS
+        function(newDoc, oldDoc, userCtx) {
+          if (newDoc.bad) throw({forbidden:"bad doc"});
+          "foo bar";
+        }
+        JS
+      @qs.reset!
+    end
+    it "should allow good updates" do
+      @qs.run(["validate", @fun, {"good" => true}, {}, {}]).should == 1
+    end
+    it "should reject invalid updates" do
+      @qs.run(["validate", @fun, {"bad" => true}, {}, {}]).should == {"forbidden"=>"bad doc"}
+    end
+  end
   
   describe "show" do
     before(:all) do
