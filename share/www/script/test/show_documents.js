@@ -146,6 +146,10 @@ couchTests.show_documents = function(debug) {
   xhr = CouchDB.request("GET", "/test_suite_db/_design/template/_show/hello/"+docid);
   T(xhr.responseText == "Hello World");
 
+};
+
+function foo() {
+
   // error stacktraces
   xhr = CouchDB.request("GET", "/test_suite_db/_design/template/_show/render-error/"+docid);
   T(JSON.parse(xhr.responseText).error == "render_error");
