@@ -25,7 +25,7 @@ require 'json'
 
 class OSProcessRunner
   def self.run
-    trace = false
+    trace = true
     puts "launching #{run_command}" if trace
     if block_given?
       Open3.popen3(run_command) do |jsin, jsout, jserr|
@@ -79,9 +79,9 @@ class OSProcessRunner
     # puts "err: #{err}" if err
     if resp
       rj = JSON.parse("[#{resp.chomp}]")[0]
-      if rj.respond_to?(:[]) && !rj.is_a?(Array) && 
-        if rj["log"]
-          log = rj["log"]
+      if rj.respond_to?(:[]) && rj.is_a?(Array)
+        if rj[0] == "log"
+          log = rj[0]
           puts "log: #{log}" #if @trace
           rj = jsgets
         end
@@ -160,6 +160,7 @@ describe "query server normal case" do
     before(:all) do
       @fun = <<-JS
         function(doc, req) {
+          log("ok");
           return [doc.title, doc.body].join(' - ')
         }
         JS
@@ -182,7 +183,7 @@ describe "query server normal case" do
         JS
       @qs.reset!
     end
-    it "should show" do
+    it "should show headers" do
       @qs.rrun(["show", @fun, 
         {:title => "Best ever", :body => "Doc body"}])
       @qs.jsgets.should == ["headers", {"X-Plankton"=>"Rusty"}]
