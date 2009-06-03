@@ -101,6 +101,7 @@ function respond(obj) {
 };
 
 log = function(message) {
+  return;
   if (typeof message == "undefined") {
     message = "Error: attempting to log message of 'undefined'.";
   } else if (typeof message != "string") {

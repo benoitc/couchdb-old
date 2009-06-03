@@ -188,14 +188,19 @@ function startResp(resp) {
   respStarted = true;
 }
 //  Send chunk
-
+var chunks = [];
 function sendChunk(chunk) {
   if (!respStarted) startResp({});
-  respond(["chunk", chunk]);
+  chunks.push(chunk);
+};
+
+function blowChunks(label) {
+  respond([label||"chunks", chunks]);
+  chunks = [];
 };
 
 function getRow() {
-  log("get row readline()");
+  log("getRow readline()");
   var line = readline();
   var json = eval(line);
   if (json[0] == "list_end") return null;
@@ -205,6 +210,8 @@ function getRow() {
       reason: "not a row '" + json[0] + "'"});
     quit();
   }
+  log("getRow blowChunks()");
+  blowChunks()
   return json[1];
 };
 
@@ -255,12 +262,9 @@ function runListRenderFunction(renderFun, args, funSrc, htmlErrors) {
   try {
     respStarted = false;
     var resp = renderFun.apply(null, args);
-    log("render fun finished");
-    if (resp) {
-      respond(["end", resp]);
-    } else {
-      renderError("undefined response from render function");
-    }      
+    if (resp) chunks.push(resp);
+    blowChunks("end");
+    log("render fun finished");    
   } catch(e) {
     respondError(e);
   }
