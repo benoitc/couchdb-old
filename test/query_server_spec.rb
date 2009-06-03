@@ -286,14 +286,39 @@ describe "query server normal case" do
     it "should should buffer em" do
       @qs.rrun(["list", {"foo"=>"bar"}, {"q" => "ok"}])
       @qs.jsgets.should == ["start", {}]
-      @qs.get_chunks.should == "bacon"
-      @qs.get_chunks.should == "ok"
       @qs.rrun(["list_row", {"key"=>"baz"}])
-      @qs.get_chunks.should == "baz"
+      @qs.get_chunks.should == ["bacon"]
       @qs.rrun(["list_row", {"key"=>"bam"}])
-      @qs.get_chunks.should == "bam"
+      @qs.get_chunks.should == ["baz", "eggs"]
       @qs.rrun(["list_end"])
-      @qs.jsgets.should == ["end", "tail"]
+      @qs.jsgets.should == ["end", ["bam","eggs","tail"]]
+    end
+  end
+
+  describe "example list" do
+    before(:all) do
+      @fun = <<-JS
+        function(head, req) {
+          sendChunk("first chunk");
+          sendChunk(req.q);
+          var row;
+          while(row = getRow()) {
+            sendChunk(row.key);    
+          };
+          return "early";
+        };
+        JS
+      @qs.reset!
+      @qs.add_fun(@fun).should == true
+    end
+    it "should run normal" do
+      @qs.run(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == ["start", {}]
+      @qs.run(["list_row", {"key"=>"baz"}]).should ==  ["chunks", ["first chunk", "ok"]]
+      @qs.run(["list_row", {"key"=>"bam"}]).should ==  ["chunks", ["baz"]]
+      @qs.run(["list_row", {"key"=>"foom"}]).should == ["chunks", ["bam"]]
+      @qs.run(["list_row", {"key"=>"fooz"}]).should == ["chunks", ["foom"]]
+      @qs.run(["list_row", {"key"=>"foox"}]).should == ["chunks", ["fooz"]]
+      @qs.run(["list_end"]).should == ["end" , ["foox", "early"]]
     end
   end
   
@@ -303,12 +328,14 @@ describe "query server normal case" do
         function(head, req) {
           sendChunk("first chunk");
           sendChunk(req.q);
-          var row;
-          log("about to getRow " + typeof(getRow));
+          var row, i=0;
           while(row = getRow()) {
-            sendChunk(row.key);        
+            sendChunk(row.key);  
+            i += 1;
+            if (i > 2) {
+              return('early tail');
+            }  
           };
-          return "tail";
         };
         JS
       @qs.reset!
@@ -316,11 +343,15 @@ describe "query server normal case" do
     end
     it "should end early" do
       @qs.run(["list", {"foo"=>"bar"}, {"q" => "ok"}]).should == ["start", {}]
-      @qs.jsgets.should == ["chunk", "bacon"]
-      @qs.run(["list_row", {"key"=>"baz"}]).should ==  ["chunk", "baz"]
-      @qs.run(["list_row", {"key"=>"foom"}]).should == ["chunk", "foom"]
-      @qs.run(["list_row", {"key"=>"fooz"}]).should == ["chunk", "fooz"]
-      @qs.run(["list_row", {"key"=>"foox"}]).should == ["end" , "early"]
+      # @qs.jsgets.should == ["chunk", "bacon"]
+      @qs.run(["list_row", {"key"=>"baz"}]).should ==  ["chunks", ["first chunk", "ok"]]
+
+      @qs.run(["list_row", {"key"=>"bam"}]).should ==  ["chunks", ["baz"]]
+
+      @qs.run(["list_row", {"key"=>"foom"}]).should == ["chunks", ["bam"]]
+      @qs.run(["list_row", {"key"=>"fooz"}]).should == ["end", ["foom", "early tail"]]
+      # here's where js has to discard quit properly
+      @qs.run(["reset"]).should == true
     end
   end
 end
