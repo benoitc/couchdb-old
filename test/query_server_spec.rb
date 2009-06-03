@@ -241,6 +241,7 @@ describe "query server normal case" do
           sendChunk("first chunk");
           sendChunk(req.q);
           var row;
+          log("about to gt row");
           while(row = getRow()) {
             sendChunk(row.key);        
           };

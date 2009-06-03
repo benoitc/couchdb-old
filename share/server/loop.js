@@ -47,8 +47,8 @@ var dispatch = {
 };
 
 while (line = eval(readline())) {
-  cmd = eval(line)
-  line_length = line.length
+  cmd = eval(line);
+  line_length = line.length;
   try {
     cmdkey = cmd.shift();
     if (dispatch[cmdkey]) {
