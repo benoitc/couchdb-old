@@ -265,9 +265,6 @@ describe "query server normal case" do
       @qs.jsgets.should == ["end", ["first chunk", "ok", "tail"]]
     end
   end
-
-end
-__END__
   
   describe "should buffer multiple chunks sent for a single row." do
     before(:all) do
@@ -327,6 +324,9 @@ __END__
     end
   end
 end
+
+# end
+__END__
 
 describe "query server that exits" do
   before(:each) do
