@@ -23,7 +23,6 @@ try {
   sandbox.registerType = registerType;
   sandbox.startResp = startResp;
   sandbox.sendChunk = sendChunk;
-  sandbox.sendHeaders = sendHeaders;
   sandbox.getRow = getRow;
   sandbox.registerType = registerType;
 } catch (e) {}

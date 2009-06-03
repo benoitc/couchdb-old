@@ -185,9 +185,12 @@ registerType("json", "application/json", "text/x-json");
 //  Start chunks
 function startResp(resp) {
   respond(["start", resp]);
+  respStarted = true;
 }
 //  Send chunk
+
 function sendChunk(chunk) {
+  if (!respStarted) startResp({});
   respond(["chunk", chunk]);
 };
 
@@ -247,9 +250,10 @@ function runShowRenderFunction(renderFun, args, funSrc, htmlErrors) {
     respondError(e);
   }
 };
-
+var respStarted;
 function runListRenderFunction(renderFun, args, funSrc, htmlErrors) {
   try {
+    respStarted = false;
     var resp = renderFun.apply(null, args);
     log("render fun finished");
     if (resp) {
