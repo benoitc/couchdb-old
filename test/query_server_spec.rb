@@ -24,7 +24,7 @@ require 'json'
 
 class OSProcessRunner
   def self.run
-    trace = true
+    trace = :false
     puts "launching #{run_command}" if trace
     if block_given?
       Open3.popen3(run_command) do |jsin, jsout, jserr|
@@ -80,7 +80,7 @@ class OSProcessRunner
       rj = JSON.parse("[#{resp.chomp}]")[0]
       if rj.respond_to?(:[]) && rj.is_a?(Array)
         if rj[0] == "log"
-          log = rj[0]
+          log = rj[1]
           puts "log: #{log}" #if @trace
           rj = jsgets
         end
@@ -177,7 +177,7 @@ describe "query server normal case" do
       @fun = <<-JS
         function(doc, req) {
           log("ok");
-          return [doc.title, doc.body].join(' - ')
+          return [doc.title, doc.body].join(' - ');
         }
         JS
       @qs.reset!
@@ -185,7 +185,7 @@ describe "query server normal case" do
     it "should show" do
       @qs.rrun(["show", @fun, 
         {:title => "Best ever", :body => "Doc body"}])
-      @qs.jsgets.should == ["end", "Best ever - Doc body"]
+      @qs.jsgets.should == ["resp", {"body" => "Best ever - Doc body"}]
     end
   end
   
@@ -193,8 +193,9 @@ describe "query server normal case" do
     before(:all) do
       @fun = <<-JS
         function(doc, req) {
-          sendHeaders({"X-Plankton":"Rusty"});
-          return [doc.title, doc.body].join(' - ')
+          var resp = {"code":200, "headers":{"X-Plankton":"Rusty"}};
+          resp.body = [doc.title, doc.body].join(' - ');
+          return resp;
         }
         JS
       @qs.reset!
@@ -202,10 +203,13 @@ describe "query server normal case" do
     it "should show headers" do
       @qs.rrun(["show", @fun, 
         {:title => "Best ever", :body => "Doc body"}])
-      @qs.jsgets.should == ["headers", {"X-Plankton"=>"Rusty"}]
-      @qs.jsgets.should == ["end", "Best ever - Doc body"]
+      @qs.jsgets.should == ["resp", {"code"=>200,"headers" => {"X-Plankton"=>"Rusty"}, "body" => "Best ever - Doc body"}]
     end
   end
+    
+end
+
+__END__
     
   describe "raw list with headers" do
     before(:each) do
