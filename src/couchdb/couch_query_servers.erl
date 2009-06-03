@@ -210,6 +210,8 @@ render_list_tail({Lang, Pid}, Req, Db) ->
     JsonResp = couch_os_process:prompt(Pid, [<<"list_tail">>, JsonReq]),
     ok = ret_os_process(Lang, Pid),
     JsonResp.
+
+% render_list()
     
     
 render_reduce_head({_Lang, Pid}, Req, Db) ->
