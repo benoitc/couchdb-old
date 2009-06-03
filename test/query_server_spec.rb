@@ -54,9 +54,9 @@ class OSProcessRunner
   def add_fun(fun)
     run(["add_fun", fun])
   end
-  def get_chunk
+  def get_chunks
     resp = jsgets
-    raise "not a chunk" unless resp.first == "chunk"
+    raise "not a chunk" unless resp.first == "chunks"
     return resp[1]
   end
   def run json
@@ -228,9 +228,7 @@ describe "query server normal case" do
     it "should do headers proper" do
       @qs.rrun(["list", {"total_rows"=>1000}, {"q" => "ok"}])
       @qs.jsgets.should == ["start", {"headers"=>{"Content-Type"=>"text/plain"}}]
-      @qs.jsgets.should == ["chunk", "first chunk"]
-      @qs.jsgets.should == ["chunk", 'second "chunk"']
-      @qs.jsgets.should == ["end", "tail"]
+      @qs.jsgets.should == ["end", ["first chunk", 'second "chunk"', "tail"]]
     end
   end
   
@@ -254,39 +252,68 @@ describe "query server normal case" do
     it "should should list em" do
       @qs.rrun(["list", {"foo"=>"bar"}, {"q" => "ok"}])
       @qs.jsgets.should == ["start", {}]
-      @qs.get_chunk.should == "first chunk"
-      @qs.get_chunk.should == "ok"
       @qs.rrun(["list_row", {"key"=>"baz"}])
-      @qs.get_chunk.should == "baz"
+      @qs.get_chunks.should == ["first chunk", "ok"]
       @qs.rrun(["list_row", {"key"=>"bam"}])
-      @qs.get_chunk.should == "bam"
+      @qs.get_chunks.should == ["baz"]
       @qs.rrun(["list_end"])
-      @qs.jsgets.should == ["end", "tail"]
+      @qs.jsgets.should == ["end", ["bam","tail"]]
     end
     it "should work with zero rows" do
       @qs.rrun(["list", {"foo"=>"bar"}, {"q" => "ok"}])
       @qs.jsgets.should == ["start", {}]
-      @qs.get_chunk.should == "first chunk"
-      @qs.get_chunk.should == "ok"
+      @qs.rrun(["list_end"])
+      @qs.jsgets.should == ["end", ["first chunk", "ok", "tail"]]
+    end
+  end
+
+end
+__END__
+  
+  describe "should buffer multiple chunks sent for a single row." do
+    before(:all) do
+      @fun = <<-JS
+        function(head, req) {
+          sendChunk("bacon");
+          var row;
+          log("about to getRow " + typeof(getRow));
+          while(row = getRow()) {
+            sendChunk(row.key);        
+            sendChunk("eggs");        
+          };
+          return "tail";
+        };
+        JS
+      @qs.reset!
+      @qs.add_fun(@fun).should == true
+    end
+    it "should should buffer em" do
+      @qs.rrun(["list", {"foo"=>"bar"}, {"q" => "ok"}])
+      @qs.jsgets.should == ["start", {}]
+      @qs.get_chunks.should == "bacon"
+      @qs.get_chunks.should == "ok"
+      @qs.rrun(["list_row", {"key"=>"baz"}])
+      @qs.get_chunks.should == "baz"
+      @qs.rrun(["list_row", {"key"=>"bam"}])
+      @qs.get_chunks.should == "bam"
       @qs.rrun(["list_end"])
       @qs.jsgets.should == ["end", "tail"]
     end
   end
-
+  
   describe "only goes to 2 list" do
     before(:all) do
       @fun = <<-JS
         function(head, req) {
-          sendChunk("bacon")
-          var row, i = 0;
+          sendChunk("first chunk");
+          sendChunk(req.q);
+          var row;
+          log("about to getRow " + typeof(getRow));
           while(row = getRow()) {
             sendChunk(row.key);        
-            i += 1;
-            if (i > 2) {
-              return('early');
-            }
           };
-        }
+          return "tail";
+        };
         JS
       @qs.reset!
       @qs.add_fun(@fun).should == true
@@ -367,8 +394,8 @@ describe "query server that exits" do
     it "should exit if it gets a non-row in the middle" do
       @qs.rrun(["list", {"foo"=>"bar"}, {"q" => "ok"}])
       @qs.jsgets.should == ["start", {}]
-      @qs.get_chunk.should == "first chunk"
-      @qs.get_chunk.should == "ok"
+      @qs.get_chunks.should == "first chunk"
+      @qs.get_chunks.should == "ok"
       @qs.run(["reset"])["error"].should == "query_server_error"
       begin
         @qs.run(["reset"])
