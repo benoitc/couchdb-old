@@ -208,15 +208,15 @@ describe "query server normal case" do
     end
   end
     
-end
-
-__END__
+# end
+#                    LIST TESTS
+# __END__
     
   describe "raw list with headers" do
     before(:each) do
       @fun = <<-JS
         function(head, req) {
-          sendHeaders({"Content-Type" : "text/plain"});
+          startResp({headers:{"Content-Type" : "text/plain"}});
           sendChunk("first chunk");
           sendChunk('second "chunk"');
           return "tail";
@@ -225,9 +225,9 @@ __END__
       @qs.reset!
       @qs.add_fun(@fun).should == true
     end
-    it "should description" do
+    it "should do headers proper" do
       @qs.rrun(["list", {"total_rows"=>1000}, {"q" => "ok"}])
-      @qs.jsgets.should == ["headers", {"Content-Type"=>"text/plain"}]
+      @qs.jsgets.should == ["start", {"headers"=>{"Content-Type"=>"text/plain"}}]
       @qs.jsgets.should == ["chunk", "first chunk"]
       @qs.jsgets.should == ["chunk", 'second "chunk"']
       @qs.jsgets.should == ["end", "tail"]

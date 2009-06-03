@@ -192,6 +192,7 @@ function sendChunk(chunk) {
 };
 
 function getRow() {
+  log("get row readline()");
   var line = readline();
   var json = eval(line);
   if (json[0] == "list_end") return null;
@@ -220,7 +221,7 @@ var Render = (function() {
       runShowRenderFunction(formFun, [doc, req], funSrc, true);
     },
     list : function(head, req) {
-      runRenderFunction(funs[0], [head, req], funsrc[0]);
+      runListRenderFunction(funs[0], [head, req], funsrc[0]);
     }
   }
 })();
@@ -247,6 +248,20 @@ function runShowRenderFunction(renderFun, args, funSrc, htmlErrors) {
   }
 };
 
+function runListRenderFunction(renderFun, args, funSrc, htmlErrors) {
+  try {
+    var resp = renderFun.apply(null, args);
+    log("render fun finished");
+    if (resp) {
+      respond(["end", resp]);
+    } else {
+      renderError("undefined response from render function");
+    }      
+  } catch(e) {
+    respondError(e);
+  }
+};
+
 function renderError(m) {
   respond({error : "render_error", reason : m});
 }
@@ -261,19 +276,6 @@ function respondError(e) {
     error:"render_error",
     reason:errorMessage});
 }
-
-function runRenderFunction(renderFun, args, funSrc, htmlErrors) {
-  try {
-    var resp = renderFun.apply(null, args);
-      if (resp) {
-        respond(["end", resp]);
-      } else {
-        respond({error:"render_error",reason:"undefined response from render function"});
-      }      
-  } catch(e) {
-
-  }
-};
 
 function escapeHTML(string) {
   return string.replace(/&/g, "&amp;")
