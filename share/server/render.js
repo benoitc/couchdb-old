@@ -181,11 +181,12 @@ registerType("json", "application/json", "text/x-json");
 
 
 
-//  Send chunk
-function sendHeaders(headers) {
-  respond(["headers", headers]);
-}
 
+//  Start chunks
+function startResp(resp) {
+  respond(["start", resp]);
+}
+//  Send chunk
 function sendChunk(chunk) {
   respond(["chunk", chunk]);
 };
@@ -216,13 +217,50 @@ var Render = (function() {
   return {
     show : function(funSrc, doc, req) {
       var formFun = compileFunction(funSrc);
-      runRenderFunction(formFun, [doc, req], funSrc, true);
+      runShowRenderFunction(formFun, [doc, req], funSrc, true);
     },
     list : function(head, req) {
       runRenderFunction(funs[0], [head, req], funsrc[0]);
     }
   }
 })();
+
+function maybeWrapResponse(resp) {
+  var type = typeof resp;
+  if ((type == "string") || (type == "xml")) {
+    return {body:resp};
+  } else {
+    return resp;
+  }
+};
+
+function runShowRenderFunction(renderFun, args, funSrc, htmlErrors) {
+  try {
+    var resp = renderFun.apply(null, args);
+    if (resp) {
+      respond(["resp", maybeWrapResponse(resp)]);
+    } else {
+      renderError("undefined response from render function");
+    }
+  } catch(e) {
+    respondError(e);
+  }
+};
+
+function renderError(m) {
+  respond({error : "render_error", reason : m});
+}
+
+
+function respondError(e) {
+  var logMessage = "function raised error: "+e.toString();
+  log(logMessage);
+  // log("stacktrace: "+e.stack);
+  var errorMessage = htmlErrors ? htmlRenderError(e, funSrc) : logMessage;
+  respond({
+    error:"render_error",
+    reason:errorMessage});
+}
 
 function runRenderFunction(renderFun, args, funSrc, htmlErrors) {
   try {
@@ -233,14 +271,7 @@ function runRenderFunction(renderFun, args, funSrc, htmlErrors) {
         respond({error:"render_error",reason:"undefined response from render function"});
       }      
   } catch(e) {
-    var logMessage = "function raised error: "+e.toString();
-    // log(logMessage);
-    // log("stacktrace: "+e.stack);
-    var errorMessage = htmlErrors ? htmlRenderError(e, funSrc) : logMessage;
-    
-    respond({
-      error:"render_error",
-      reason:errorMessage});
+
   }
 };
 
