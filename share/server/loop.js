@@ -20,6 +20,7 @@ try {
   sandbox.log = log;
   sandbox.toJSON = toJSON;
   sandbox.respondWith = respondWith;
+  sandbox.registerType = registerType;
   sandbox.sendChunk = sendChunk;
   sandbox.sendHeaders = sendHeaders;
   sandbox.getRow = getRow;
