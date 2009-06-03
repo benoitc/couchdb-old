@@ -133,7 +133,7 @@ respondWith = function(req, responders) {
     var resp = rFunc();
     resp["headers"] = resp["headers"] || {};
     resp["headers"]["Content-Type"] = bestMime;
-    respond(resp);
+    respond(["resp", maybeWrapResponse(resp)]);
   } else {
     throw({code:406, body:"Not Acceptable: "+accept});    
   }
@@ -255,7 +255,7 @@ function renderError(m) {
 function respondError(e) {
   var logMessage = "function raised error: "+e.toString();
   log(logMessage);
-  // log("stacktrace: "+e.stack);
+  log("stacktrace: "+e.stack);
   var errorMessage = htmlErrors ? htmlRenderError(e, funSrc) : logMessage;
   respond({
     error:"render_error",

@@ -135,7 +135,6 @@ make_map_start_resp_fun(QueryServer, Db) ->
 
 make_map_send_row_fun(QueryServer, Req) ->
     fun(Resp, Db2, {{Key, DocId}, Value}, _IncludeDocs, RowFront) ->
-        ?LOG_ERROR("danger",[]),
         try
             JsonResp = couch_query_servers:render_list_row(QueryServer, 
                 Req, Db2, {{Key, DocId}, Value}),
@@ -144,17 +143,14 @@ make_map_send_row_fun(QueryServer, Req) ->
                 stop = StopIter,
                 data = RowBody
             } = couch_httpd_external:parse_external_response(JsonResp),
-            ?LOG_ERROR("danger",[]),
             case {StopIter, RowBody} of
             {_, 0} -> 
                 {stop, ""};
             {true, _} -> 
-                ?LOG_ERROR("true",[]),
                 Chunk = RowFront ++ binary_to_list(RowBody),
                 send_non_empty_chunk(Resp, Chunk),
                 {stop, ""};
             _ ->
-                ?LOG_ERROR("{StopIter, RowBody} ~p",[{StopIter, RowBody}]),
                 Chunk = RowFront ++ binary_to_list(RowBody),
                 send_non_empty_chunk(Resp, Chunk),
                 {ok, ""}
@@ -263,6 +259,8 @@ make_reduce_send_row_fun(QueryServer, Req, Db) ->
         try
             JsonResp = couch_query_servers:render_reduce_row(QueryServer, 
                 Req, Db, {Key, Value}),
+            ?LOG_ERROR("JsonResp ~p", [JsonResp]),
+                
             #extern_resp_args{
                 stop = StopIter,
                 data = RowBody
@@ -386,7 +384,7 @@ send_doc_show_response(Lang, ShowSrc, DocId, nil, #httpd{mochi_req=MReq}=Req, Db
     Accept = proplists:get_value('Accept', Hlist),
     CurrentEtag = couch_httpd:make_etag({Lang, ShowSrc, nil, Accept}),
     couch_httpd:etag_respond(Req, CurrentEtag, fun() -> 
-        ExternalResp = couch_query_servers:render_doc_show(Lang, ShowSrc, 
+        [<<"resp">>, ExternalResp] = couch_query_servers:render_doc_show(Lang, ShowSrc, 
             DocId, nil, Req, Db),
         JsonResp = apply_etag(ExternalResp, CurrentEtag),
         couch_httpd_external:send_external_response(Req, JsonResp)
@@ -400,9 +398,8 @@ send_doc_show_response(Lang, ShowSrc, DocId, #doc{revs=Revs}=Doc, #httpd{mochi_r
     CurrentEtag = couch_httpd:make_etag({Lang, ShowSrc, Revs, Accept}),
     % We know our etag now    
     couch_httpd:etag_respond(Req, CurrentEtag, fun() -> 
-        ExternalResp = couch_query_servers:render_doc_show(Lang, ShowSrc, 
+        [<<"resp">>, ExternalResp] = couch_query_servers:render_doc_show(Lang, ShowSrc, 
             DocId, Doc, Req, Db),
-        ?LOG_ERROR("ExternalResp ~p", [ExternalResp]),
         JsonResp = apply_etag(ExternalResp, CurrentEtag),
         couch_httpd_external:send_external_response(Req, JsonResp)
     end).
