@@ -360,6 +360,7 @@ finish_list(Req, Db, QueryServer, Etag, FoldResult, StartListRespFun, TotalRows)
     end,
     send_chunk(Resp, []).
 
+
 render_head_for_empty_list(StartListRespFun, Req, Etag, null) ->
     StartListRespFun(Req, Etag, []);
 render_head_for_empty_list(StartListRespFun, Req, Etag, TotalRows) ->
