@@ -198,7 +198,7 @@ start_view_list(Lang, ListSrc) ->
 render_list_head({_Lang, Pid}, Req, Db, TotalRows, Offset) ->
     Head = {[{<<"total_rows">>, TotalRows}, {<<"offset">>, Offset}]},
     JsonReq = couch_httpd_external:json_req_obj(Req, Db),
-    couch_os_process:prompt(Pid, [<<"list_begin">>, Head, JsonReq]).
+    couch_os_process:prompt(Pid, [<<"list">>, Head, JsonReq]).
 
 render_list_row({_Lang, Pid}, Req, Db, {{Key, DocId}, Value}) ->
     JsonRow = couch_httpd_view:view_row_obj(Db, {{Key, DocId}, Value}, false),
@@ -206,8 +206,8 @@ render_list_row({_Lang, Pid}, Req, Db, {{Key, DocId}, Value}) ->
     couch_os_process:prompt(Pid, [<<"list_row">>, JsonRow, JsonReq]).
 
 render_list_tail({Lang, Pid}, Req, Db) ->
-    JsonReq = couch_httpd_external:json_req_obj(Req, Db),
-    JsonResp = couch_os_process:prompt(Pid, [<<"list_tail">>, JsonReq]),
+    % JsonReq = couch_httpd_external:json_req_obj(Req, Db),
+    JsonResp = couch_os_process:prompt(Pid, [<<"list_end">>]),
     ok = ret_os_process(Lang, Pid),
     JsonResp.
 

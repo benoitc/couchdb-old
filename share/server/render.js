@@ -189,7 +189,7 @@ function start(resp) {
 };
 
 function sendStart(label) {
-  log("sendStart");
+  // log("sendStart");
   respond([label||"start", chunks, startResp]);
   chunks = [];
   startResp = {};
@@ -201,6 +201,7 @@ function send(chunk) {
 };
 
 function blowChunks(label) {
+  log(["chunks", chunks]);
   respond([label||"chunks", chunks]);
   chunks = [];
 };
