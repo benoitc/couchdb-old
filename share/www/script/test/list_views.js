@@ -40,22 +40,17 @@ couchTests.list_views = function(debug) {
     },
     lists: {
       basicBasic : stringFun(function(head, req) {
-        sendChunk("head");
+        send("head");
         var row;
         while(row = getRow()) {
           log("row: "+toJSON(row));
-          sendChunk(row.key);        
+          send(" " + row.key);        
         };
         return "tail";
       }),
       simpleForm: stringFun(function(head, req) {
-        // beginResponse call is optional, it's where you'd set headers
-        // beginResponse(); 
-
-        // head
         log("simpleForm");
-        // log(head);
-        sendChunk('<h1>Total Rows: '
+        send('<h1>Total Rows: '
               // + head.total_rows
               // + ' Offset: ' + head.offset
               + '</h1><ul>');
@@ -66,7 +61,7 @@ couchTests.list_views = function(debug) {
           row_number += 1;
           if (!firstKey) firstKey = row.key;
           prevKey = row.key;
-          sendChunk('\n<li>Key: '+row.key
+          send('\n<li>Key: '+row.key
           +' Value: '+row.value
           +' LineNo: '+row_number+'</li>');
         }
@@ -78,11 +73,11 @@ couchTests.list_views = function(debug) {
         // respondWith takes care of setting the proper headers
         respondWith(req, {
           html : function() {
-            sendChunk("HTML <ul>");
+            send("HTML <ul>");
 
             var row;
             while (row = getRow()) {
-              sendChunk('\n<li>Key: '
+              send('\n<li>Key: '
                 +row.key+' Value: '+row.value
                 +' LineNo: '+row_info.row_number+'</li>');
             }
@@ -91,7 +86,7 @@ couchTests.list_views = function(debug) {
             return '</ul>';
           },
           xml : function() {
-            sendChunk('<feed xmlns="http://www.w3.org/2005/Atom">'
+            send('<feed xmlns="http://www.w3.org/2005/Atom">'
               +'<title>Test XML Feed</title>');
 
             while (row = getRow()) {
@@ -99,7 +94,7 @@ couchTests.list_views = function(debug) {
               entry.id = row.id;
               entry.title = row.key;
               entry.content = row.value;
-              sendChunk(entry);
+              send(entry);
             }
             return "</feed>";
           }
@@ -110,11 +105,11 @@ couchTests.list_views = function(debug) {
       }),
       stopIter: stringFun(function(req) {
         // beginResponse({"content-type" : "text/plain"}); 
-        sendChunk("head");
+        send("head");
         var row, row_number = 0;
         while(row = getRow()) {
           if(row_number > 2) break;
-          sendChunk(" " + row_number);
+          send(" " + row_number);
           row_number += 1;
         };
         return " tail";
@@ -122,11 +117,11 @@ couchTests.list_views = function(debug) {
       stopIter2: stringFun(function(req) {
         respondWith(req, {
           html: function() {
-            sendChunk("head");
+            send("head");
             var row, row_number = 0;
             while(row = getRow()) {
               if(row_number > 2) break;
-              sendChunk(" " + row_number);
+              send(" " + row_number);
               row_number += 1;
             };
             return " tail";
@@ -137,9 +132,9 @@ couchTests.list_views = function(debug) {
         return "";
       }),
       rowError : stringFun(function(head, row, req, row_info) {
-        sendChunk("head");
+        send("head");
         var row = getRow();
-        sendChunk(fooBarBam); // intentional error
+        send(fooBarBam); // intentional error
         return "tail";
       })
     }

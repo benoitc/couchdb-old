@@ -119,39 +119,34 @@ send_view_list_response(Lang, ListSrc, ViewName, DesignId, Req, Db, Keys) ->
 
 make_map_start_resp_fun(QueryServer, Db) ->
     fun(Req, CurrentEtag, TotalViewCount, Offset, _Acc) ->
-        ExternalResp = couch_query_servers:render_list_head(QueryServer, 
+        [_,Chunks,ExternalResp] = couch_query_servers:render_list_head(QueryServer, 
             Req, Db, TotalViewCount, Offset),
         JsonResp = apply_etag(ExternalResp, CurrentEtag),
         #extern_resp_args{
             code = Code,
-            data = BeginBody,
             ctype = CType,
             headers = ExtHeaders
         } = couch_httpd_external:parse_external_response(JsonResp),
         JsonHeaders = couch_httpd_external:default_or_content_type(CType, ExtHeaders),
         {ok, Resp} = start_chunked_response(Req, Code, JsonHeaders),
-        {ok, Resp, binary_to_list(BeginBody)}
+        {ok, Resp, ?b2l(?l2b(Chunks))}
     end.
 
 make_map_send_row_fun(QueryServer, Req) ->
     fun(Resp, Db2, {{Key, DocId}, Value}, _IncludeDocs, RowFront) ->
         try
-            JsonResp = couch_query_servers:render_list_row(QueryServer, 
+            [<<"chunks">>,Chunks] = couch_query_servers:render_list_row(QueryServer, 
                 Req, Db2, {{Key, DocId}, Value}),
-            ?LOG_ERROR("JsonResp ~p",[JsonResp]),
-            #extern_resp_args{
-                stop = StopIter,
-                data = RowBody
-            } = couch_httpd_external:parse_external_response(JsonResp),
-            case {StopIter, RowBody} of
+            ?LOG_ERROR("Chunks ~p",[Chunks]),
+            case {false, 5} of
             {_, 0} -> 
                 {stop, ""};
             {true, _} -> 
-                Chunk = RowFront ++ binary_to_list(RowBody),
+                Chunk = RowFront ++ ?b2l(?l2b(Chunks)),
                 send_non_empty_chunk(Resp, Chunk),
                 {stop, ""};
             _ ->
-                Chunk = RowFront ++ binary_to_list(RowBody),
+                Chunk = RowFront ++ ?b2l(?l2b(Chunks)),
                 send_non_empty_chunk(Resp, Chunk),
                 {ok, ""}
             end
@@ -361,11 +356,8 @@ finish_list(Req, Db, QueryServer, Etag, FoldResult, StartListRespFun, TotalRows)
         {_, _, Resp0, _} ->
             {Resp0, ""}
     end,
-    JsonTail = couch_query_servers:render_list_tail(QueryServer, Req, Db),
-    #extern_resp_args{
-        data = Tail
-    } = couch_httpd_external:parse_external_response(JsonTail),
-    Chunk = BeginBody ++ binary_to_list(Tail),
+    [<<"end">>, Chunks] = couch_query_servers:render_list_tail(QueryServer, Req, Db),
+    Chunk = BeginBody ++ ?b2l(?l2b(Chunks)),
     case Chunk of
         [] -> ok;
         _ -> send_chunk(Resp, Chunk)
