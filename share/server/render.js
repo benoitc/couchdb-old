@@ -183,14 +183,20 @@ registerType("json", "application/json", "text/x-json");
 
 
 //  Start chunks
-function startResp(resp) {
-  respond(["start", resp]);
-  respStarted = true;
+var startResp = {};
+function start(resp) {
+  startResp = resp || {};
+};
+
+function sendStart(label) {
+  log("sendStart");
+  respond([label||"start", chunks, startResp]);
+  chunks = [];
+  startResp = {};
 }
 //  Send chunk
 var chunks = [];
-function sendChunk(chunk) {
-  if (!respStarted) startResp({});
+function send(chunk) {
   chunks.push(chunk);
 };
 
@@ -199,7 +205,15 @@ function blowChunks(label) {
   chunks = [];
 };
 
+var gotRow = false;
 function getRow() {
+  if (!gotRow) {
+    gotRow = true;
+    sendStart();
+  } else {
+    log("getRow blowChunks()");
+    blowChunks()  
+  }
   log("getRow readline()");
   var line = readline();
   var json = eval(line);
@@ -210,8 +224,6 @@ function getRow() {
       reason: "not a row '" + json[0] + "'"});
     quit();
   }
-  log("getRow blowChunks()");
-  blowChunks()
   return json[1];
 };
 
@@ -257,13 +269,16 @@ function runShowRenderFunction(renderFun, args, funSrc, htmlErrors) {
     respondError(e);
   }
 };
-var respStarted;
 function runListRenderFunction(renderFun, args, funSrc, htmlErrors) {
   try {
-    respStarted = false;
+    gotRow = false;
     var resp = renderFun.apply(null, args);
     if (resp) chunks.push(resp);
-    blowChunks("end");
+    if (!gotRow) {
+      sendStart("resp");
+    } else {
+      blowChunks("end");      
+    }
     log("render fun finished");    
   } catch(e) {
     respondError(e);
