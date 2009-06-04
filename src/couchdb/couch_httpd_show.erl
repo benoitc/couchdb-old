@@ -137,7 +137,7 @@ make_map_send_row_fun(QueryServer, Req) ->
         try
             [<<"chunks">>,Chunks] = couch_query_servers:render_list_row(QueryServer, 
                 Req, Db2, {{Key, DocId}, Value}),
-            ?LOG_ERROR("Chunks ~p",[Chunks]),
+            % ?LOG_ERROR("Chunks ~p",[Chunks]),
             case {false, 5} of
             {_, 0} -> 
                 {stop, ""};
@@ -254,7 +254,7 @@ make_reduce_send_row_fun(QueryServer, Req, Db) ->
         try
             JsonResp = couch_query_servers:render_reduce_row(QueryServer, 
                 Req, Db, {Key, Value}),
-            ?LOG_ERROR("JsonResp ~p", [JsonResp]),
+            % ?LOG_ERROR("JsonResp ~p", [JsonResp]),
                 
             #extern_resp_args{
                 stop = StopIter,
