@@ -197,11 +197,11 @@ function sendStart(label) {
 //  Send chunk
 var chunks = [];
 function send(chunk) {
-  chunks.push(chunk);
+  chunks.push(chunk.toString());
 };
 
 function blowChunks(label) {
-  log(["chunks", chunks]);
+  // log(["chunks", chunks]);
   respond([label||"chunks", chunks]);
   chunks = [];
 };
@@ -212,10 +212,10 @@ function getRow() {
     gotRow = true;
     sendStart();
   } else {
-    log("getRow blowChunks()");
+    // log("getRow blowChunks()");
     blowChunks()  
   }
-  log("getRow readline()");
+  // log("getRow readline()");
   var line = readline();
   var json = eval(line);
   if (json[0] == "list_end") return null;
@@ -280,7 +280,7 @@ function runListRenderFunction(renderFun, args, funSrc, htmlErrors) {
     } else {
       blowChunks("end");      
     }
-    log("render fun finished");    
+    // log("render fun finished");    
   } catch(e) {
     respondError(e);
   }
@@ -294,7 +294,7 @@ function renderError(m) {
 function respondError(e) {
   var logMessage = "function raised error: "+e.toString();
   log(logMessage);
-  log("stacktrace: "+e.stack);
+  // log("stacktrace: "+e.stack);
   var errorMessage = htmlErrors ? htmlRenderError(e, funSrc) : logMessage;
   respond({
     error:"render_error",

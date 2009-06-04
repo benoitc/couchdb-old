@@ -44,7 +44,7 @@ couchTests.list_views = function(debug) {
         var row;
         while(row = getRow()) {
           log("row: "+toJSON(row));
-          send(" " + row.key);        
+          send(row.key);        
         };
         return "tail";
       }),
@@ -164,7 +164,6 @@ couchTests.list_views = function(debug) {
   // get with query params
   var xhr = CouchDB.request("GET", "/test_suite_db/_design/lists/_list/simpleForm/basicView?startkey=3");
   T(xhr.status == 200, "with query params");
-  console.log(xhr.responseText);
   T(/Total Rows/.test(xhr.responseText));
   T(!(/Key: 1/.test(xhr.responseText)));
   T(/FirstKey: 3/.test(xhr.responseText));
