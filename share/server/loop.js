@@ -21,8 +21,8 @@ try {
   sandbox.toJSON = toJSON;
   sandbox.respondWith = respondWith;
   sandbox.registerType = registerType;
-  sandbox.startResp = startResp;
-  sandbox.sendChunk = sendChunk;
+  sandbox.start = start;
+  sandbox.send = send;
   sandbox.getRow = getRow;
   sandbox.registerType = registerType;
 } catch (e) {}
