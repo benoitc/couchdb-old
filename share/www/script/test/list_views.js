@@ -48,6 +48,18 @@ couchTests.list_views = function(debug) {
         };
         return "tail";
       }),
+      basicJSON : stringFun(function(head, req) {
+        start({"headers":{"Content-Type" : "application/json"}}); 
+        send('{"head":'+toJSON(head)+', ');
+        send('"req":'+toJSON(req)+', ');
+        send('"rows":[');
+        var row, sep = '';
+        while (row = getRow()) {
+          send(sep + toJSON(row));
+          sep = ', ';
+        }
+        return "]}";
+      }),
       simpleForm: stringFun(function(head, req) {
         log("simpleForm");
         send('<h1>Total Rows: '
@@ -104,7 +116,6 @@ couchTests.list_views = function(debug) {
         return req.query.foo + "\n";
       }),
       stopIter: stringFun(function(req) {
-        // beginResponse({"content-type" : "text/plain"}); 
         send("head");
         var row, row_number = 0;
         while(row = getRow()) {
@@ -160,6 +171,28 @@ couchTests.list_views = function(debug) {
   });
   T(xhr.status == 304);
 
+  // test the richness of the arguments
+  xhr = CouchDB.request("GET", "/test_suite_db/_design/lists/_list/basicJSON/basicView");
+  T(xhr.status == 200, "standard get should be 200");
+  var resp = JSON.parse(xhr.responseText);
+  TEquals(resp.head, {total_rows:10, offset:0});
+  T(resp.rows.length == 10);
+  TEquals(resp.rows[0], {"id": "0","key": 0,"value": "0"});
+
+  TEquals(resp.req.info.db_name, "test_suite_db");
+  TEquals(resp.req.verb, "GET");
+  TEquals(resp.req.path, [
+      "test_suite_db",
+      "_design",
+      "lists",
+      "_list",
+      "basicJSON",
+      "basicView"
+  ]);
+  T(resp.req.headers.Accept);
+  T(resp.req.headers.Host);
+  T(resp.req.headers["User-Agent"]);
+  T(resp.req.cookie);
 
   // get with query params
   var xhr = CouchDB.request("GET", "/test_suite_db/_design/lists/_list/simpleForm/basicView?startkey=3");
@@ -168,8 +201,6 @@ couchTests.list_views = function(debug) {
   T(!(/Key: 1/.test(xhr.responseText)));
   T(/FirstKey: 3/.test(xhr.responseText));
   T(/LastKey: 9/.test(xhr.responseText));
-
-
   
   // with 0 rows
   var xhr = CouchDB.request("GET", "/test_suite_db/_design/lists/_list/simpleForm/basicView?startkey=30");
