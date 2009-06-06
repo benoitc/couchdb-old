@@ -42,8 +42,8 @@ var dispatch = {
   "rereduce" : Views.rereduce,
   "validate" : Validate.validate,
   "show"     : Render.show,
-  "list"     : Render.list,
-  "list_row" : function(){respond(true)},
+  "list"     : Render.list
+  // "list_row" : function(){respond(true)}
 };
 
 while (line = eval(readline())) {
