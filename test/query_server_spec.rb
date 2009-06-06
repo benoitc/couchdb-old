@@ -22,7 +22,6 @@ require 'spec'
 require 'json'
 
 
-
 class OSProcessRunner
   def self.run
     trace = :false
