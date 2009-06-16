@@ -15,7 +15,7 @@
 
 -export([start_link/1, start_link/2, start_link/3, stop/1]).
 -export([set_timeout/2, prompt/2]).
--export([writeline/2, readline/1, writejson/2, readjson/1]).
+-export([send/2, writeline/2, readline/1, writejson/2, readjson/1]).
 -export([init/1, terminate/2, handle_call/3, handle_cast/2, handle_info/2, code_change/3]).
 
 -include("couch_db.hrl").
@@ -44,12 +44,16 @@ stop(Pid) ->
 set_timeout(Pid, TimeOut) when is_integer(TimeOut) ->
     ok = gen_server:call(Pid, {set_timeout, TimeOut}).
 
+% Used by couch_db_update_notifier.erl
+send(Pid, Data) ->
+    gen_server:cast(Pid, {send, Data}).
+
 prompt(Pid, Data) ->
     case gen_server:call(Pid, {prompt, Data}, infinity) of
         {ok, Result} ->
             Result;
         Error ->
-            ?LOG_DEBUG("OS Process Error ~p",[Error]),
+            ?LOG_ERROR("OS Process Error :: ~p",[Error]),
             throw(Error)
     end.
 
@@ -77,20 +81,22 @@ readline(OsProc, Acc) when is_record(OsProc, os_proc) ->
 
 % Standard JSON functions
 writejson(OsProc, Data) when is_record(OsProc, os_proc) ->
+    % ?LOG_DEBUG("OS Process Input :: ~p", [Data]),
     true = writeline(OsProc, ?JSON_ENCODE(Data)).
 
 readjson(OsProc) when is_record(OsProc, os_proc) ->
     Line = readline(OsProc),
     case ?JSON_DECODE(Line) of
-    {[{<<"log">>,Msg}]} when is_binary(Msg) ->
+    [<<"log">>, Msg] when is_binary(Msg) ->
         % we got a message to log. Log it and continue
-        ?LOG_INFO("OS Process Log Message: ~s", [Msg]),
+        ?LOG_INFO("OS Process :: ~s", [Msg]),
         readjson(OsProc);
     {[{<<"error">>, Id}, {<<"reason">>, Reason}]} ->
         throw({list_to_atom(binary_to_list(Id)),Reason});
     {[{<<"reason">>, Reason}, {<<"error">>, Id}]} ->
         throw({list_to_atom(binary_to_list(Id)),Reason});
     Result ->
+        % ?LOG_DEBUG("OS Process Output :: ~p", [Result]),
         Result
     end.
 
@@ -148,6 +154,15 @@ handle_call({prompt, Data}, _From, OsProc) ->
             {stop, normal, OsError, OsProc}
     end.
 
+handle_cast({send, Data}, #os_proc{writer=Writer}=OsProc) ->
+    try
+        Writer(OsProc, Data),
+        {noreply, OsProc}
+    catch
+        throw:OsError ->
+            ?LOG_ERROR("Failed sending data: ~p -> ~p", [Data, OsError]),
+            {stop, normal, OsProc}
+    end;
 handle_cast(stop, OsProc) ->
     {stop, normal, OsProc};
 handle_cast(Msg, OsProc) ->
