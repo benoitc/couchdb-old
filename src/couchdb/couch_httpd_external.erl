@@ -65,7 +65,7 @@ json_req_obj(#httpd{mochi_req=Req,
     end,
     ParsedForm = case Req:get_primary_header_value("content-type") of
         "application/x-www-form-urlencoded" ++ _ ->
-            mochiweb_util:parse_qs(ReqBody);
+            mochiweb_util:parse_qs(Body);
         _ ->
             []
     end,
@@ -100,7 +100,7 @@ send_external_response(#httpd{mochi_req=MochiReq}, Response) ->
         headers = Headers
     } = parse_external_response(Response),
     Resp = MochiReq:respond({Code, 
-        default_or_content_type(CType, Headers), Data}),
+        default_or_content_type(CType, Headers ++ couch_httpd:server_header()), Data}),
     {ok, Resp}.
 
 parse_external_response({Response}) ->

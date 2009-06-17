@@ -14,8 +14,8 @@
 
 -export([handle_welcome_req/2,handle_favicon_req/2,handle_utils_dir_req/2,
     handle_all_dbs_req/1,handle_replicate_req/1,handle_restart_req/1,
-    handle_uuids_req/1,handle_config_req/1,
-    handle_task_status_req/1]).
+    handle_uuids_req/1,handle_config_req/1,handle_log_req/1,
+    handle_task_status_req/1,handle_sleep_req/1]).
     
 -export([increment_update_seq_req/2]).
 
@@ -56,6 +56,12 @@ handle_utils_dir_req(#httpd{method='GET'}=Req, DocumentRoot) ->
 handle_utils_dir_req(Req, _) ->
     send_method_not_allowed(Req, "GET,HEAD").
 
+handle_sleep_req(#httpd{method='GET'}=Req) ->
+    Time = list_to_integer(couch_httpd:qs_value(Req, "time")),
+    receive snicklefart -> ok after Time -> ok end,
+    send_json(Req, {[{ok, true}]});
+handle_sleep_req(Req) ->
+    send_method_not_allowed(Req, "GET,HEAD").
 
 handle_all_dbs_req(#httpd{method='GET'}=Req) ->
     {ok, DbNames} = couch_server:all_databases(),
@@ -91,7 +97,7 @@ get_rep_endpoint(#httpd{user_ctx=UserCtx}, <<DbName/binary>>) ->
     {local, DbName, UserCtx}.
 
 handle_replicate_req(#httpd{method='POST'}=Req) ->
-    {Props} = couch_httpd:json_body(Req),
+    {Props} = couch_httpd:json_body_obj(Req),
     Source = get_rep_endpoint(Req, proplists:get_value(<<"source">>, Props)),
     Target = get_rep_endpoint(Req, proplists:get_value(<<"target">>, Props)),
     case couch_rep:replicate(Source, Target) of
@@ -195,3 +201,18 @@ increment_update_seq_req(#httpd{method='POST'}=Req, Db) ->
 increment_update_seq_req(Req, _Db) ->
     send_method_not_allowed(Req, "POST").
 
+% httpd log handlers
+
+handle_log_req(#httpd{method='GET'}=Req) ->
+    Bytes = list_to_integer(couch_httpd:qs_value(Req, "bytes", "1000")),
+    Offset = list_to_integer(couch_httpd:qs_value(Req, "offset", "0")),
+    Chunk = couch_log:read(Bytes, Offset),
+    {ok, Resp} = start_chunked_response(Req, 200, [
+        % send a plaintext response
+        {"Content-Type", "text/plain; charset=utf-8"},
+        {"Content-Length", integer_to_list(length(Chunk))}
+    ]),
+    send_chunk(Resp, Chunk),
+    send_chunk(Resp, "");
+handle_log_req(Req) ->
+    send_method_not_allowed(Req, "GET").

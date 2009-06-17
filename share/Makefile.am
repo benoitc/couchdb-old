@@ -32,7 +32,6 @@ EXTRA_DIST = $(JS_FILE_COMPONENTS) $(JS_FILE_COMPONENTS_LAST)
 
 nobase_dist_localdata_DATA = \
     $(JS_FILE) \
-    server/main.js \
     www/dialog/_compact_database.html \
     www/dialog/_create_document.html \
     www/dialog/_create_database.html \
@@ -107,6 +106,7 @@ nobase_dist_localdata_DATA = \
     www/script/test/multiple_rows.js \
     www/script/test/large_docs.js \
     www/script/test/utf8.js \
+    www/script/test/jsonp.js \
     www/script/test/attachments.js \
     www/script/test/attachment_paths.js \
     www/script/test/attachment_views.js \
@@ -137,4 +137,5 @@ nobase_dist_localdata_DATA = \
     www/script/test/security_validation.js \
     www/script/test/stats.js \
     www/script/test/rewrite.js \
+    www/script/test/changes.js \
     www/style/layout.css

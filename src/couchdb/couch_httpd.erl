@@ -13,12 +13,12 @@
 -module(couch_httpd).
 -include("couch_db.hrl").
 
--export([start_link/0, stop/0, handle_request/4]).
+-export([start_link/0, stop/0, handle_request/5]).
 
 -export([header_value/2,header_value/3,qs_value/2,qs_value/3,qs/1,path/1,absolute_uri/2]).
 -export([verify_is_server_admin/1,unquote/1,quote/1,recv/2,recv_chunked/4,error_info/1]).
--export([parse_form/1,json_body/1,body/1,doc_etag/1, make_etag/1, etag_respond/3]).
--export([primary_header_value/2,partition/1,serve_file/3]).
+-export([parse_form/1,json_body/1,json_body_obj/1,body/1,doc_etag/1, make_etag/1, etag_respond/3]).
+-export([primary_header_value/2,partition/1,serve_file/3, server_header/0]).
 -export([start_chunked_response/3,send_chunk/2]).
 -export([start_json_response/2, start_json_response/3, end_json_response/1]).
 -export([send_response/4,send_method_not_allowed/2,send_error/4, send_redirect/2,send_chunked_error/2]).
@@ -35,6 +35,11 @@ start_link() ->
     BindAddress = couch_config:get("httpd", "bind_address", any),
     Port = couch_config:get("httpd", "port", "5984"),
     
+    DefaultSpec = "{couch_httpd_db, handle_request}",
+    DefaultFun = make_arity_1_fun(
+        couch_config:get("httpd", "default_handler", DefaultSpec)
+    ),
+    
     UrlHandlersList = lists:map(
         fun({UrlKey, SpecStr}) ->
             {?l2b(UrlKey), make_arity_1_fun(SpecStr)}
@@ -49,14 +54,15 @@ start_link() ->
         fun({UrlKey, SpecStr}) ->
             {?l2b(UrlKey), make_arity_2_fun(SpecStr)}
         end, couch_config:get("httpd_design_handlers")),
-        
+
     UrlHandlers = dict:from_list(UrlHandlersList),
     DbUrlHandlers = dict:from_list(DbUrlHandlersList),
     DesignUrlHandlers = dict:from_list(DesignUrlHandlersList),
     Loop = fun(Req)->
-            apply(?MODULE, handle_request,
-                    [Req, UrlHandlers, DbUrlHandlers, DesignUrlHandlers])
-        end,
+        apply(?MODULE, handle_request, [
+            Req, DefaultFun, UrlHandlers, DbUrlHandlers, DesignUrlHandlers
+        ])
+    end,
 
     % and off we go
     
@@ -76,6 +82,8 @@ start_link() ->
         fun("httpd", "bind_address") ->
             ?MODULE:stop();
         ("httpd", "port") ->
+            ?MODULE:stop();
+        ("httpd", "default_handler") ->
             ?MODULE:stop();
         ("httpd_global_handlers", _) ->
             ?MODULE:stop();
@@ -108,7 +116,8 @@ stop() ->
     mochiweb_http:stop(?MODULE).
     
 
-handle_request(MochiReq, UrlHandlers, DbUrlHandlers, DesignUrlHandlers) ->
+handle_request(MochiReq, DefaultFun,
+        UrlHandlers, DbUrlHandlers, DesignUrlHandlers) ->
     Begin = now(),
     AuthenticationFun = make_arity_1_fun(
             couch_config:get("httpd", "authentication_handler")),
@@ -156,10 +165,10 @@ handle_request(MochiReq, UrlHandlers, DbUrlHandlers, DesignUrlHandlers) ->
                 || Part <- string:tokens(Path, "/")],
         db_url_handlers = DbUrlHandlers,
         design_url_handlers = DesignUrlHandlers
-        },
-    DefaultFun = fun couch_httpd_db:handle_request/1,
+    },
+
     HandlerFun = couch_util:dict_find(HandlerKey, UrlHandlers, DefaultFun),
-    
+
     {ok, Resp} =
     try
         HandlerFun(HttpReq#httpd{user_ctx=AuthenticationFun(HttpReq)})
@@ -168,9 +177,17 @@ handle_request(MochiReq, UrlHandlers, DbUrlHandlers, DesignUrlHandlers) ->
             % ?LOG_DEBUG("Minor error in HTTP request: ~p",[Error]),
             % ?LOG_DEBUG("Stacktrace: ~p",[erlang:get_stacktrace()]),
             send_error(HttpReq, Error);
+        error:badarg ->
+            ?LOG_ERROR("Badarg error in HTTP request",[]),
+            ?LOG_INFO("Stacktrace: ~p",[erlang:get_stacktrace()]),
+            send_error(HttpReq, badarg);
+        error:function_clause ->
+            ?LOG_ERROR("function_clause error in HTTP request",[]),
+            ?LOG_INFO("Stacktrace: ~p",[erlang:get_stacktrace()]),
+            send_error(HttpReq, function_clause);
         Tag:Error ->
             ?LOG_ERROR("Uncaught error in HTTP request: ~p",[{Tag, Error}]),
-            ?LOG_DEBUG("Stacktrace: ~p",[erlang:get_stacktrace()]),
+            ?LOG_INFO("Stacktrace: ~p",[erlang:get_stacktrace()]),
             send_error(HttpReq, Error)
     end,
 
@@ -299,6 +316,14 @@ body(#httpd{mochi_req=MochiReq}) ->
 json_body(Httpd) ->
     ?JSON_DECODE(body(Httpd)).
 
+json_body_obj(Httpd) ->
+    case json_body(Httpd) of
+        {Props} -> {Props};
+        _Else -> 
+            throw({bad_request, "Request body must be a JSON object"})
+    end.
+
+
 doc_etag(#doc{revs={Start, [DiskRev|_]}}) ->
     "\"" ++ ?b2l(couch_doc:rev_to_str({Start, DiskRev})) ++ "\"".
 
@@ -378,8 +403,10 @@ send_json(Req, Code, Headers, Value) ->
         {"Content-Type", negotiate_content_type(Req)},
         {"Cache-Control", "must-revalidate"}
     ],
-    send_response(Req, Code, DefaultHeaders ++ Headers,
-                  list_to_binary([?JSON_ENCODE(Value), $\n])).
+    Body = list_to_binary(
+        [start_jsonp(Req), ?JSON_ENCODE(Value), end_jsonp(), $\n]
+    ),
+    send_response(Req, Code, DefaultHeaders ++ Headers, Body).
 
 start_json_response(Req, Code) ->
     start_json_response(Req, Code, []).
@@ -389,11 +416,65 @@ start_json_response(Req, Code, Headers) ->
         {"Content-Type", negotiate_content_type(Req)},
         {"Cache-Control", "must-revalidate"}
     ],
-    start_chunked_response(Req, Code, DefaultHeaders ++ Headers).
+    start_jsonp(Req), % Validate before starting chunked.
+    %start_chunked_response(Req, Code, DefaultHeaders ++ Headers).
+    {ok, Resp} = start_chunked_response(Req, Code, DefaultHeaders ++ Headers),
+    case start_jsonp(Req) of
+        [] -> ok;
+        Start -> send_chunk(Resp, Start)
+    end,
+    {ok, Resp}.
 
 end_json_response(Resp) ->
-    send_chunk(Resp, [$\n]),
+    send_chunk(Resp, end_jsonp() ++ [$\n]),
+    %send_chunk(Resp, [$\n]),
     send_chunk(Resp, []).
+
+start_jsonp(Req) ->
+    case get(jsonp) of
+        undefined -> put(jsonp, qs_value(Req, "callback", no_jsonp));
+        _ -> ok
+    end,
+    case get(jsonp) of
+        no_jsonp -> [];
+        [] -> [];
+        CallBack ->
+            try
+                validate_callback(CallBack),
+                CallBack ++ "("
+            catch
+                Error ->
+                    put(jsonp, no_jsonp),
+                    throw(Error)
+            end
+    end.
+
+end_jsonp() ->
+    Resp = case get(jsonp) of
+        no_jsonp -> [];
+        [] -> [];
+        _ -> ");"
+    end,
+    put(jsonp, undefined),
+    Resp.
+        
+validate_callback(CallBack) when is_binary(CallBack) ->
+    validate_callback(binary_to_list(CallBack));
+validate_callback([]) ->
+    ok;
+validate_callback([Char | Rest]) ->
+    case Char of
+        _ when Char >= $a andalso Char =< $z -> ok;
+        _ when Char >= $A andalso Char =< $Z -> ok;
+        _ when Char >= $0 andalso Char =< $9 -> ok;
+        _ when Char == $. -> ok;
+        _ when Char == $_ -> ok;
+        _ when Char == $[ -> ok;
+        _ when Char == $] -> ok;
+        _ ->
+            throw({bad_request, invalid_callback})
+    end,
+    validate_callback(Rest).
 
 
 error_info({Error, Reason}) when is_list(Reason) ->
@@ -405,7 +486,7 @@ error_info({bad_request, Reason}) ->
 error_info({query_parse_error, Reason}) ->
     {400, <<"query_parse_error">>, Reason};
 error_info(not_found) ->
-    {404, <<"not_found">>, <<"Missing">>};
+    {404, <<"not_found">>, <<"missing">>};
 error_info({not_found, Reason}) ->
     {404, <<"not_found">>, Reason};
 error_info(conflict) ->

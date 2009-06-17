@@ -63,6 +63,11 @@ couchTests.basics = function(debug) {
     var doc = db.open(id, {revs_info:true});
     T(doc._revs_info[0].status == "available");
 
+    // make sure you can do a seq=true option
+    var doc = db.open(id, {local_seq:true});
+    T(doc._local_seq == 1);
+    
+
     // Create some more documents.
     // Notice the use of the ok member on the return result.
     T(db.save({_id:"1",a:2,b:4}).ok);
@@ -133,7 +138,6 @@ couchTests.basics = function(debug) {
 
     // make sure we can still open the old rev of the deleted doc
     T(db.open(existingDoc._id, {rev: existingDoc._rev}) != null);
-
     // make sure restart works
     T(db.ensureFullCommit().ok);
     restartServer();
@@ -169,6 +173,28 @@ couchTests.basics = function(debug) {
     xhr = CouchDB.request("DELETE", "/test_suite_db/doc-does-not-exist");
     T(xhr.status == 404);
 
+  // Check for invalid document members
+  bad_docs = [
+    ["goldfish", {"_zing": 4}],
+    ["zebrafish", {"_zoom": "hello"}],
+    ["mudfish", {"zane": "goldfish", "_fan": "something smells delicious"}],
+    ["tastyfish", {"_bing": {"wha?": "soda can"}}]
+  ]
+  var test_doc = function(info) {
+    var data = JSON.stringify(info[1]);
+    
+    xhr = CouchDB.request("PUT", "/test_suite_db/" + info[0], {body: data});
+    T(xhr.status == 500);
+    result = JSON.parse(xhr.responseText);
+    T(result.error == "doc_validation");
+    
+    xhr = CouchDB.request("POST", "/test_suite_db/", {body: data});
+    T(xhr.status == 500);
+    result = JSON.parse(xhr.responseText);
+    T(result.error == "doc_validation");
+  };
+  bad_docs.forEach(test_doc);
+
     // Check some common error responses.
     // PUT body not an object
     xhr = CouchDB.request("PUT", "/test_suite_db/bar", {body: "[]"});
@@ -182,14 +208,14 @@ couchTests.basics = function(debug) {
     T(xhr.status == 400);
     result = JSON.parse(xhr.responseText);
     T(result.error == "bad_request");
-    T(result.reason == "Body must be a JSON object");
+    T(result.reason == "Request body must be a JSON object");
 
     // Body of an _all_docs  multi-get is not a {"key": [...]} structure.
     xhr = CouchDB.request("POST", "/test_suite_db/_all_docs", {body: "[]"});
     T(xhr.status == 400);
     result = JSON.parse(xhr.responseText);
     T(result.error == "bad_request");
-    T(result.reason == "Body must be a JSON object");
+    T(result.reason == "Request body must be a JSON object");
     var data = "{\"keys\": 1}";
     xhr = CouchDB.request("POST", "/test_suite_db/_all_docs", {body:data});
     T(xhr.status == 400);
