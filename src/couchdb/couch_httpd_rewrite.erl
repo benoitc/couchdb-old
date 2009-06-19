@@ -22,6 +22,7 @@ handle_rewrite_req(#httpd{
         path_parts=[DbName, _Design, DesignName, _Rewrite | _Rest]
     }=Req, Db) ->
     DesignId = <<"_design/", DesignName/binary>>,
+    % TODO cache the design doc and only reload when it changes
     #doc{body={Props}} = couch_httpd_db:couch_doc_open(Db, DesignId, nil, []),
     DispatchList = [json_to_dispatch_list(X) || {X} <- proplists:get_value(<<"rewrites">>, Props, [])],
     {"/" ++ Path, _, _} = mochiweb_util:urlsplit_path(MochiReq:get(raw_path)),
@@ -30,7 +31,7 @@ handle_rewrite_req(#httpd{
     case Dispatched of
     {no_dispatch_match, _} ->
         couch_httpd:send_error(Req, 404, <<"rewrite_error">>, <<"Invalid path.">>);
-    {Action, MatchOpts, PathTokens, Bindings, _AppRoot, _StringPath} ->
+    {_Action, MatchOpts, PathTokens, Bindings, _AppRoot, _StringPath} ->
         TargetPath = lists:flatten([case X of
             '*' -> [?l2b(mochiweb_util:unquote(Y)) || Y <- PathTokens];
             Y when is_atom(Y) -> [?l2b(mochiweb_util:unquote(proplists:get_value(Y, Bindings, "")))];
@@ -41,10 +42,16 @@ handle_rewrite_req(#httpd{
     end.
 
 json_to_dispatch_list(Props) ->
-    PathTermList = [json_to_erlang(X) || X <- proplists:get_value(<<"match">>, Props, [])],
+    PathTermList = [json_to_erlang(X)
+        || X <- proplists:get_value(<<"match">>, Props, [])],
     Mod = not_used,
-    MatchOpts = [json_to_erlang(X) || X <- proplists:get_value(<<"rewrite">>, Props, [])],
+    MatchOpts = [json_to_erlang(X)
+        || X <- proplists:get_value(<<"rewrite">>, Props, [])],
     {PathTermList, Mod, MatchOpts}.
 
-json_to_erlang(<<":", Atom/binary>>) -> binary_to_atom(Atom, utf8);
-json_to_erlang(<<String/binary>>) -> ?b2l(String).
+json_to_erlang(<<String/binary>>) ->
+    AtomSize = size(String) - 2,
+    case String of
+        <<"<", Atom:AtomSize/binary, ">">> -> binary_to_atom(Atom, utf8);
+        _Else -> ?b2l(String)
+    end.

@@ -26,14 +26,14 @@ couchTests.rewrite = function(debug) {
       }
     },
     rewrites: [{
-      match: ["any_view", ":view"],
-      rewrite: ["_design", "rewrite_test", "_view", ":view"]
+      match: ["any_view", "<view>"],
+      rewrite: ["_design", "rewrite_test", "_view", "<view>"]
     },{
-      match: ["any_doc", ":doc_id", ":*"],
-      rewrite: [":doc_id", ":*"]
+      match: ["any_doc", "<doc_id>", "<*>"],
+      rewrite: ["<doc_id>", "<*>"]
     },{
-      match: ["design_doc", ":name", ":*"],
-      rewrite: ["_design", ":name", ":*"]
+      match: ["design_doc", "<name>", "<*>"],
+      rewrite: ["_design", "<name>", "<*>"]
     }]
   };
 
