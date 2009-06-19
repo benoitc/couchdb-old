@@ -123,9 +123,6 @@ get_user(Db, UserName) ->
         end
     end.
 
-open_auth_doc(Db) ->
-    couch_db:open_doc(Db, <<"_design/_auth">>).
-
 cookie_auth_user(_Req, undefined) -> nil;
 cookie_auth_user(#httpd{mochi_req=MochiReq}=Req, DbName) ->
     case MochiReq:get_cookie_value("AuthSession") of
@@ -140,34 +137,30 @@ cookie_auth_user(#httpd{mochi_req=MochiReq}=Req, DbName) ->
                 % Verify expiry and hash
                 {NowMS, NowS, _} = erlang:now(),
                 CurrentTime = NowMS * 1000000 + NowS,
-                case open_auth_doc(Db) of
-                {ok, #doc{body={AuthDoc}}} ->
-                    case proplists:get_value(<<"secret">>, AuthDoc, nil) of
+                case couch_config:get("couch_httpd_auth", "secret", nil) of
+                nil -> nil;
+                SecretStr ->
+                    Secret = ?l2b(SecretStr),
+                    case get_user(Db, ?l2b(User)) of
                     nil -> nil;
-                    Secret ->
-                        case get_user(Db, ?l2b(User)) of
-                        nil -> nil;
-                        Result ->
-                            UserSalt = proplists:get_value(<<"salt">>, Result, <<"">>),
-                            FullSecret = <<Secret/binary, UserSalt/binary>>,
-                            ExpectedHash = crypto:sha_mac(FullSecret, User ++ ":" ++ TimeStr),
-                            Hash = ?l2b(string:join(HashParts, ":")),
-                            Timeout = 600,
-                            case (catch list_to_integer(TimeStr, 16)) of
-                            TimeStamp when CurrentTime < TimeStamp + Timeout andalso ExpectedHash == Hash ->
-                                TimeLeft = TimeStamp + Timeout - CurrentTime,
-                                ?LOG_DEBUG("Successful cookie auth as: ~p", [User]),
-                                Req#httpd{user_ctx=#user_ctx{
-                                    name=?l2b(User),
-                                    roles=proplists:get_value(<<"roles">>, Result, [])
-                                }, auth={FullSecret, TimeLeft < Timeout*0.9}};
-                            _Else ->
-                                nil
-                            end
+                    Result ->
+                        UserSalt = proplists:get_value(<<"salt">>, Result, <<"">>),
+                        FullSecret = <<Secret/binary, UserSalt/binary>>,
+                        ExpectedHash = crypto:sha_mac(FullSecret, User ++ ":" ++ TimeStr),
+                        Hash = ?l2b(string:join(HashParts, ":")),
+                        Timeout = 600,
+                        case (catch list_to_integer(TimeStr, 16)) of
+                        TimeStamp when CurrentTime < TimeStamp + Timeout andalso ExpectedHash == Hash ->
+                            TimeLeft = TimeStamp + Timeout - CurrentTime,
+                            ?LOG_DEBUG("Successful cookie auth as: ~p", [User]),
+                            Req#httpd{user_ctx=#user_ctx{
+                                name=?l2b(User),
+                                roles=proplists:get_value(<<"roles">>, Result, [])
+                            }, auth={FullSecret, TimeLeft < Timeout*0.9}};
+                        _Else ->
+                            nil
                         end
-                    end;
-                _Else ->
-                    nil
+                    end
                 end
             after
                 couch_db:close(Db)
@@ -226,8 +219,7 @@ handle_login_req(#httpd{method='POST', mochi_req=MochiReq}=Req, #db{}=Db) ->
     PasswordHash = couch_util:encodeBase64(crypto:sha(<<UserSalt/binary, Password/binary>>)),
     case proplists:get_value(<<"password_sha">>, User, nil) of
         ExpectedHash when ExpectedHash == PasswordHash ->
-            {ok, #doc{body={AuthDoc}}} = open_auth_doc(Db),
-            Secret = proplists:get_value(<<"secret">>, AuthDoc, nil),
+            Secret = ?l2b(couch_config:get("couch_httpd_auth", "secret", nil)),
             {NowMS, NowS, _} = erlang:now(),
             CurrentTime = NowMS * 1000000 + NowS,
             Cookie = cookie_auth_cookie(?b2l(UserName), <<Secret/binary, UserSalt/binary>>, CurrentTime),

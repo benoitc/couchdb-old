@@ -112,7 +112,9 @@ couchTests.cookie_auth = function(debug) {
   run_on_modified_server(
     [{section: "httpd",
       key: "authentication_handler",
-      value: "{couch_httpd_auth, cookie_authentication_handler}"}],
+      value: "{couch_httpd_auth, cookie_authentication_handler}"},
+     {section: "couch_httpd_auth",
+      key: "secret", value: generateSecret(64)}],
     testFun
   );
 
@@ -122,7 +124,9 @@ couchTests.cookie_auth = function(debug) {
   run_on_modified_server(
     [{section: "httpd",
       key: "authentication_handler",
-      value: '{couch_httpd_auth, cookie_authentication_handler, "test_suite_db"}'}],
+      value: '{couch_httpd_auth, cookie_authentication_handler, "test_suite_db"}'},
+     {section: "couch_httpd_auth",
+      key: "secret", value: generateSecret(64)}],
     testFun
   );
 };
