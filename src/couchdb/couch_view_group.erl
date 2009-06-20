@@ -415,7 +415,7 @@ design_doc_to_view_group(#doc{id=Id,body={Fields}}) ->
         end, 0, dict:to_list(DictBySrc)),
 
     Group = #group{name=Id, views=Views, def_lang=Language, design_options=DesignOptions},
-    Group#group{sig=erlang:md5(term_to_binary(Group))}.
+    Group#group{sig=erlang:md5(term_to_binary({Views, Language, DesignOptions}))}.
 
 reset_group(#group{views=Views}=Group) ->
     Views2 = [View#view{btree=nil} || View <- Views],
