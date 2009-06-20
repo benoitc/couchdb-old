@@ -309,7 +309,7 @@ reply_all(#group_state{waiting_list=WaitList}=State, Reply) ->
 prepare_group({view, RootDir, DbName, GroupId}, ForceReset)->
     case open_db_group(DbName, GroupId) of
     {ok, Db, #group{sig=Sig}=Group} ->
-        case open_index_file(RootDir, DbName, GroupId) of
+        case open_index_file(RootDir, DbName, Sig) of
         {ok, Fd} ->
             if ForceReset ->
                 {ok, reset_file(Db, Fd, DbName, Group)};
@@ -357,7 +357,9 @@ get_index_header_data(#group{current_seq=Seq, purge_seq=PurgeSeq,
 
 
 open_index_file(RootDir, DbName, GroupId) ->
-    FileName = RootDir ++ "/." ++ ?b2l(DbName) ++ ?b2l(GroupId) ++".view",
+    FileName = RootDir ++ "/." ++ ?b2l(DbName) ++ 
+        "/" ++ couch_util:to_hex(?b2l(GroupId)) ++".view",
+    ?LOG_ERROR("FileName ~s",[FileName]),
     case couch_file:open(FileName) of
     {ok, Fd}        -> {ok, Fd};
     {error, enoent} -> couch_file:open(FileName, [create]);
