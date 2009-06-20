@@ -154,15 +154,14 @@ handle_cast({start_compact, _}, State) ->
 
 handle_cast({compact_done, #group{fd=NewFd, current_seq=NewSeq} = NewGroup}, 
         #group_state{ 
-            group = #group{current_seq=OldSeq} = Group,
+            group = #group{current_seq=OldSeq, sig=GroupSig} = Group,
             init_args = {view, RootDir, DbName, GroupId}, 
             updater_pid = nil,
             ref_counter = RefCounter
         } = State) when NewSeq >= OldSeq ->
     ?LOG_INFO("View Group compaction complete", []),
-    BaseName = RootDir ++ "/." ++ ?b2l(DbName) ++ ?b2l(GroupId),
-    FileName = BaseName ++ ".view",
-    CompactName = BaseName ++".compact.view",
+    FileName = index_file_name(RootDir, DbName, GroupSig),
+    CompactName = index_file_name(compact, RootDir, DbName, GroupSig),
     file:delete(FileName),
     ok = file:rename(CompactName, FileName),
     
@@ -257,6 +256,22 @@ handle_info({'EXIT', FromPid, reset},
     Error ->
         {stop, normal, reply_all(State, Error)}
     end;
+
+handle_info({'EXIT', FromPid, new_index}, 
+        #group_state{
+            init_args=InitArgs,
+            updater_pid=UpPid,
+            group=Group}=State) when UpPid == FromPid ->
+    ok = couch_db:close(Group#group.db),
+    case prepare_group(InitArgs, false) of
+    {ok, ResetGroup} ->
+        Pid = spawn_link(fun()-> couch_view_updater:update(ResetGroup) end),
+        {noreply, State#group_state{
+                updater_pid=Pid,
+                group=ResetGroup}};
+    Error ->
+        {stop, normal, reply_all(State, Error)}
+    end;
     
 handle_info({'EXIT', _FromPid, normal}, State) ->
     {noreply, State};
@@ -322,15 +337,21 @@ prepare_group({view, RootDir, DbName, GroupId}, ForceReset)->
                     % sigs match!
                     {ok, init_group(Db, Fd, Group, HeaderInfo)};
                 _ ->
+                    % the signature doesn't match the filename
+                    % probably updating from old couchdb version
+                    % maybe we can drop this case altogether
                     {ok, reset_file(Db, Fd, DbName, Group)}
                 end
             end;
         Error ->
-            catch delete_index_file(RootDir, DbName, GroupId),
+            catch delete_index_file(RootDir, DbName, Sig),
             Error
         end;
     Error ->
-        catch delete_index_file(RootDir, DbName, GroupId),
+        % oops we can't delete the file if we can't open the group
+        % what should we do here
+        % catch delete_index_file(RootDir, DbName, Sig),
+        ?LOG_ERROR("TODO invalid index needs to be deleted for GroupId ~p",[GroupId]),
         Error
     end;
 prepare_group({slow_view, DbName, Fd, Lang, DesignOptions, MapSrc, RedSrc}, _ForceReset) ->
@@ -356,11 +377,17 @@ get_index_header_data(#group{current_seq=Seq, purge_seq=PurgeSeq,
             id_btree_state=couch_btree:get_state(IdBtree),
             view_states=ViewStates}.
 
+index_file_name(RootDir, DbName, GroupSig) ->
+    RootDir ++ "/." ++ ?b2l(DbName) ++ 
+        "/" ++ couch_util:to_hex(?b2l(GroupSig)) ++".view".
 
-open_index_file(RootDir, DbName, GroupId) ->
-    FileName = RootDir ++ "/." ++ ?b2l(DbName) ++ 
-        "/" ++ couch_util:to_hex(?b2l(GroupId)) ++".view",
-    ?LOG_ERROR("FileName ~s",[FileName]),
+index_file_name(compact, RootDir, DbName, GroupSig) ->
+    RootDir ++ "/." ++ ?b2l(DbName) ++ 
+        "/" ++ couch_util:to_hex(?b2l(GroupSig)) ++".compact.view".
+
+
+open_index_file(RootDir, DbName, GroupSig) ->
+    FileName = index_file_name(RootDir, DbName, GroupSig),
     case couch_file:open(FileName) of
     {ok, Fd}        -> {ok, Fd};
     {error, enoent} -> couch_file:open(FileName, [create]);
@@ -429,10 +456,10 @@ reset_file(Db, Fd, DbName, #group{sig=Sig,name=Name} = Group) ->
     ok = couch_file:write_header(Fd, {Sig, nil}),
     init_group(Db, Fd, reset_group(Group), nil).
 
-% TODO use correct sig (but call at proper time)
-delete_index_file(RootDir, DbName, GroupId) ->
-    file:delete(RootDir ++ "/." ++ binary_to_list(DbName)
-            ++ binary_to_list(GroupId) ++ ".view").
+% TODO only call at proper time
+delete_index_file(RootDir, DbName, GroupSig) ->
+    ?LOG_ERROR("delete_index_file",[]),
+    file:delete(index_file_name(RootDir, DbName, GroupSig)).
 
 init_group(Db, Fd, #group{views=Views}=Group, nil) ->
     init_group(Db, Fd, Group,

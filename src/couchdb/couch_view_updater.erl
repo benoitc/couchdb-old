@@ -122,7 +122,7 @@ process_doc(Db, DocInfo, {Docs, #group{sig=Sig,name=GroupId,design_options=Desig
                 end;
             _ ->
                 % signature has changed, reset
-                exit(reset)
+                exit(new_index)
             end;
         {not_found, deleted} ->
             exit(reset)
