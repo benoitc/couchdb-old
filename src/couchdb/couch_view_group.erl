@@ -312,6 +312,7 @@ prepare_group({view, RootDir, DbName, GroupId}, ForceReset)->
         case open_index_file(RootDir, DbName, Sig) of
         {ok, Fd} ->
             if ForceReset ->
+                % sigs will always match, this code is obsolete
                 {ok, reset_file(Db, Fd, DbName, Group)};
             true ->
                 % 09 UPGRADE CODE
@@ -423,11 +424,12 @@ reset_group(#group{views=Views}=Group) ->
             id_btree=nil,views=Views2}.
 
 reset_file(Db, Fd, DbName, #group{sig=Sig,name=Name} = Group) ->
-    ?LOG_DEBUG("Reseting group index \"~s\" in db ~s", [Name, DbName]),
+    ?LOG_ERROR("Reseting group index \"~s\" in db ~s", [Name, DbName]),
     ok = couch_file:truncate(Fd, 0),
     ok = couch_file:write_header(Fd, {Sig, nil}),
     init_group(Db, Fd, reset_group(Group), nil).
 
+% TODO use correct sig (but call at proper time)
 delete_index_file(RootDir, DbName, GroupId) ->
     file:delete(RootDir ++ "/." ++ binary_to_list(DbName)
             ++ binary_to_list(GroupId) ++ ".view").

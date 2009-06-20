@@ -121,6 +121,7 @@ process_doc(Db, DocInfo, {Docs, #group{sig=Sig,name=GroupId,design_options=Desig
                     {Docs, Group, ViewKVs, DocIdViewIdKeys}
                 end;
             _ ->
+                % signature has changed, reset
                 exit(reset)
             end;
         {not_found, deleted} ->
