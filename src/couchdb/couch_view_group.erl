@@ -383,7 +383,10 @@ design_doc_to_view_group(#doc{id=Id,body={Fields}}) ->
     Language = proplists:get_value(<<"language">>, Fields, <<"javascript">>),
     {DesignOptions} = proplists:get_value(<<"options">>, Fields, {[]}),
     {RawViews} = proplists:get_value(<<"views">>, Fields, {[]}),
-
+    % sort the views by name to avoid spurious signature changes
+    SortedRawViews = lists:sort(fun({Name1, _}, {Name2, _}) ->
+            Name1 >= Name2
+        end, RawViews),
     % add the views to a dictionary object, with the map source as the key
     DictBySrc =
     lists:foldl(
@@ -402,7 +405,7 @@ design_doc_to_view_group(#doc{id=Id,body={Fields}}) ->
                 View#view{reduce_funs=[{Name,RedSrc}|View#view.reduce_funs]}
             end,
             dict:store(MapSrc, View2, DictBySrcAcc)
-        end, dict:new(), RawViews),
+        end, dict:new(), SortedRawViews),
     % number the views
     {Views, _N} = lists:mapfoldl(
         fun({_Src, View}, N) ->
