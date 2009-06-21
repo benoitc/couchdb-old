@@ -29,11 +29,23 @@ start_link() ->
     gen_server:start_link({local, couch_view}, couch_view, [], []).
 
 get_temp_updater(DbName, Type, DesignOptions, MapSrc, RedSrc) ->
+    % make signature for temp group
+    % find or create server by signature
+    % start server with the same signature for temp and ddoc views
+    
     {ok, Pid} = gen_server:call(couch_view,
             {start_temp_updater, DbName, Type, DesignOptions, MapSrc, RedSrc}),
     Pid.
 
 get_group_server(DbName, GroupId) ->
+    % get signature for group
+    {ok, _Db, #group{sig=Sig}=_Group} = couch_view:open_db_group(DbName, GroupId),
+    % find or create server by signature
+    
+    % start server with the same arguments for temp and ddoc views
+    
+    
+    
     case gen_server:call(couch_view, {start_group_server, DbName, GroupId}) of
     {ok, Pid} ->
         Pid;
@@ -272,7 +284,7 @@ handle_call({start_group_server, DbName, GroupId}, _From, #server{root_dir=Root}
     end.
 
 handle_cast({reset_indexes, DbName}, #server{root_dir=Root}=Server) ->
-    % shutdown all the updaters
+    % shutdown all the updaters and clear the files, the db got changed
     Names = ets:lookup(couch_groups_by_db, DbName),
     lists:foreach(
         fun({_DbName, GroupId}) ->

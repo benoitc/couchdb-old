@@ -15,7 +15,7 @@
 
 %% API
 -export([start_link/1, request_group/2]).
--export([design_doc_to_view_group/1]).
+-export([open_db_group/2, design_doc_to_view_group/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -95,8 +95,7 @@ init({InitArgs, ReturnPid, Ref}) ->
 % view group, and the couch_view_updater, which when spawned, updates the
 % group and sends it back here. We employ a caching mechanism, so that between
 % database writes, we don't have to spawn a couch_view_updater with every view
-% request. This should give us more control, and the ability to request view
-% statuses eventually.
+% request.
 
 % The caching mechanism: each request is submitted with a seq_id for the
 % database at the time it was read. We guarantee to return a view from that
@@ -224,7 +223,7 @@ handle_info({'EXIT', FromPid, {new_group, #group{db=Db}=Group}},
             waiting_commit=WaitingCommit}=State) when UpPid == FromPid ->
     ok = couch_db:close(Db),
 
-    if Group#group.type == view andalso not WaitingCommit ->
+    if not WaitingCommit ->
         erlang:send_after(1000, self(), delayed_commit);
     true -> ok
     end,
