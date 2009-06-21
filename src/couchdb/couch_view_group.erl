@@ -24,6 +24,7 @@
 -include("couch_db.hrl").
 	 
 -record(group_state, {
+    type,
     db_name,
     init_args,
     group,
