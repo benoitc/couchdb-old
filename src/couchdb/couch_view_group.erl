@@ -154,7 +154,7 @@ handle_cast({start_compact, _}, State) ->
 handle_cast({compact_done, #group{fd=NewFd, current_seq=NewSeq} = NewGroup}, 
         #group_state{ 
             group = #group{current_seq=OldSeq, sig=GroupSig} = Group,
-            init_args = {view, RootDir, DbName, GroupId}, 
+            init_args = {view, RootDir, DbName, _GroupId}, 
             updater_pid = nil,
             ref_counter = RefCounter
         } = State) when NewSeq >= OldSeq ->
@@ -222,7 +222,6 @@ handle_info({'EXIT', FromPid, {new_group, #group{db=Db}=Group}},
             waiting_list=WaitList,
             waiting_commit=WaitingCommit}=State) when UpPid == FromPid ->
     ok = couch_db:close(Db),
-    ?LOG_ERROR("new_group ready",[]),
     if not WaitingCommit ->
         erlang:send_after(1000, self(), delayed_commit);
     true -> ok
@@ -246,7 +245,6 @@ handle_info({'EXIT', FromPid, reset},
             updater_pid=UpPid,
             group=Group}=State) when UpPid == FromPid ->
     ok = couch_db:close(Group#group.db),
-    ?LOG_ERROR("group reset",[]),
     case prepare_group(InitArgs, true) of
     {ok, ResetGroup} ->
         Pid = spawn_link(fun()-> couch_view_updater:update(ResetGroup) end),
@@ -312,24 +310,18 @@ prepare_group({RootDir, DbName, #group{sig=Sig}=Group}, ForceReset)->
         {ok, Fd} ->
             if ForceReset ->
                 % this can happen if we missed a purge
-                ?LOG_ERROR("force reset view index for ~p",[DbName]),
                 {ok, reset_file(Db, Fd, DbName, Group)};
             true ->
                 % 09 UPGRADE CODE
                 ok = couch_file:upgrade_old_header(Fd, <<$r, $c, $k, 0>>),
-                % {ok, {Sig, HeaderInfo}} = (catch couch_file:read_header(Fd)),
-
                 case (catch couch_file:read_header(Fd)) of
                 {ok, {Sig, HeaderInfo}} ->
                     % sigs match!
                     {ok, init_group(Db, Fd, Group, HeaderInfo)};
                 _ ->
                     % this seems to happen on a new file
-                    ?LOG_ERROR("other reset view index for ~p",[DbName]),
                     {ok, reset_file(Db, Fd, DbName, Group)}
                 end
-
-                % {ok, init_group(Db, Fd, Group, HeaderInfo)}
             end;
         Error ->
             catch delete_index_file(RootDir, DbName, Sig),
@@ -338,54 +330,6 @@ prepare_group({RootDir, DbName, #group{sig=Sig}=Group}, ForceReset)->
     Else ->
         Else
     end.
-
-% prepare_group({view, RootDir, DbName, GroupId}, ForceReset)->
-%     case open_db_group(DbName, GroupId) of
-%     {ok, Db, #group{sig=Sig}=Group} ->
-%         case open_index_file(RootDir, DbName, Sig) of
-%         {ok, Fd} ->
-%             if ForceReset ->
-%                 % sigs will always match, this code is obsolete
-%                 {ok, reset_file(Db, Fd, DbName, Group)};
-%             true ->
-%                 % 09 UPGRADE CODE
-%                 ok = couch_file:upgrade_old_header(Fd, <<$r, $c, $k, 0>>),
-%                 case (catch couch_file:read_header(Fd)) of
-%                 {ok, {Sig, HeaderInfo}} ->
-%                     % sigs match!
-%                     {ok, init_group(Db, Fd, Group, HeaderInfo)};
-%                 _ ->
-%                     % the signature doesn't match the filename
-%                     % probably updating from old couchdb version
-%                     % maybe we can drop this case altogether
-%                     {ok, reset_file(Db, Fd, DbName, Group)}
-%                 end
-%             end;
-%         Error ->
-%             catch delete_index_file(RootDir, DbName, Sig),
-%             Error
-%         end;
-%     Error ->
-%         % oops we can't delete the file if we can't open the group
-%         % what should we do here
-%         % catch delete_index_file(RootDir, DbName, Sig),
-%         ?LOG_ERROR("TODO invalid index needs to be deleted for GroupId ~p",[GroupId]),
-%         Error
-%     end;
-% prepare_group({slow_view, DbName, Fd, Lang, DesignOptions, MapSrc, RedSrc}, _ForceReset) ->
-%     case couch_db:open(DbName, []) of
-%     {ok, Db} ->
-%         View = #view{map_names=[<<"_temp">>],
-%             id_num=0,
-%             btree=nil,
-%             def=MapSrc,
-%             reduce_funs= if RedSrc==[] -> []; true -> [{<<"_temp">>, RedSrc}] end},
-%         {ok, init_group(Db, Fd, #group{name= <<"_temp">>, db=Db,
-%             views=[View], def_lang=Lang, design_options=DesignOptions}, nil)};
-%     Error ->
-%         Error
-%     end.
-
 
 get_index_header_data(#group{current_seq=Seq, purge_seq=PurgeSeq, 
             id_btree=IdBtree,views=Views}) ->
@@ -490,14 +434,12 @@ reset_group(#group{views=Views}=Group) ->
             id_btree=nil,views=Views2}.
 
 reset_file(Db, Fd, DbName, #group{sig=Sig,name=Name} = Group) ->
-    ?LOG_ERROR("Reseting group index \"~s\" in db ~s", [Name, DbName]),
+    ?LOG_DEBUG("Reseting group index \"~s\" in db ~s", [Name, DbName]),
     ok = couch_file:truncate(Fd, 0),
     ok = couch_file:write_header(Fd, {Sig, nil}),
     init_group(Db, Fd, reset_group(Group), nil).
 
-% TODO only call at proper time
 delete_index_file(RootDir, DbName, GroupSig) ->
-    ?LOG_ERROR("delete_index_file",[]),
     file:delete(index_file_name(RootDir, DbName, GroupSig)).
 
 init_group(Db, Fd, #group{views=Views}=Group, nil) ->

@@ -31,7 +31,7 @@ start_link() ->
 get_temp_updater(DbName, Language, DesignOptions, MapSrc, RedSrc) ->
     % make temp group
     % do we need to close this db?
-    {ok, _Db, #group{sig=Sig}=Group} = 
+    {ok, _Db, Group} = 
         couch_view_group:open_temp_group(DbName, Language, DesignOptions, MapSrc, RedSrc),
     case gen_server:call(couch_view, {get_group_server, DbName, Group}) of
     {ok, Pid} ->
@@ -44,7 +44,7 @@ get_group_server(DbName, GroupId) ->
     % get signature for group
     case couch_view_group:open_db_group(DbName, GroupId) of
     % do we need to close this db?
-    {ok, _Db, #group{sig=Sig}=Group} ->        
+    {ok, _Db, Group} ->        
         case gen_server:call(couch_view, {get_group_server, DbName, Group}) of
         {ok, Pid} ->
             Pid;
@@ -237,7 +237,6 @@ init([]) ->
     ets:new(couch_groups_by_db, [bag, private, named_table]),
     ets:new(group_servers_by_sig, [set, protected, named_table]),
     ets:new(couch_groups_by_updater, [set, private, named_table]),
-    ets:new(couch_temp_group_fd_by_db, [set, protected, named_table]),
     process_flag(trap_exit, true),
     {ok, #server{root_dir=RootDir}}.
 
@@ -246,31 +245,6 @@ terminate(Reason, _Srv) ->
     couch_util:terminate_linked(Reason),
     ok.
 
-
-% handle_call({start_temp_updater, DbName, Lang, DesignOptions, MapSrc, RedSrc},
-%                                                 _From, #server{root_dir=Root}=Server) ->
-%     <<SigInt:128/integer>> = erlang:md5(term_to_binary({Lang, DesignOptions, MapSrc, RedSrc})),
-%     Name = lists:flatten(io_lib:format("_temp_~.36B",[SigInt])),
-%     Pid = 
-%     case ets:lookup(group_servers_by_sig, {DbName, Name}) of
-%     [] ->
-%         case ets:lookup(couch_temp_group_fd_by_db, DbName) of
-%         [] ->
-%             FileName = Root ++ "/." ++ binary_to_list(DbName) ++ "_temp",
-%             {ok, Fd} = couch_file:open(FileName, [create, overwrite]),
-%             Count = 0;
-%         [{_, Fd, Count}] ->
-%             ok
-%         end,
-%         ?LOG_DEBUG("Spawning new temp update process for db ~s.", [DbName]),
-%         {ok, NewPid} = couch_view_group:start_link({slow_view, DbName, Fd, Lang, DesignOptions, MapSrc, RedSrc}),
-%         true = ets:insert(couch_temp_group_fd_by_db, {DbName, Fd, Count + 1}),
-%         add_to_ets(NewPid, DbName, Name),
-%         NewPid;
-%     [{_, ExistingPid0}] ->
-%         ExistingPid0
-%     end,
-%     {reply, {ok, Pid}, Server};
 
 handle_call({get_group_server, DbName, 
     #group{name=GroupId,sig=Sig}=Group}, _From, #server{root_dir=Root}=Server) ->
@@ -292,10 +266,9 @@ handle_call({get_group_server, DbName,
 handle_cast({reset_indexes, DbName}, #server{root_dir=Root}=Server) ->
     % shutdown all the updaters and clear the files, the db got changed
     Names = ets:lookup(couch_groups_by_db, DbName),
-    ?LOG_ERROR("reset_indexes for database ~s: ~p", [DbName, Names]),
     lists:foreach(
         fun({_DbName, Sig}) ->
-            ?LOG_ERROR("Killing update process for view group ~s. in database ~s.", [Sig, DbName]),
+            ?LOG_DEBUG("Killing update process for view group ~s. in database ~s.", [Sig, DbName]),
             [{_, Pid}] = ets:lookup(group_servers_by_sig, {DbName, Sig}),
             exit(Pid, kill),
             receive {'EXIT', Pid, _} ->
@@ -306,7 +279,7 @@ handle_cast({reset_indexes, DbName}, #server{root_dir=Root}=Server) ->
     file:delete(Root ++ "/." ++ binary_to_list(DbName) ++ "_temp"),
     {noreply, Server}.
 
-handle_info({'EXIT', FromPid, Reason}, #server{root_dir=RootDir}=Server) ->
+handle_info({'EXIT', FromPid, Reason}, Server) ->
     case ets:lookup(couch_groups_by_updater, FromPid) of
     [] ->
         if Reason /= normal ->
@@ -314,18 +287,6 @@ handle_info({'EXIT', FromPid, Reason}, #server{root_dir=RootDir}=Server) ->
             ?LOG_ERROR("Exit on non-updater process: ~p", [Reason]),
             exit(Reason);
         true -> ok
-        end;
-    [{_, {DbName, "_temp_" ++ _ = GroupId}}] ->
-        % i think this is mostly obsolete except maybe ref counting...
-        delete_from_ets(FromPid, DbName, GroupId),
-        [{_, Fd, Count}] = ets:lookup(couch_temp_group_fd_by_db, DbName),
-        case Count of
-        1 -> % Last ref
-            couch_file:close(Fd),
-            file:delete(RootDir ++ "/." ++ binary_to_list(DbName) ++ "_temp"),
-            true = ets:delete(couch_temp_group_fd_by_db, DbName);
-        _ ->
-            true = ets:insert(couch_temp_group_fd_by_db, {DbName, Fd, Count - 1})
         end;
     [{_, {DbName, GroupId}}] ->
         delete_from_ets(FromPid, DbName, GroupId)

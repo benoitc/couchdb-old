@@ -84,7 +84,7 @@ handle_call({add_task,Type,TaskName,StatusText}, {From, _}, Server) ->
     
 handle_cast({update_status, Pid, StatusText}, Server) ->
     [{Pid, {Type,TaskName,_StatusText}}] = ets:lookup(tasks_by_pid, Pid),
-    ?LOG_ERROR("Update task status for ~s to ~s",[TaskName, StatusText]),
+    ?LOG_DEBUG("New task status for ~s: ~s",[TaskName, StatusText]),
     true = ets:insert(tasks_by_pid, {Pid, {Type,TaskName,StatusText}}),
     {noreply, Server}.
 
