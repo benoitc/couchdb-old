@@ -15,7 +15,7 @@
 
 %% API
 -export([start_link/1, request_group/2]).
--export([open_db_group/2, design_doc_to_view_group/1]).
+-export([open_db_group/2, open_temp_group/5, design_doc_to_view_group/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -320,7 +320,7 @@ reply_all(#group_state{waiting_list=WaitList}=State, Reply) ->
     [catch gen_server:reply(Pid, Reply) || {Pid, _} <- WaitList],
     State#group_state{waiting_list=[]}.
 
-prepare_group({RootDir, #db{db_name=DbName}=Db, #group{sig=Sig}=Group}, ForceReset)->
+prepare_group({RootDir, #db{name=DbName}=Db, #group{sig=Sig}=Group}, ForceReset)->
     case open_index_file(RootDir, DbName, Sig) of
     {ok, Fd} ->
         if ForceReset ->
@@ -329,8 +329,18 @@ prepare_group({RootDir, #db{db_name=DbName}=Db, #group{sig=Sig}=Group}, ForceRes
         true ->
             % 09 UPGRADE CODE
             ok = couch_file:upgrade_old_header(Fd, <<$r, $c, $k, 0>>),
-            {ok, {Sig, HeaderInfo}} = (catch couch_file:read_header(Fd)),
-            {ok, init_group(Db, Fd, Group, HeaderInfo)}
+            % {ok, {Sig, HeaderInfo}} = (catch couch_file:read_header(Fd)),
+                
+            case (catch couch_file:read_header(Fd)) of
+            {ok, {Sig, HeaderInfo}} ->
+                % sigs match!
+                {ok, init_group(Db, Fd, Group, HeaderInfo)};
+            _ ->
+                % this seems to happen on a new file
+                {ok, reset_file(Db, Fd, DbName, Group)}
+            end
+                
+            % {ok, init_group(Db, Fd, Group, HeaderInfo)}
         end;
     Error ->
         catch delete_index_file(RootDir, DbName, Sig),
@@ -410,7 +420,7 @@ open_index_file(RootDir, DbName, GroupSig) ->
     Error           -> Error
     end.
 
-open_temp_group(DbName, Type, DesignOptions, MapSrc, RedSrc) ->
+open_temp_group(DbName, Language, DesignOptions, MapSrc, RedSrc) ->
     case couch_db:open(DbName, []) of
     {ok, Db} ->
         View = #view{map_names=[<<"_temp">>],
@@ -418,13 +428,14 @@ open_temp_group(DbName, Type, DesignOptions, MapSrc, RedSrc) ->
             btree=nil,
             def=MapSrc,
             reduce_funs= if RedSrc==[] -> []; true -> [{<<"_temp">>, RedSrc}] end},
+
         {ok, Db, #group{
             name = <<"_temp">>, 
             db=Db,
             views=[View], 
-            def_lang=Lang, 
+            def_lang=Language, 
             design_options=DesignOptions,
-            sig = erlang:md5(term_to_binary({[View], Lang, DesignOptions}))
+            sig = erlang:md5(term_to_binary({[View], Language, DesignOptions}))
         }};
     Error ->
         Error

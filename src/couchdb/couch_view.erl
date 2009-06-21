@@ -28,10 +28,10 @@
 start_link() ->
     gen_server:start_link({local, couch_view}, couch_view, [], []).
 
-get_temp_updater(DbName, Type, DesignOptions, MapSrc, RedSrc) ->
+get_temp_updater(DbName, Language, DesignOptions, MapSrc, RedSrc) ->
     % make temp group
     {ok, Db, #group{sig=Sig}=Group} = 
-        couch_view_group:open_temp_group(DbName, Type, DesignOptions, MapSrc, RedSrc),
+        couch_view_group:open_temp_group(DbName, Language, DesignOptions, MapSrc, RedSrc),
     case gen_server:call(couch_view, {get_group_server, Db, Group}) of
     {ok, Pid} ->
         Pid;
@@ -59,17 +59,18 @@ get_group(Db, GroupId, Stale) ->
             MinUpdateSeq).
 
 
-get_temp_group(Db, Type, DesignOptions, MapSrc, RedSrc) ->
+get_temp_group(Db, Language, DesignOptions, MapSrc, RedSrc) ->
     couch_view_group:request_group(
-            get_temp_updater(couch_db:name(Db), Type, DesignOptions, MapSrc, RedSrc),
+            get_temp_updater(couch_db:name(Db), Language, DesignOptions, MapSrc, RedSrc),
             couch_db:get_update_seq(Db)).
 
 get_row_count(#view{btree=Bt}) ->
     {ok, {Count, _Reds}} = couch_btree:full_reduce(Bt),
     {ok, Count}.
 
-get_temp_reduce_view(Db, Type, DesignOptions, MapSrc, RedSrc) ->
-    {ok, #group{views=[View]}=Group} = get_temp_group(Db, Type, DesignOptions, MapSrc, RedSrc),
+get_temp_reduce_view(Db, Language, DesignOptions, MapSrc, RedSrc) ->
+    {ok, #group{views=[View]}=Group} = 
+        get_temp_group(Db, Language, DesignOptions, MapSrc, RedSrc),
     {ok, {temp_reduce, View}, Group}.
 
 
@@ -149,8 +150,8 @@ get_key_pos(Key, [_|Rest], N) ->
     get_key_pos(Key, Rest, N+1).
 
 
-get_temp_map_view(Db, Type, DesignOptions, Src) ->
-    {ok, #group{views=[View]}=Group} = get_temp_group(Db, Type, DesignOptions, Src, []),
+get_temp_map_view(Db, Language, DesignOptions, Src) ->
+    {ok, #group{views=[View]}=Group} = get_temp_group(Db, Language, DesignOptions, Src, []),
     {ok, View, Group}.
 
 get_map_view(Db, GroupId, Name, Stale) ->
@@ -265,7 +266,7 @@ terminate(Reason, _Srv) ->
 %     end,
 %     {reply, {ok, Pid}, Server};
 
-handle_call({get_group_server, #db{db_name=DbName}=Db, 
+handle_call({get_group_server, #db{name=DbName}=Db, 
     #group{name=GroupId,sig=Sig}=Group}, _From, #server{root_dir=Root}=Server) ->
     case ets:lookup(group_servers_by_sig, {DbName, Sig}) of
     [] ->
