@@ -67,7 +67,7 @@ start_link(InitArgs) ->
         Error
     end.
 
-% init differentiates between temp and design_doc views. It creates a closure
+% init creates a closure
 % which spawns the appropriate view_updater. (It might also spawn the first
 % view_updater run.)
 init({InitArgs, ReturnPid, Ref}) ->
@@ -320,52 +320,69 @@ reply_all(#group_state{waiting_list=WaitList}=State, Reply) ->
     [catch gen_server:reply(Pid, Reply) || {Pid, _} <- WaitList],
     State#group_state{waiting_list=[]}.
 
-prepare_group({view, RootDir, DbName, GroupId}, ForceReset)->
-    case open_db_group(DbName, GroupId) of
-    {ok, Db, #group{sig=Sig}=Group} ->
-        case open_index_file(RootDir, DbName, Sig) of
-        {ok, Fd} ->
-            if ForceReset ->
-                % sigs will always match, this code is obsolete
-                {ok, reset_file(Db, Fd, DbName, Group)};
-            true ->
-                % 09 UPGRADE CODE
-                ok = couch_file:upgrade_old_header(Fd, <<$r, $c, $k, 0>>),
-                case (catch couch_file:read_header(Fd)) of
-                {ok, {Sig, HeaderInfo}} ->
-                    % sigs match!
-                    {ok, init_group(Db, Fd, Group, HeaderInfo)};
-                _ ->
-                    % the signature doesn't match the filename
-                    % probably updating from old couchdb version
-                    % maybe we can drop this case altogether
-                    {ok, reset_file(Db, Fd, DbName, Group)}
-                end
-            end;
-        Error ->
-            catch delete_index_file(RootDir, DbName, Sig),
-            Error
+prepare_group({RootDir, #db{db_name=DbName}=Db, #group{sig=Sig}=Group}, ForceReset)->
+    case open_index_file(RootDir, DbName, Sig) of
+    {ok, Fd} ->
+        if ForceReset ->
+            % this can happen if we missed a purge
+            {ok, reset_file(Db, Fd, DbName, Group)};
+        true ->
+            % 09 UPGRADE CODE
+            ok = couch_file:upgrade_old_header(Fd, <<$r, $c, $k, 0>>),
+            {ok, {Sig, HeaderInfo}} = (catch couch_file:read_header(Fd)),
+            {ok, init_group(Db, Fd, Group, HeaderInfo)}
         end;
     Error ->
-        % oops we can't delete the file if we can't open the group
-        % what should we do here
-        % catch delete_index_file(RootDir, DbName, Sig),
-        ?LOG_ERROR("TODO invalid index needs to be deleted for GroupId ~p",[GroupId]),
-        Error
-    end;
-prepare_group({slow_view, DbName, Fd, Lang, DesignOptions, MapSrc, RedSrc}, _ForceReset) ->
-    case couch_db:open(DbName, []) of
-    {ok, Db} ->
-        View = #view{map_names=[<<"_temp">>],
-            id_num=0,
-            btree=nil,
-            def=MapSrc,
-            reduce_funs= if RedSrc==[] -> []; true -> [{<<"_temp">>, RedSrc}] end},
-        {ok, init_group(Db, Fd, #group{name= <<"_temp">>, db=Db,
-            views=[View], def_lang=Lang, design_options=DesignOptions}, nil)};
-    Error ->
+        catch delete_index_file(RootDir, DbName, Sig),
         Error
     end.
+
+% prepare_group({view, RootDir, DbName, GroupId}, ForceReset)->
+%     case open_db_group(DbName, GroupId) of
+%     {ok, Db, #group{sig=Sig}=Group} ->
+%         case open_index_file(RootDir, DbName, Sig) of
+%         {ok, Fd} ->
+%             if ForceReset ->
+%                 % sigs will always match, this code is obsolete
+%                 {ok, reset_file(Db, Fd, DbName, Group)};
+%             true ->
+%                 % 09 UPGRADE CODE
+%                 ok = couch_file:upgrade_old_header(Fd, <<$r, $c, $k, 0>>),
+%                 case (catch couch_file:read_header(Fd)) of
+%                 {ok, {Sig, HeaderInfo}} ->
+%                     % sigs match!
+%                     {ok, init_group(Db, Fd, Group, HeaderInfo)};
+%                 _ ->
+%                     % the signature doesn't match the filename
+%                     % probably updating from old couchdb version
+%                     % maybe we can drop this case altogether
+%                     {ok, reset_file(Db, Fd, DbName, Group)}
+%                 end
+%             end;
+%         Error ->
+%             catch delete_index_file(RootDir, DbName, Sig),
+%             Error
+%         end;
+%     Error ->
+%         % oops we can't delete the file if we can't open the group
+%         % what should we do here
+%         % catch delete_index_file(RootDir, DbName, Sig),
+%         ?LOG_ERROR("TODO invalid index needs to be deleted for GroupId ~p",[GroupId]),
+%         Error
+%     end;
+% prepare_group({slow_view, DbName, Fd, Lang, DesignOptions, MapSrc, RedSrc}, _ForceReset) ->
+%     case couch_db:open(DbName, []) of
+%     {ok, Db} ->
+%         View = #view{map_names=[<<"_temp">>],
+%             id_num=0,
+%             btree=nil,
+%             def=MapSrc,
+%             reduce_funs= if RedSrc==[] -> []; true -> [{<<"_temp">>, RedSrc}] end},
+%         {ok, init_group(Db, Fd, #group{name= <<"_temp">>, db=Db,
+%             views=[View], def_lang=Lang, design_options=DesignOptions}, nil)};
+%     Error ->
+%         Error
+%     end.
 
 
 get_index_header_data(#group{current_seq=Seq, purge_seq=PurgeSeq, 
@@ -391,6 +408,26 @@ open_index_file(RootDir, DbName, GroupSig) ->
     {ok, Fd}        -> {ok, Fd};
     {error, enoent} -> couch_file:open(FileName, [create]);
     Error           -> Error
+    end.
+
+open_temp_group(DbName, Type, DesignOptions, MapSrc, RedSrc) ->
+    case couch_db:open(DbName, []) of
+    {ok, Db} ->
+        View = #view{map_names=[<<"_temp">>],
+            id_num=0,
+            btree=nil,
+            def=MapSrc,
+            reduce_funs= if RedSrc==[] -> []; true -> [{<<"_temp">>, RedSrc}] end},
+        {ok, Db, #group{
+            name = <<"_temp">>, 
+            db=Db,
+            views=[View], 
+            def_lang=Lang, 
+            design_options=DesignOptions,
+            sig = erlang:md5(term_to_binary({[View], Lang, DesignOptions}))
+        }};
+    Error ->
+        Error
     end.
     
 open_db_group(DbName, GroupId) ->

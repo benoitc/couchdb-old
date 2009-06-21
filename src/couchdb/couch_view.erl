@@ -29,24 +29,20 @@ start_link() ->
     gen_server:start_link({local, couch_view}, couch_view, [], []).
 
 get_temp_updater(DbName, Type, DesignOptions, MapSrc, RedSrc) ->
-    % make signature for temp group
-    % find or create server by signature
-    % start server with the same signature for temp and ddoc views
-    
-    {ok, Pid} = gen_server:call(couch_view,
-            {start_temp_updater, DbName, Type, DesignOptions, MapSrc, RedSrc}),
-    Pid.
+    % make temp group
+    {ok, Db, #group{sig=Sig}=Group} = 
+        couch_view_group:open_temp_group(DbName, Type, DesignOptions, MapSrc, RedSrc),
+    case gen_server:call(couch_view, {get_group_server, Db, Group}) of
+    {ok, Pid} ->
+        Pid;
+    Error ->
+        throw(Error)
+    end.
 
 get_group_server(DbName, GroupId) ->
     % get signature for group
-    {ok, _Db, #group{sig=Sig}=_Group} = couch_view:open_db_group(DbName, GroupId),
-    % find or create server by signature
-    
-    % start server with the same arguments for temp and ddoc views
-    
-    
-    
-    case gen_server:call(couch_view, {start_group_server, DbName, GroupId}) of
+    {ok, Db, #group{sig=Sig}=Group} = couch_view_group:open_db_group(DbName, GroupId),
+    case gen_server:call(couch_view, {get_group_server, Db, Group}) of
     {ok, Pid} ->
         Pid;
     Error ->
@@ -232,7 +228,7 @@ init([]) ->
             ok
         end),
     ets:new(couch_groups_by_db, [bag, private, named_table]),
-    ets:new(group_servers_by_name, [set, protected, named_table]),
+    ets:new(group_servers_by_sig, [set, protected, named_table]),
     ets:new(couch_groups_by_updater, [set, private, named_table]),
     ets:new(couch_temp_group_fd_by_db, [set, protected, named_table]),
     process_flag(trap_exit, true),
@@ -244,37 +240,40 @@ terminate(Reason, _Srv) ->
     ok.
 
 
-handle_call({start_temp_updater, DbName, Lang, DesignOptions, MapSrc, RedSrc},
-                                                _From, #server{root_dir=Root}=Server) ->
-    <<SigInt:128/integer>> = erlang:md5(term_to_binary({Lang, DesignOptions, MapSrc, RedSrc})),
-    Name = lists:flatten(io_lib:format("_temp_~.36B",[SigInt])),
-    Pid = 
-    case ets:lookup(group_servers_by_name, {DbName, Name}) of
+% handle_call({start_temp_updater, DbName, Lang, DesignOptions, MapSrc, RedSrc},
+%                                                 _From, #server{root_dir=Root}=Server) ->
+%     <<SigInt:128/integer>> = erlang:md5(term_to_binary({Lang, DesignOptions, MapSrc, RedSrc})),
+%     Name = lists:flatten(io_lib:format("_temp_~.36B",[SigInt])),
+%     Pid = 
+%     case ets:lookup(group_servers_by_sig, {DbName, Name}) of
+%     [] ->
+%         case ets:lookup(couch_temp_group_fd_by_db, DbName) of
+%         [] ->
+%             FileName = Root ++ "/." ++ binary_to_list(DbName) ++ "_temp",
+%             {ok, Fd} = couch_file:open(FileName, [create, overwrite]),
+%             Count = 0;
+%         [{_, Fd, Count}] ->
+%             ok
+%         end,
+%         ?LOG_DEBUG("Spawning new temp update process for db ~s.", [DbName]),
+%         {ok, NewPid} = couch_view_group:start_link({slow_view, DbName, Fd, Lang, DesignOptions, MapSrc, RedSrc}),
+%         true = ets:insert(couch_temp_group_fd_by_db, {DbName, Fd, Count + 1}),
+%         add_to_ets(NewPid, DbName, Name),
+%         NewPid;
+%     [{_, ExistingPid0}] ->
+%         ExistingPid0
+%     end,
+%     {reply, {ok, Pid}, Server};
+
+handle_call({get_group_server, #db{db_name=DbName}=Db, 
+    #group{name=GroupId,sig=Sig}=Group}, _From, #server{root_dir=Root}=Server) ->
+    case ets:lookup(group_servers_by_sig, {DbName, Sig}) of
     [] ->
-        case ets:lookup(couch_temp_group_fd_by_db, DbName) of
-        [] ->
-            FileName = Root ++ "/." ++ binary_to_list(DbName) ++ "_temp",
-            {ok, Fd} = couch_file:open(FileName, [create, overwrite]),
-            Count = 0;
-        [{_, Fd, Count}] ->
-            ok
-        end,
-        ?LOG_DEBUG("Spawning new temp update process for db ~s.", [DbName]),
-        {ok, NewPid} = couch_view_group:start_link({slow_view, DbName, Fd, Lang, DesignOptions, MapSrc, RedSrc}),
-        true = ets:insert(couch_temp_group_fd_by_db, {DbName, Fd, Count + 1}),
-        add_to_ets(NewPid, DbName, Name),
-        NewPid;
-    [{_, ExistingPid0}] ->
-        ExistingPid0
-    end,
-    {reply, {ok, Pid}, Server};
-handle_call({start_group_server, DbName, GroupId}, _From, #server{root_dir=Root}=Server) ->
-    case ets:lookup(group_servers_by_name, {DbName, GroupId}) of
-    [] ->
-        ?LOG_DEBUG("Spawning new group server for view group ~s in database ~s.", [GroupId, DbName]),
-        case (catch couch_view_group:start_link({view, Root, DbName, GroupId})) of
+        ?LOG_DEBUG("Spawning new group server for view group ~s in database ~s.", 
+            [GroupId, DbName]),
+        case (catch couch_view_group:start_link({Root, Db, Group})) of
         {ok, NewPid} ->
-            add_to_ets(NewPid, DbName, GroupId),
+            add_to_ets(NewPid, DbName, Sig),
             {reply, {ok, NewPid}, Server};
         Error ->
             {reply, Error, Server}
@@ -289,7 +288,7 @@ handle_cast({reset_indexes, DbName}, #server{root_dir=Root}=Server) ->
     lists:foreach(
         fun({_DbName, GroupId}) ->
             ?LOG_DEBUG("Killing update process for view group ~s. in database ~s.", [GroupId, DbName]),
-            [{_, Pid}] = ets:lookup(group_servers_by_name, {DbName, GroupId}),
+            [{_, Pid}] = ets:lookup(group_servers_by_sig, {DbName, GroupId}),
             exit(Pid, kill),
             receive {'EXIT', Pid, _} ->
                 delete_from_ets(Pid, DbName, GroupId)
@@ -309,6 +308,7 @@ handle_info({'EXIT', FromPid, Reason}, #server{root_dir=RootDir}=Server) ->
         true -> ok
         end;
     [{_, {DbName, "_temp_" ++ _ = GroupId}}] ->
+        % i think this is mostly obsolete except maybe ref counting...
         delete_from_ets(FromPid, DbName, GroupId),
         [{_, Fd, Count}] = ets:lookup(couch_temp_group_fd_by_db, DbName),
         case Count of
@@ -324,15 +324,15 @@ handle_info({'EXIT', FromPid, Reason}, #server{root_dir=RootDir}=Server) ->
     end,
     {noreply, Server}.
     
-add_to_ets(Pid, DbName, GroupId) ->
-    true = ets:insert(couch_groups_by_updater, {Pid, {DbName, GroupId}}),
-    true = ets:insert(group_servers_by_name, {{DbName, GroupId}, Pid}),
-    true = ets:insert(couch_groups_by_db, {DbName, GroupId}).
+add_to_ets(Pid, DbName, Sig) ->
+    true = ets:insert(couch_groups_by_updater, {Pid, {DbName, Sig}}),
+    true = ets:insert(group_servers_by_sig, {{DbName, Sig}, Pid}),
+    true = ets:insert(couch_groups_by_db, {DbName, Sig}).
     
-delete_from_ets(Pid, DbName, GroupId) ->
+delete_from_ets(Pid, DbName, Sig) ->
     true = ets:delete(couch_groups_by_updater, Pid),
-    true = ets:delete(group_servers_by_name, {DbName, GroupId}),
-    true = ets:delete_object(couch_groups_by_db, {DbName, GroupId}).
+    true = ets:delete(group_servers_by_sig, {DbName, Sig}),
+    true = ets:delete_object(couch_groups_by_db, {DbName, Sig}).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
