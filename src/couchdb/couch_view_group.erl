@@ -24,7 +24,6 @@
 -include("couch_db.hrl").
 	 
 -record(group_state, {
-    type,
     db_name,
     init_args,
     group,
@@ -361,7 +360,7 @@ prepare_group({slow_view, DbName, Fd, Lang, DesignOptions, MapSrc, RedSrc}, _For
             btree=nil,
             def=MapSrc,
             reduce_funs= if RedSrc==[] -> []; true -> [{<<"_temp">>, RedSrc}] end},
-        {ok, init_group(Db, Fd, #group{type=slow_view, name= <<"_temp">>, db=Db,
+        {ok, init_group(Db, Fd, #group{name= <<"_temp">>, db=Db,
             views=[View], def_lang=Lang, design_options=DesignOptions}, nil)};
     Error ->
         Error
