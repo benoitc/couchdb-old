@@ -222,7 +222,7 @@ handle_info({'EXIT', FromPid, {new_group, #group{db=Db}=Group}},
             waiting_list=WaitList,
             waiting_commit=WaitingCommit}=State) when UpPid == FromPid ->
     ok = couch_db:close(Db),
-
+    ?LOG_ERROR("new_group ready",[]),
     if not WaitingCommit ->
         erlang:send_after(1000, self(), delayed_commit);
     true -> ok
@@ -246,23 +246,8 @@ handle_info({'EXIT', FromPid, reset},
             updater_pid=UpPid,
             group=Group}=State) when UpPid == FromPid ->
     ok = couch_db:close(Group#group.db),
+    ?LOG_ERROR("group reset",[]),
     case prepare_group(InitArgs, true) of
-    {ok, ResetGroup} ->
-        Pid = spawn_link(fun()-> couch_view_updater:update(ResetGroup) end),
-        {noreply, State#group_state{
-                updater_pid=Pid,
-                group=ResetGroup}};
-    Error ->
-        {stop, normal, reply_all(State, Error)}
-    end;
-
-handle_info({'EXIT', FromPid, new_index}, 
-        #group_state{
-            init_args=InitArgs,
-            updater_pid=UpPid,
-            group=Group}=State) when UpPid == FromPid ->
-    ok = couch_db:close(Group#group.db),
-    case prepare_group(InitArgs, false) of
     {ok, ResetGroup} ->
         Pid = spawn_link(fun()-> couch_view_updater:update(ResetGroup) end),
         {noreply, State#group_state{
@@ -320,31 +305,38 @@ reply_all(#group_state{waiting_list=WaitList}=State, Reply) ->
     [catch gen_server:reply(Pid, Reply) || {Pid, _} <- WaitList],
     State#group_state{waiting_list=[]}.
 
-prepare_group({RootDir, #db{name=DbName}=Db, #group{sig=Sig}=Group}, ForceReset)->
-    case open_index_file(RootDir, DbName, Sig) of
-    {ok, Fd} ->
-        if ForceReset ->
-            % this can happen if we missed a purge
-            {ok, reset_file(Db, Fd, DbName, Group)};
-        true ->
-            % 09 UPGRADE CODE
-            ok = couch_file:upgrade_old_header(Fd, <<$r, $c, $k, 0>>),
-            % {ok, {Sig, HeaderInfo}} = (catch couch_file:read_header(Fd)),
-                
-            case (catch couch_file:read_header(Fd)) of
-            {ok, {Sig, HeaderInfo}} ->
-                % sigs match!
-                {ok, init_group(Db, Fd, Group, HeaderInfo)};
-            _ ->
-                % this seems to happen on a new file
-                {ok, reset_file(Db, Fd, DbName, Group)}
-            end
-                
-            % {ok, init_group(Db, Fd, Group, HeaderInfo)}
+prepare_group({RootDir, DbName, #group{sig=Sig}=Group}, ForceReset)->
+    case couch_db:open(DbName, []) of
+    {ok, Db} ->
+        case open_index_file(RootDir, DbName, Sig) of
+        {ok, Fd} ->
+            if ForceReset ->
+                % this can happen if we missed a purge
+                ?LOG_ERROR("force reset view index for ~p",[DbName]),
+                {ok, reset_file(Db, Fd, DbName, Group)};
+            true ->
+                % 09 UPGRADE CODE
+                ok = couch_file:upgrade_old_header(Fd, <<$r, $c, $k, 0>>),
+                % {ok, {Sig, HeaderInfo}} = (catch couch_file:read_header(Fd)),
+
+                case (catch couch_file:read_header(Fd)) of
+                {ok, {Sig, HeaderInfo}} ->
+                    % sigs match!
+                    {ok, init_group(Db, Fd, Group, HeaderInfo)};
+                _ ->
+                    % this seems to happen on a new file
+                    ?LOG_ERROR("other reset view index for ~p",[DbName]),
+                    {ok, reset_file(Db, Fd, DbName, Group)}
+                end
+
+                % {ok, init_group(Db, Fd, Group, HeaderInfo)}
+            end;
+        Error ->
+            catch delete_index_file(RootDir, DbName, Sig),
+            Error
         end;
-    Error ->
-        catch delete_index_file(RootDir, DbName, Sig),
-        Error
+    Else ->
+        Else
     end.
 
 % prepare_group({view, RootDir, DbName, GroupId}, ForceReset)->
@@ -405,11 +397,11 @@ get_index_header_data(#group{current_seq=Seq, purge_seq=PurgeSeq,
 
 index_file_name(RootDir, DbName, GroupSig) ->
     RootDir ++ "/." ++ ?b2l(DbName) ++ 
-        "/" ++ couch_util:to_hex(?b2l(GroupSig)) ++".view".
+        "_design/" ++ couch_util:to_hex(?b2l(GroupSig)) ++".view".
 
 index_file_name(compact, RootDir, DbName, GroupSig) ->
     RootDir ++ "/." ++ ?b2l(DbName) ++ 
-        "/" ++ couch_util:to_hex(?b2l(GroupSig)) ++".compact.view".
+        "_design/" ++ couch_util:to_hex(?b2l(GroupSig)) ++".compact.view".
 
 
 open_index_file(RootDir, DbName, GroupSig) ->

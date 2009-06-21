@@ -30,9 +30,10 @@ start_link() ->
 
 get_temp_updater(DbName, Language, DesignOptions, MapSrc, RedSrc) ->
     % make temp group
-    {ok, Db, #group{sig=Sig}=Group} = 
+    % do we need to close this db?
+    {ok, _Db, #group{sig=Sig}=Group} = 
         couch_view_group:open_temp_group(DbName, Language, DesignOptions, MapSrc, RedSrc),
-    case gen_server:call(couch_view, {get_group_server, Db, Group}) of
+    case gen_server:call(couch_view, {get_group_server, DbName, Group}) of
     {ok, Pid} ->
         Pid;
     Error ->
@@ -41,10 +42,15 @@ get_temp_updater(DbName, Language, DesignOptions, MapSrc, RedSrc) ->
 
 get_group_server(DbName, GroupId) ->
     % get signature for group
-    {ok, Db, #group{sig=Sig}=Group} = couch_view_group:open_db_group(DbName, GroupId),
-    case gen_server:call(couch_view, {get_group_server, Db, Group}) of
-    {ok, Pid} ->
-        Pid;
+    case couch_view_group:open_db_group(DbName, GroupId) of
+    % do we need to close this db?
+    {ok, _Db, #group{sig=Sig}=Group} ->        
+        case gen_server:call(couch_view, {get_group_server, DbName, Group}) of
+        {ok, Pid} ->
+            Pid;
+        Error ->
+            throw(Error)
+        end;
     Error ->
         throw(Error)
     end.
@@ -266,13 +272,13 @@ terminate(Reason, _Srv) ->
 %     end,
 %     {reply, {ok, Pid}, Server};
 
-handle_call({get_group_server, #db{name=DbName}=Db, 
+handle_call({get_group_server, DbName, 
     #group{name=GroupId,sig=Sig}=Group}, _From, #server{root_dir=Root}=Server) ->
     case ets:lookup(group_servers_by_sig, {DbName, Sig}) of
     [] ->
         ?LOG_DEBUG("Spawning new group server for view group ~s in database ~s.", 
             [GroupId, DbName]),
-        case (catch couch_view_group:start_link({Root, Db, Group})) of
+        case (catch couch_view_group:start_link({Root, DbName, Group})) of
         {ok, NewPid} ->
             add_to_ets(NewPid, DbName, Sig),
             {reply, {ok, NewPid}, Server};
@@ -286,13 +292,14 @@ handle_call({get_group_server, #db{name=DbName}=Db,
 handle_cast({reset_indexes, DbName}, #server{root_dir=Root}=Server) ->
     % shutdown all the updaters and clear the files, the db got changed
     Names = ets:lookup(couch_groups_by_db, DbName),
+    ?LOG_ERROR("reset_indexes for database ~s: ~p", [DbName, Names]),
     lists:foreach(
-        fun({_DbName, GroupId}) ->
-            ?LOG_DEBUG("Killing update process for view group ~s. in database ~s.", [GroupId, DbName]),
-            [{_, Pid}] = ets:lookup(group_servers_by_sig, {DbName, GroupId}),
+        fun({_DbName, Sig}) ->
+            ?LOG_ERROR("Killing update process for view group ~s. in database ~s.", [Sig, DbName]),
+            [{_, Pid}] = ets:lookup(group_servers_by_sig, {DbName, Sig}),
             exit(Pid, kill),
             receive {'EXIT', Pid, _} ->
-                delete_from_ets(Pid, DbName, GroupId)
+                delete_from_ets(Pid, DbName, Sig)
             end
         end, Names),
     delete_index_dir(Root, DbName),
@@ -339,10 +346,8 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 
-
-
 delete_index_dir(RootDir, DbName) ->
-    nuke_dir(RootDir ++ "/." ++ binary_to_list(DbName) ++ "_design").
+    nuke_dir(RootDir ++ "/." ++ ?b2l(DbName) ++ "_design").
 
 nuke_dir(Dir) ->
     case file:list_dir(Dir) of
