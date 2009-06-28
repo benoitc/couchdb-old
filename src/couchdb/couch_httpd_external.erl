@@ -70,10 +70,7 @@ json_req_obj(#httpd{mochi_req=Req,
         _ ->
             []
     end,
-    UserCtx = case UserName of
-        null -> {[{<<"roles">>, UserRoles}]};
-        _Else -> {[{<<"name">>, UserName}, {<<"roles">>, UserRoles}]}
-    end,
+    UserCtx = {[{<<"name">>, UserName}, {<<"roles">>, UserRoles}]},
     Headers = Req:get(headers),
     Hlist = mochiweb_headers:to_list(Headers),
     {ok, Info} = couch_db:get_db_info(Db),
