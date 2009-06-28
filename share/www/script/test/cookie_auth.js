@@ -26,6 +26,7 @@ couchTests.cookie_auth = function(debug) {
     }
     return secret;
   }
+  // this function will be called on the modified server
   var testFun = function () {
     try {
       // try using an invalid cookie
@@ -101,6 +102,7 @@ couchTests.cookie_auth = function(debug) {
         headers: {"Content-Type": "application/x-www-form-urlencoded"},
         body: "username=Jason%20Davies&password="+encodeURIComponent(password)
       });
+      // should this be a redirect code instead of 200?
       T(xhr.status == 200);
 
     } finally {
