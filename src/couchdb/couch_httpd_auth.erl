@@ -101,6 +101,7 @@ cookie_authentication_handler(#httpd{path_parts=Path}=Req) ->
         default_authentication_handler(Req)
     end.
 
+% maybe we can use hovercraft to simplify running this view query
 get_user(Db, UserName) ->
     DesignId = <<"_design/_auth">>,
     ViewName = <<"users">>,
