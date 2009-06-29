@@ -42,11 +42,12 @@ handle_rewrite_req(#httpd{
     end.
 
 json_to_dispatch_list(Props) ->
+    {ok, SlashRE} = re:compile(<<"\\/">>),
     PathTermList = [json_to_erlang(X)
-        || X <- proplists:get_value(<<"match">>, Props, [])],
+        || X <- re:split(proplists:get_value(<<"match">>, Props, <<>>), SlashRE)],
     Mod = not_used,
     MatchOpts = [json_to_erlang(X)
-        || X <- proplists:get_value(<<"rewrite">>, Props, [])],
+        || X <- re:split(proplists:get_value(<<"rewrite">>, Props, <<>>), SlashRE)],
     {PathTermList, Mod, MatchOpts}.
 
 json_to_erlang(<<String/binary>>) ->
