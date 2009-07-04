@@ -23,11 +23,17 @@ couchTests.rewrite = function(debug) {
     views: {
       test: {
         map: "function (doc) { emit(doc._id, null) }"
+      },
+      complex: {
+        map: "function (doc) { emit([doc._id, doc.caffeine], null) }"
       }
     },
     rewrites: [{
       match: ["any_view/<view>/<key>"],
       rewrite: ["_design/rewrite_test/_view/<view>", {key: "<key>"}]
+    },{
+      match: ["any_view/<view>/<caffeine>/<id>"],
+      rewrite: ["_design/rewrite_test/_view/<view>", {key: ["<id>", "<caffeine>"]}]
     },{
       match: ["any_doc/<doc_id>/<*>"],
       rewrite: ["<doc_id>/<*>"]
@@ -38,8 +44,8 @@ couchTests.rewrite = function(debug) {
   };
 
   T(db.save(designDoc).ok);
-  T(db.save({_id: "foo"}).ok);
-  T(db.save({_id: "foo/bar"}).ok);
+  T(db.save({_id: "foo", caffeine: "DECAFBAD"}).ok);
+  T(db.save({_id: "foo/bar", caffeine: "MAXIMUM BAKE"}).ok);
  
   var prefix = "/test_suite_db/_design/rewrite_test/_rewrite/"; 
 
@@ -59,4 +65,10 @@ couchTests.rewrite = function(debug) {
   var xhr = CouchDB.request("GET", prefix+"design_doc/rewrite_test/_view/test");
   T(xhr.status == 200);
   T(JSON.parse(xhr.responseText).total_rows == 2);
+
+  // Test more complex query parameter rewrite
+  var xhr = CouchDB.request("GET", prefix+"any_view/complex/DECAFBAD/foo");
+  T(xhr.status == 200);
+  T(JSON.parse(xhr.responseText).total_rows == 2);
+  T(JSON.parse(xhr.responseText).rows.length == 1);
 };
