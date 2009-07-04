@@ -18,7 +18,6 @@
 
 handle_rewrite_req(#httpd{
         mochi_req=MochiReq,
-        method='GET',
         path_parts=[DbName, _Design, DesignName, _Rewrite | _Rest]
     }=Req, Db) ->
     DesignId = <<"_design/", DesignName/binary>>,
