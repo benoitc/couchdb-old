@@ -30,14 +30,14 @@ couchTests.cookie_auth = function(debug) {
   var testFun = function () {
     try {
       // try using an invalid cookie
-      var invalidCookieDb = new CouchDB("test_suite_db",
-        {"Cookie": "blah", "X-CouchDB-WWW-Authenticate": "Cookie"}
-      );
-
+      var usersDb = new CouchDB("test_suite_users");
+      usersDb.deleteDb();
+      usersDb.createDb();
+      
       var password = "3.141592653589";
 
       // Create a user
-      T(invalidCookieDb.save({
+      T(usersDb.save({
         _id: "a1",
         salt: "123",
         password_sha: "8da1CtkFvb58LWrnup5chgdZVUs=",
@@ -58,7 +58,11 @@ couchTests.cookie_auth = function(debug) {
               if (doc.type == 'user') emit(doc.username, doc);
             }).toString()
           }
-        },
+        }
+      }
+
+      var validationDoc = {
+        _id : "_design/validate",
         validate_doc_update: "(" + (function (newDoc, oldDoc, userCtx) {
           // docs should have an author field.
           if (!newDoc._deleted && !newDoc.author) {
@@ -70,35 +74,39 @@ couchTests.cookie_auth = function(debug) {
                   "You are not the author of this document. You jerk."+userCtx.name};
           }
         }).toString() + ")"
-      }
+      };
 
-      var userDb = new CouchDB("test_suite_db",
-        {"X-CouchDB-WWW-Authenticate": "Cookie"}
-      );
-      T(userDb.save(designDoc).ok);
+      // var userDb = new CouchDB("test_suite_db",
+      //   {"X-CouchDB-WWW-Authenticate": "Cookie"}
+      // );
+      T(usersDb.save(designDoc).ok);
+      T(db.save(validationDoc).ok);
 
-      T(userDb.login('Jason Davies', password).ok);
+      
 
-      // update the document
-      var doc = userDb.open("a1");
+      T(CouchDB.login('Jason Davies', password).ok);
+      console.log("yoooo")
+      // update the credentials document
+      var doc = usersDb.open("a1");
       doc.foo=2;
-      T(userDb.save(doc).ok);
+      T(usersDb.save(doc).ok);
 
       // Save a document that's missing an author field.
       try {
-        userDb.save({foo:1});
+        // db has a validation function
+        db.save({foo:1});
         T(false && "Can't get here. Should have thrown an error 2");
       } catch (e) {
         T(e.error == "forbidden");
-        T(userDb.last_req.status == 403);
+        T(db.last_req.status == 403);
       }
 
       // TODO should login() throw an exception here?
-      T(!userDb.login('Jason Davies', "2.71828").ok);
-      T(!userDb.login('Robert Allen Zimmerman', 'd00d').ok);
+      T(!CouchDB.login('Jason Davies', "2.71828").ok);
+      T(!CouchDB.login('Robert Allen Zimmerman', 'd00d').ok);
 
       // test redirect
-      xhr = CouchDB.request("POST", "/test_suite_db/_login?next=/", {
+      xhr = CouchDB.request("POST", "/_login?next=/", {
         headers: {"Content-Type": "application/x-www-form-urlencoded"},
         body: "username=Jason%20Davies&password="+encodeURIComponent(password)
       });
@@ -107,7 +115,7 @@ couchTests.cookie_auth = function(debug) {
 
     } finally {
       // Make sure we erase any auth cookies so we don't affect other tests
-      T((new CouchDB("test_suite_db")).logout().ok);
+      T(CouchDB.logout().ok);
     }
   };
 
@@ -116,19 +124,21 @@ couchTests.cookie_auth = function(debug) {
       key: "authentication_handler",
       value: "{couch_httpd_auth, cookie_authentication_handler}"},
      {section: "couch_httpd_auth",
-      key: "secret", value: generateSecret(64)}],
-    testFun
-  );
-
-  db.deleteDb();
-  db.createDb();
-
-  run_on_modified_server(
-    [{section: "httpd",
-      key: "authentication_handler",
-      value: '{couch_httpd_auth, cookie_authentication_handler, "test_suite_db"}'},
+      key: "secret", value: generateSecret(64)},
      {section: "couch_httpd_auth",
-      key: "secret", value: generateSecret(64)}],
+      key: "authentication_db", value: "test_suite_users"}],
     testFun
   );
+
+  // db.deleteDb();
+  // db.createDb();
+
+  // run_on_modified_server(
+  //   [{section: "httpd",
+  //     key: "authentication_handler",
+  //     value: '{couch_httpd_auth, cookie_authentication_handler, "test_suite_db"}'},
+  //    {section: "couch_httpd_auth",
+  //     key: "secret", value: generateSecret(64)}],
+  //   testFun
+  // );
 };

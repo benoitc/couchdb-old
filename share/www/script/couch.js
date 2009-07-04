@@ -242,19 +242,6 @@ function CouchDB(name, httpHeaders) {
     return JSON.parse(this.last_req.responseText);
   }
 
-  this.login = function(username, password) {
-    this.last_req = this.request("POST", this.uri + "_login", {
-      headers: {"Content-Type": "application/x-www-form-urlencoded"},
-      body: "username=" + encodeURIComponent(username) + "&password=" + encodeURIComponent(password)
-    });
-    return JSON.parse(this.last_req.responseText);
-  }
-
-  this.logout = function() {
-    this.last_req = this.request("POST", this.uri + "_logout", {});
-    return JSON.parse(this.last_req.responseText);
-  }
-
   // Convert a options object to an url query string.
   // ex: {key:'value',key2:'value2'} becomes '?key="value"&key2="value2"'
   function encodeOptions(options) {
@@ -299,6 +286,21 @@ function CouchDB(name, httpHeaders) {
 // Use this from callers to check HTTP status or header values of requests.
 CouchDB.last_req = null; 
 
+CouchDB.login = function(username, password) {
+  CouchDB.last_req = CouchDB.request("POST", "/_login", {
+    headers: {"Content-Type": "application/x-www-form-urlencoded",
+      "X-CouchDB-WWW-Authenticate": "Cookie"},
+    body: "username=" + encodeURIComponent(username) + "&password=" + encodeURIComponent(password)
+  });
+  return JSON.parse(CouchDB.last_req.responseText);
+}
+
+CouchDB.logout = function() {
+  CouchDB.last_req = CouchDB.request("POST", "/_logout", {});
+  headers: {"Content-Type": "application/x-www-form-urlencoded",
+    "X-CouchDB-WWW-Authenticate": "Cookie"},
+  return JSON.parse(CouchDB.last_req.responseText);
+}
 
 CouchDB.allDbs = function() {
   CouchDB.last_req = CouchDB.request("GET", "/_all_dbs");

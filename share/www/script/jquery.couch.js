@@ -86,7 +86,7 @@
     login: function(options) {
       options = options || {};
       $.ajax({
-        type: "POST", url: this.uri + "_login", dataType: "json",
+        type: "POST", url: "/_login", dataType: "json",
         data: {username: options.username, password: options.password},
         complete: function(req) {
           var resp = $.httpData(req, "json");
@@ -103,7 +103,7 @@
     logout: function(options) {
       options = options || {};
       $.ajax({
-        type: "POST", url: this.uri + "_logout", dataType: "json",
+        type: "POST", url: "/_logout", dataType: "json",
         complete: function(req) {
           var resp = $.httpData(req, "json");
           if (req.status == 200) {
@@ -364,39 +364,6 @@
                 options.error(req.status, resp.error, resp.reason);
               } else {
                 alert("An error occurred accessing the view: " + resp.reason);
-              }
-            }
-          });
-        },
-        login: function(options) {
-          options = options || {};
-          $.ajax({
-            type: "POST", url: this.uri + "_login", dataType: "json",
-            data: {username: options.username, password: options.password},
-            complete: function(req) {
-              var resp = $.httpData(req, "json");
-              if (req.status == 200) {
-                if (options.success) options.success(resp);
-              } else if (options.error) {
-                options.error(req.status, resp.error, resp.reason);
-              } else {
-                alert("An error occurred logging in: " + resp.reason);
-              }
-            }
-          });
-        },
-        logout: function(options) {
-          options = options || {};
-          $.ajax({
-            type: "POST", url: this.uri + "_logout", dataType: "json",
-            complete: function(req) {
-              var resp = $.httpData(req, "json");
-              if (req.status == 200) {
-                if (options.success) options.success(resp);
-              } else if (options.error) {
-                options.error(req.status, resp.error, resp.reason);
-              } else {
-                alert("An error occurred logging out: " + resp.reason);
               }
             }
           });

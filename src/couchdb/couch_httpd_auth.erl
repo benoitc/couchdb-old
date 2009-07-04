@@ -14,10 +14,10 @@
 -include("couch_db.hrl").
 
 -export([default_authentication_handler/1,special_test_authentication_handler/1]).
--export([cookie_authentication_handler/1,cookie_authentication_handler/2]).
+-export([cookie_authentication_handler/1]).
 -export([null_authentication_handler/1]).
 -export([cookie_auth_header/2]).
--export([handle_login_req/2, handle_logout_req/2]).
+-export([handle_login_req/1, handle_logout_req/1]).
 
 -import(couch_httpd, [header_value/2, send_json/4, send_method_not_allowed/2]).
 -import(erlang, [integer_to_list/2, list_to_integer/2]).
@@ -81,7 +81,8 @@ null_authentication_handler(Req) ->
     Req#httpd{user_ctx=#user_ctx{roles=[<<"_admin">>]}}.
 
 % Cookie auth handler using per-node user db
-cookie_authentication_handler(Req, DbName) ->
+cookie_authentication_handler(Req) ->
+    DbName = couch_config:get("couch_httpd_auth", "authentication_db"),
     case cookie_auth_user(Req, ?l2b(DbName)) of
     % Fall back to default authentication handler
     nil -> default_authentication_handler(Req);
@@ -89,17 +90,17 @@ cookie_authentication_handler(Req, DbName) ->
     end.
 
 % Cookie auth handler using per-db user db
-cookie_authentication_handler(#httpd{path_parts=Path}=Req) ->
-    case Path of
-    [DbName|_] ->
-        case cookie_auth_user(Req, DbName) of
-        nil -> default_authentication_handler(Req);
-        Req2 -> Req2
-        end;
-    _Else ->
-        % Fall back to default authentication handler
-        default_authentication_handler(Req)
-    end.
+% cookie_authentication_handler(#httpd{path_parts=Path}=Req) ->
+%     case Path of
+%     [DbName|_] ->
+%         case cookie_auth_user(Req, DbName) of
+%         nil -> default_authentication_handler(Req);
+%         Req2 -> Req2
+%         end;
+%     _Else ->
+%         % Fall back to default authentication handler
+%         default_authentication_handler(Req)
+%     end.
 
 % maybe we can use hovercraft to simplify running this view query
 get_user(Db, UserName) ->
@@ -201,7 +202,7 @@ cookie_auth_cookie(User, Secret, TimeStamp) ->
         couch_util:encodeBase64Url(SessionData ++ ":" ++ ?b2l(Hash)),
         [{path, "/"}, {http_only, true}]). % TODO add {secure, true} when SSL is detected
 
-% Login handler for per-db user db
+% Login handler with user db
 handle_login_req(#httpd{method='POST', mochi_req=MochiReq}=Req, #db{}=Db) ->
     ReqBody = MochiReq:recv_body(),
     Form = case MochiReq:get_primary_header_value("content-type") of
@@ -234,17 +235,19 @@ handle_login_req(#httpd{method='POST', mochi_req=MochiReq}=Req, #db{}=Db) ->
                 {[{ok, true}]});
         _Else ->
             throw({unauthorized, <<"Name or password is incorrect.">>})
-    end;
-% Login handler for per-node user db
-handle_login_req(#httpd{method='POST'}=Req, DbName) ->
+    end.
+
+% Login handler
+handle_login_req(#httpd{method='POST'}=Req) ->
+    DbName = couch_config:get("couch_httpd_auth", "authentication_db"),
     case couch_db:open(?l2b(DbName), [{user_ctx, #user_ctx{roles=[<<"_admin">>]}}]) of
         {ok, Db} -> handle_login_req(Req, Db)
     end;
-handle_login_req(Req, _Db) ->
+handle_login_req(Req) ->
     send_method_not_allowed(Req, "POST").
 
-% Logout handler for per-db user db
-handle_logout_req(#httpd{method='POST'}=Req, #db{}=_Db) ->
+% Logout handler
+handle_logout_req(#httpd{method='POST'}=Req) ->
     Cookie = mochiweb_cookies:cookie("AuthSession", "", [{path, "/"}, {http_only, true}]),
     {Code, Headers} = case couch_httpd:qs_value(Req, "next", nil) of
         nil ->
@@ -253,10 +256,5 @@ handle_logout_req(#httpd{method='POST'}=Req, #db{}=_Db) ->
             {302, [Cookie, {"Location", couch_httpd:absolute_uri(Req, Redirect)}]}
     end,
     send_json(Req, Code, Headers, {[{ok, true}]});
-% Logout handler for per-node user db
-handle_logout_req(#httpd{method='POST'}=Req, DbName) ->
-    case couch_db:open(?l2b(DbName), [{user_ctx, #user_ctx{roles=[<<"_admin">>]}}]) of
-        {ok, Db} -> handle_logout_req(Req, Db)
-    end;
-handle_logout_req(Req, _Db) ->
+handle_logout_req(Req) ->
     send_method_not_allowed(Req, "POST").
