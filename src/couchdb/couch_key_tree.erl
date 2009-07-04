@@ -29,12 +29,8 @@ merge(A, B) ->
     {Merged, HasConflicts} = 
     lists:foldl(
         fun(InsertTree, {AccTrees, AccConflicts}) ->
-            case merge_one(AccTrees, InsertTree, [], false) of
-            {ok, Merged, Conflicts} ->
-                {Merged, Conflicts or AccConflicts};
-            no ->
-                {[InsertTree | AccTrees], true} 
-            end
+            {ok, Merged, Conflicts} = merge_one(AccTrees, InsertTree, [], false),
+            {Merged, Conflicts or AccConflicts}
         end,
         {A, false}, B),
     if HasConflicts or 
@@ -195,7 +191,7 @@ get_key_leafs_simple(Pos, [{Key, _Value, SubTree}=Tree | RestTree], KeysToGet, K
         {LeafsFound ++ RestLeafsFound, KeysRemaining};
     KeysToGet2 ->
         LeafsFound = get_all_leafs_simple(Pos, [Tree], KeyPathAcc),
-        LeafKeysFound = [LeafKeyFound || {LeafKeyFound, _, _} <- LeafsFound],
+        LeafKeysFound = [LeafKeyFound || {LeafKeyFound, _} <- LeafsFound],
         KeysToGet2 = KeysToGet2 -- LeafKeysFound,
         {RestLeafsFound, KeysRemaining} = get_key_leafs_simple(Pos, RestTree, KeysToGet2, KeyPathAcc),
         {LeafsFound ++ RestLeafsFound, KeysRemaining}

@@ -13,7 +13,7 @@
 -module(couch_db).
 -behaviour(gen_server).
 
--export([open/2,close/1,create/2,start_compact/1,get_db_info/1]).
+-export([open/2,close/1,create/2,start_compact/1,get_db_info/1,get_design_docs/1]).
 -export([open_ref_counted/2,is_idle/1,monitor/1,count_changes_since/2]).
 -export([update_doc/3,update_docs/4,update_docs/2,update_docs/3,delete_doc/3]).
 -export([get_doc_info/2,open_doc/2,open_doc/3,open_doc_revs/4]).
@@ -191,6 +191,16 @@ get_db_info(Db) ->
         {disk_format_version, DiskVersion}
         ],
     {ok, InfoList}.
+
+get_design_docs(#db{fulldocinfo_by_id_btree=Btree}=Db) ->
+    couch_btree:foldl(Btree, <<"_design/">>,
+        fun(#full_doc_info{id= <<"_design/",_/binary>>}=FullDocInfo, _Reds, AccDocs) ->
+            {ok, Doc} = couch_db:open_doc_int(Db, FullDocInfo, []),
+            {ok, [Doc | AccDocs]};
+        (_, _Reds, AccDocs) ->
+            {stop, AccDocs}
+        end,
+        []).
 
 check_is_admin(#db{admins=Admins, user_ctx=#user_ctx{name=Name,roles=Roles}}) ->
     DbAdmins = [<<"_admin">> | Admins],
@@ -617,14 +627,15 @@ write_streamed_attachment(Stream, F, LenLeft) ->
     ok = couch_stream:write(Stream, TruncatedBin),
     write_streamed_attachment(Stream, F, LenLeft - size(TruncatedBin)).
 
-%% on rare occasions ibrowse seems to process a chunked response incorrectly
-%% and include an extra "\r" in the last chunk.  This code ensures that we 
-%% truncate the downloaed attachment at the length specified in the metadata.
+%% There was a bug in ibrowse 1.4.1 that would cause it to append a CR to a
+%% chunked response when the CR and LF terminating the last data chunk were
+%% split across packets.  The bug was fixed in version 1.5.0, but we still
+%% check for it just in case.
 check_bin_length(LenLeft, Bin) when size(Bin) > LenLeft ->
-    <<ValidData:LenLeft/binary, Crap/binary>> = Bin,
+    <<_ValidData:LenLeft/binary, Crap/binary>> = Bin,
     ?LOG_ERROR("write_streamed_attachment has written too much expected: ~p" ++
         " got: ~p tail: ~p", [LenLeft, size(Bin), Crap]),
-    ValidData;
+    exit(replicated_attachment_too_large);
 check_bin_length(_, Bin) -> Bin.
 
 enum_docs_since_reduce_to_count(Reds) ->
