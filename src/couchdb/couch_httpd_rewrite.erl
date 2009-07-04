@@ -16,17 +16,32 @@
 
 -include("couch_db.hrl").
 
+handle_rewrite_req(#httpd{mochi_req=MochiReq, user_ctx=UserCtx}=Req, {DbName, DesignName}) ->
+    case couch_db:open(?l2b(DbName), [{user_ctx, UserCtx}]) of
+    {ok, Db} ->
+        try
+            {"/" ++ Path, _, _} = mochiweb_util:urlsplit_path(MochiReq:get(raw_path)),
+            handle_rewrite_req(Req, Db, ?l2b(DesignName), Path)
+        after
+            catch couch_db:close(Db)
+        end;
+    Error ->
+        throw(Error)
+    end;
 handle_rewrite_req(#httpd{
         mochi_req=MochiReq,
         path_parts=[DbName, _Design, DesignName, _Rewrite | _Rest]
     }=Req, Db) ->
+    {"/" ++ Path, _, _} = mochiweb_util:urlsplit_path(MochiReq:get(raw_path)),
+    [_, _, _, _ | MatchPath] = string:tokens(Path, "/"),
+    handle_rewrite_req(Req, Db, DesignName, string:join(MatchPath, "/")).
+
+handle_rewrite_req(#httpd{mochi_req=MochiReq}=Req, #db{name=DbName}=Db, DesignName, MatchPath) ->
     DesignId = <<"_design/", DesignName/binary>>,
     % TODO cache the design doc and only reload when it changes
     #doc{body={Props}} = couch_httpd_db:couch_doc_open(Db, DesignId, nil, []),
     DispatchList = [json_to_dispatch_list(X) || {X} <- proplists:get_value(<<"rewrites">>, Props, [])],
-    {"/" ++ Path, _, _} = mochiweb_util:urlsplit_path(MochiReq:get(raw_path)),
-    [_, _, _, _ | MatchPath] = string:tokens(Path, "/"),
-    Dispatched = webmachine_dispatcher:dispatch(string:join(MatchPath, "/"), DispatchList),
+    Dispatched = webmachine_dispatcher:dispatch(MatchPath, DispatchList),
     case Dispatched of
     {no_dispatch_match, _} ->
         couch_httpd:send_error(Req, 404, <<"rewrite_error">>, <<"Invalid path.">>);
@@ -39,8 +54,9 @@ handle_rewrite_req(#httpd{
         {_Path, QueryString, _Fragment} = mochiweb_util:urlsplit_path(MochiReq:get(raw_path)),
         QueryStringParsed = mochiweb_util:parse_qs(QueryString),
         ?LOG_DEBUG("Internal rewrite to: ~p", [TargetPath]),
-        RawPath = string:join([?b2l(X) || X <- TargetPath], "/") ++ "?" ++ mochiweb_util:urlencode(QueryStringParsed ++ [
-                {K, ?b2l(iolist_to_binary(?JSON_ENCODE(V)))} || {K, V} <- replace(Extra, Bindings)]),
+        RawPath = string:join([mochiweb_util:quote_plus(X) || X <- TargetPath], "/") ++
+            "?" ++ mochiweb_util:urlencode(QueryStringParsed ++
+                [{K, ?b2l(iolist_to_binary(?JSON_ENCODE(V)))} || {K, V} <- replace(Extra, Bindings)]),
         ?LOG_DEBUG("Internal rewrite to: ~p", [RawPath]),
         couch_httpd_db:handle_request(Req#httpd{
             path_parts=TargetPath,
