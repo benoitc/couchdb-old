@@ -25,8 +25,8 @@ file = %localstatelogdir%/couch.log
 level = info
 
 [couch_httpd_auth]
-authentication_db="users"
-secret="replace this with a real secret in your local.ini file"
+authentication_db = users
+secret = replace this with a real secret in your local.ini file
 
 [query_servers]
 javascript = %bindir%/%couchjs_command_name% %localdatadir%/server/main.js
