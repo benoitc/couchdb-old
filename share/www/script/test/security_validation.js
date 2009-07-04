@@ -41,13 +41,13 @@ couchTests.security_validation = function(debug) {
   run_on_modified_server(
     [{section: "httpd",
       key: "authentication_handler",
-      value: "{couch_httpd, special_test_authentication_handler}"},
+      value: "{couch_httpd_auth, special_test_authentication_handler}"},
      {section:"httpd",
       key: "WWW-Authenticate",
       value:  "X-Couch-Test-Auth"}],
   
     function () {
-      // try saving document usin the wrong credentials
+      // try saving document using the wrong credentials
       var wrongPasswordDb = new CouchDB("test_suite_db",
         {"WWW-Authenticate": "X-Couch-Test-Auth Damien Katz:foo"}
       );

@@ -23,8 +23,8 @@
 -export([start_json_response/2, start_json_response/3, end_json_response/1]).
 -export([send_response/4,send_method_not_allowed/2,send_error/4, send_redirect/2,send_chunked_error/2]).
 -export([send_json/2,send_json/3,send_json/4]).
--export([default_authentication_handler/1,special_test_authentication_handler/1]).
--export([null_authentication_handler/1]).
+
+-import(couch_httpd_auth, [cookie_auth_header/2]).
 
 start_link() ->
     % read config and register for configuration changes
@@ -171,7 +171,7 @@ handle_request(MochiReq, DefaultFun,
 
     {ok, Resp} =
     try
-        HandlerFun(HttpReq#httpd{user_ctx=AuthenticationFun(HttpReq)})
+        HandlerFun(AuthenticationFun(HttpReq))
     catch
         throw:Error ->
             % ?LOG_DEBUG("Minor error in HTTP request: ~p",[Error]),
@@ -205,48 +205,6 @@ handle_request(MochiReq, DefaultFun,
 increment_method_stats(Method) ->
     couch_stats_collector:increment({httpd_request_methods, Method}).
 
-special_test_authentication_handler(Req) ->
-    case header_value(Req, "WWW-Authenticate") of
-    "X-Couch-Test-Auth " ++ NamePass ->
-        % NamePass is a colon separated string: "joe schmoe:a password".
-        {ok, [Name, Pass]} = regexp:split(NamePass, ":"),
-        case {Name, Pass} of
-        {"Jan Lehnardt", "apple"} -> ok;
-        {"Christopher Lenz", "dog food"} -> ok;
-        {"Noah Slater", "biggiesmalls endian"} -> ok;
-        {"Chris Anderson", "mp3"} -> ok;
-        {"Damien Katz", "pecan pie"} -> ok;
-        {_, _} ->
-            throw({unauthorized, <<"Name or password is incorrect.">>})
-        end,
-        #user_ctx{name=?l2b(Name)};
-    _ ->
-        % No X-Couch-Test-Auth credentials sent, give admin access so the
-        % previous authentication can be restored after the test
-        #user_ctx{roles=[<<"_admin">>]}
-    end.
-
-default_authentication_handler(Req) ->
-    case basic_username_pw(Req) of
-    {User, Pass} ->
-        case couch_server:is_admin(User, Pass) of
-        true ->
-            #user_ctx{name=?l2b(User), roles=[<<"_admin">>]};
-        false ->
-            throw({unauthorized, <<"Name or password is incorrect.">>})
-        end;
-    nil ->
-        case couch_server:has_admins() of
-        true ->
-            #user_ctx{};
-        false ->
-            % if no admins, then everyone is admin! Yay, admin party!
-            #user_ctx{roles=[<<"_admin">>]}
-        end
-    end.
-
-null_authentication_handler(_Req) ->
-    #user_ctx{roles=[<<"_admin">>]}.
 
 % Utilities
 
@@ -265,8 +223,9 @@ header_value(#httpd{mochi_req=MochiReq}, Key, Default) ->
 primary_header_value(#httpd{mochi_req=MochiReq}, Key) ->
     MochiReq:get_primary_header_value(Key).
     
-serve_file(#httpd{mochi_req=MochiReq}, RelativePath, DocumentRoot) ->
-    {ok, MochiReq:serve_file(RelativePath, DocumentRoot, server_header())}.
+serve_file(#httpd{mochi_req=MochiReq}=Req, RelativePath, DocumentRoot) ->
+    {ok, MochiReq:serve_file(RelativePath, DocumentRoot,
+        server_header() ++ cookie_auth_header(Req, []))}.
 
 qs_value(Req, Key) ->
     qs_value(Req, Key, undefined).
@@ -357,37 +316,21 @@ verify_is_server_admin(#httpd{user_ctx=#user_ctx{roles=Roles}}) ->
 
 
 
-basic_username_pw(Req) ->
-    case header_value(Req, "Authorization") of
-    "Basic " ++ Base64Value ->
-        case string:tokens(?b2l(couch_util:decodeBase64(Base64Value)),":") of
-        [User, Pass] ->
-            {User, Pass};
-        [User] ->
-            {User, ""};
-        _ ->
-            nil
-        end;
-    _ ->
-        nil
-    end.
-
-
-start_chunked_response(#httpd{mochi_req=MochiReq}, Code, Headers) ->
+start_chunked_response(#httpd{mochi_req=MochiReq}=Req, Code, Headers) ->
     couch_stats_collector:increment({httpd_status_codes, Code}),
-    {ok, MochiReq:respond({Code, Headers ++ server_header(), chunked})}.
+    {ok, MochiReq:respond({Code, Headers ++ server_header() ++ cookie_auth_header(Req, Headers), chunked})}.
 
 send_chunk(Resp, Data) ->
     Resp:write_chunk(Data),
     {ok, Resp}.
 
-send_response(#httpd{mochi_req=MochiReq}, Code, Headers, Body) ->
+send_response(#httpd{mochi_req=MochiReq}=Req, Code, Headers, Body) ->
     couch_stats_collector:increment({httpd_status_codes, Code}),
     if Code >= 400 ->
         ?LOG_DEBUG("httpd ~p error response:~n ~s", [Code, Body]);
     true -> ok
     end,
-    {ok, MochiReq:respond({Code, Headers ++ server_header(), Body})}.
+    {ok, MochiReq:respond({Code, Headers ++ server_header() ++ cookie_auth_header(Req, Headers), Body})}.
 
 send_method_not_allowed(Req, Methods) ->
     send_response(Req, 405, [{"Allow", Methods}], <<>>).
@@ -508,12 +451,17 @@ error_info(Error) ->
 send_error(_Req, {already_sent, Resp, _Error}) ->
     {ok, Resp};
     
-send_error(Req, Error) ->
+send_error(#httpd{mochi_req=MochiReq}=Req, Error) ->
     {Code, ErrorStr, ReasonStr} = error_info(Error),
     if Code == 401 ->     
-        case couch_config:get("httpd", "WWW-Authenticate", nil) of
-        nil ->
-            Headers = [];
+        case MochiReq:get_header_value("X-CouchDB-WWW-Authenticate") of
+        undefined ->
+            case couch_config:get("httpd", "WWW-Authenticate", nil) of
+            nil ->
+                Headers = [];
+            Type ->
+                Headers = [{"WWW-Authenticate", Type}]
+            end;
         Type ->
             Headers = [{"WWW-Authenticate", Type}]
         end;
