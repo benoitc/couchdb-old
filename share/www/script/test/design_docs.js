@@ -74,7 +74,7 @@ function() {
     T(db.ensureFullCommit().ok);
     restartServer();
   };
-  
+    
   // test when language not specified, Javascript is implied
   var designDoc2 = {
     _id:"_design/test2",
@@ -118,5 +118,9 @@ function() {
   restartServer();
   T(db.open(designDoc._id) == null);
   T(db.view("test/no_docs") == null);
+  
+  // trigger ddoc cleanup
+  T(db.viewCleanup().ok);
+  
 });
 };

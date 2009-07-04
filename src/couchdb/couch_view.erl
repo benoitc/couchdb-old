@@ -17,7 +17,7 @@
     detuple_kvs/2,init/1,terminate/2,handle_call/3,handle_cast/2,handle_info/2,
     code_change/3,get_reduce_view/4,get_temp_reduce_view/5,get_temp_map_view/4,
     get_map_view/4,get_row_count/1,reduce_to_count/1,fold_reduce/7,
-    extract_map_view/1,get_group_server/2,get_group_info/2]).
+    extract_map_view/1,get_group_server/2,get_group_info/2,cleanup_index_files/1]).
 
 -include("couch_db.hrl").
 
@@ -64,14 +64,50 @@ get_group(Db, GroupId, Stale) ->
             get_group_server(couch_db:name(Db), GroupId),
             MinUpdateSeq).
 
-get_group_info(Db, GroupId) ->
-    couch_view_group:request_group_info(get_group_server(couch_db:name(Db), GroupId)).
-    
-
 get_temp_group(Db, Language, DesignOptions, MapSrc, RedSrc) ->
     couch_view_group:request_group(
-            get_temp_updater(couch_db:name(Db), Language, DesignOptions, MapSrc, RedSrc),
-            couch_db:get_update_seq(Db)).
+        get_temp_updater(couch_db:name(Db), Language, DesignOptions, MapSrc, RedSrc),
+        couch_db:get_update_seq(Db)).
+
+get_group_info(Db, GroupId) ->
+    ?LOG_ERROR("GroupId ~p",[GroupId]),
+    couch_view_group:request_group_info(
+        get_group_server(couch_db:name(Db), GroupId)).
+
+cleanup_index_files(Db) -> 
+    % load all ddocs
+    {ok, DesignDocs} = couch_db:get_design_docs(Db),
+    ?LOG_ERROR("got ddocs",[]),
+    
+    % make unique list of group sigs
+    Sigs = lists:map(fun(#doc{id = GroupId} = DDoc) ->
+        ?LOG_ERROR("DDoc ~p",[DDoc]),
+        {ok, Info} = get_group_info(Db, GroupId),
+        ?LOG_ERROR("Info ~p",[Info]),
+        ?b2l(proplists:get_value(signature, Info))
+    end, [DD||DD <- DesignDocs, DD#doc.deleted == false]),
+    ?LOG_ERROR("got Sigs ~p",[Sigs]),
+    
+    FileList = list_index_files(Db),
+    ?LOG_ERROR("got FileLists ~p",[FileList]),
+    
+    % regex that matches all ddocs
+    RegExp = "("++ string:join(Sigs, "|") ++")",
+
+    % filter out the ones in use
+    DeleteFiles = lists:filter(fun(FilePath) -> 
+            regexp:first_match(FilePath, RegExp)==nomatch
+        end, FileList),
+    % delete unused files
+    ?LOG_ERROR("will DeleteFiles ~p",[DeleteFiles]),
+    [file:delete(File)||File <- DeleteFiles],
+    ok.
+
+list_index_files(Db) ->
+    % call server to fetch the index files
+    RootDir = couch_config:get("couchdb", "view_index_dir"),
+    Files = filelib:wildcard(RootDir ++ "/." ++ ?b2l(couch_db:name(Db)) ++ "_design"++"/*").
+
 
 get_row_count(#view{btree=Bt}) ->
     {ok, {Count, _Reds}} = couch_btree:full_reduce(Bt),
@@ -248,6 +284,8 @@ terminate(Reason, _Srv) ->
     couch_util:terminate_linked(Reason),
     ok.
 
+% handle_call({get_group_server, DbName, 
+
 
 handle_call({get_group_server, DbName, 
     #group{name=GroupId,sig=Sig}=Group}, _From, #server{root_dir=Root}=Server) ->
@@ -311,6 +349,10 @@ code_change(_OldVsn, State, _Extra) ->
 
 
 delete_index_dir(RootDir, DbName) ->
+    % should we store views in
+    % .test_suite_db_design/view.*
+    % or
+    % .test_suite_db/view.*
     nuke_dir(RootDir ++ "/." ++ ?b2l(DbName) ++ "_design").
 
 nuke_dir(Dir) ->

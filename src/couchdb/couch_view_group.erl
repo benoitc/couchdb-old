@@ -15,7 +15,7 @@
 
 %% API
 -export([start_link/1, request_group/2, request_group_info/1]).
--export([open_db_group/2, open_temp_group/5, design_doc_to_view_group/1]).
+-export([open_db_group/2, open_temp_group/5, design_doc_to_view_group/1,design_root/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -54,6 +54,15 @@ request_group_info(Pid) ->
     Error ->
         throw(Error)
     end.
+
+request_index_files(Pid) ->
+    case gen_server:call(Pid, request_index_files) of
+    {ok, Filelist} ->
+        {ok, Filelist};
+    Error ->
+        throw(Error)
+    end.
+
 
 % from template
 start_link(InitArgs) ->
@@ -151,6 +160,15 @@ handle_call(request_group_info, _From, #group_state{
         } = State) ->
     GroupInfo = get_group_info(Group, CompactorPid),
     {reply, {ok, GroupInfo}, State}.
+
+% handle_call(request_index_files, _From, #group_state{
+%             group = _Group,
+%             init_args={_, RootDir, _, _}
+%         } = State) ->
+%     Files = filelib:wildcard(RootDir++"/*"),
+%     ?LOG_ERROR("Files ~p",[Files]),
+%     % GroupInfo = get_group_info(Group, CompactorPid),
+%     {reply, {ok, foo}, State}.
 
 handle_cast({start_compact, CompactFun}, #group_state{ compactor_pid=nil, 
         group=Group, init_args={view, RootDir, DbName, GroupId} } = State) ->
@@ -354,14 +372,15 @@ get_index_header_data(#group{current_seq=Seq, purge_seq=PurgeSeq,
 
 hex_sig(GroupSig) ->
     couch_util:to_hex(?b2l(GroupSig)).
+
+design_root(RootDir, DbName) ->
+    RootDir ++ "/." ++ ?b2l(DbName) ++ "_design/".
     
 index_file_name(RootDir, DbName, GroupSig) ->
-    RootDir ++ "/." ++ ?b2l(DbName) ++ 
-        "_design/" ++ hex_sig(GroupSig) ++".view".
+    design_root(RootDir, DbName) ++ hex_sig(GroupSig) ++".view".
 
 index_file_name(compact, RootDir, DbName, GroupSig) ->
-    RootDir ++ "/." ++ ?b2l(DbName) ++ 
-        "_design/" ++ hex_sig(GroupSig) ++".compact.view".
+    design_root(RootDir, DbName) ++ hex_sig(GroupSig) ++".compact.view".
 
 
 open_index_file(RootDir, DbName, GroupSig) ->

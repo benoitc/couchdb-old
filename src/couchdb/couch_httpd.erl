@@ -174,8 +174,8 @@ handle_request(MochiReq, DefaultFun,
         HandlerFun(HttpReq#httpd{user_ctx=AuthenticationFun(HttpReq)})
     catch
         throw:Error ->
-            % ?LOG_DEBUG("Minor error in HTTP request: ~p",[Error]),
-            % ?LOG_DEBUG("Stacktrace: ~p",[erlang:get_stacktrace()]),
+            % % ?LOG_DEBUG("Minor error in HTTP request: ~p",[Error]),
+            ?LOG_ERROR("Stacktrace: ~p",[erlang:get_stacktrace()]),
             send_error(HttpReq, Error);
         error:badarg ->
             ?LOG_ERROR("Badarg error in HTTP request",[]),

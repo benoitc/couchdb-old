@@ -65,7 +65,7 @@ _sleep = {couch_httpd_misc_handlers, handle_sleep_req}
 _whoami = {couch_httpd_misc_handlers, handle_whoami_req}
 
 [httpd_db_handlers]
-_view_compact = {couch_httpd_db, handle_view_compact_req}
+_view_cleanup = {couch_httpd_db, handle_view_cleanup_req}
 _compact = {couch_httpd_db, handle_compact_req}
 _design = {couch_httpd_db, handle_design_req}
 _temp_view = {couch_httpd_view, handle_temp_view_req}
