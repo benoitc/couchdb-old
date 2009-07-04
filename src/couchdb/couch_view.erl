@@ -70,26 +70,20 @@ get_temp_group(Db, Language, DesignOptions, MapSrc, RedSrc) ->
         couch_db:get_update_seq(Db)).
 
 get_group_info(Db, GroupId) ->
-    ?LOG_ERROR("GroupId ~p",[GroupId]),
     couch_view_group:request_group_info(
         get_group_server(couch_db:name(Db), GroupId)).
 
 cleanup_index_files(Db) -> 
     % load all ddocs
     {ok, DesignDocs} = couch_db:get_design_docs(Db),
-    ?LOG_ERROR("got ddocs",[]),
     
     % make unique list of group sigs
     Sigs = lists:map(fun(#doc{id = GroupId} = DDoc) ->
-        ?LOG_ERROR("DDoc ~p",[DDoc]),
         {ok, Info} = get_group_info(Db, GroupId),
-        ?LOG_ERROR("Info ~p",[Info]),
         ?b2l(proplists:get_value(signature, Info))
     end, [DD||DD <- DesignDocs, DD#doc.deleted == false]),
-    ?LOG_ERROR("got Sigs ~p",[Sigs]),
     
     FileList = list_index_files(Db),
-    ?LOG_ERROR("got FileLists ~p",[FileList]),
     
     % regex that matches all ddocs
     RegExp = "("++ string:join(Sigs, "|") ++")",
@@ -99,7 +93,6 @@ cleanup_index_files(Db) ->
             regexp:first_match(FilePath, RegExp)==nomatch
         end, FileList),
     % delete unused files
-    ?LOG_ERROR("will DeleteFiles ~p",[DeleteFiles]),
     [file:delete(File)||File <- DeleteFiles],
     ok.
 
@@ -283,8 +276,6 @@ init([]) ->
 terminate(Reason, _Srv) ->
     couch_util:terminate_linked(Reason),
     ok.
-
-% handle_call({get_group_server, DbName, 
 
 
 handle_call({get_group_server, DbName, 
