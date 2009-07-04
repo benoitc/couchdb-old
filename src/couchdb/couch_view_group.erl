@@ -83,9 +83,7 @@ start_link(InitArgs) ->
         Error
     end.
 
-% init creates a closure
-% which spawns the appropriate view_updater. (It might also spawn the first
-% view_updater run.)
+% init creates a closure which spawns the appropriate view_updater. 
 init({InitArgs, ReturnPid, Ref}) ->
     process_flag(trap_exit, true),
     case prepare_group(InitArgs, false) of
@@ -160,15 +158,6 @@ handle_call(request_group_info, _From, #group_state{
         } = State) ->
     GroupInfo = get_group_info(Group, CompactorPid),
     {reply, {ok, GroupInfo}, State}.
-
-% handle_call(request_index_files, _From, #group_state{
-%             group = _Group,
-%             init_args={_, RootDir, _, _}
-%         } = State) ->
-%     Files = filelib:wildcard(RootDir++"/*"),
-%     ?LOG_ERROR("Files ~p",[Files]),
-%     % GroupInfo = get_group_info(Group, CompactorPid),
-%     {reply, {ok, foo}, State}.
 
 handle_cast({start_compact, CompactFun}, #group_state{ compactor_pid=nil, 
         group=Group, init_args={view, RootDir, DbName, GroupId} } = State) ->
