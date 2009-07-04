@@ -14,7 +14,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/1, request_group/2]).
+-export([start_link/1, request_group/2, request_group_info/1]).
 -export([open_db_group/2, open_temp_group/5, design_doc_to_view_group/1]).
 
 %% gen_server callbacks
@@ -47,6 +47,13 @@ request_group(Pid, Seq) ->
         throw(Error)
     end.
 
+request_group_info(Pid) ->
+    case gen_server:call(Pid, request_group_info) of
+    {ok, GroupInfoList} ->
+        {ok, GroupInfoList};
+    Error ->
+        throw(Error)
+    end.
 
 % from template
 start_link(InitArgs) ->
@@ -136,8 +143,14 @@ handle_call({request_group, RequestSeq}, From,
         #group_state{waiting_list=WaitList}=State) ->
     {noreply, State#group_state{
         waiting_list=[{From, RequestSeq}|WaitList]
-        }, infinity}.
+        }, infinity};
 
+handle_call(request_group_info, _From, #group_state{
+            group = Group,
+            compactor_pid = CompactorPid
+        } = State) ->
+    GroupInfo = get_group_info(Group, CompactorPid),
+    {reply, {ok, GroupInfo}, State}.
 
 handle_cast({start_compact, CompactFun}, #group_state{ compactor_pid=nil, 
         group=Group, init_args={view, RootDir, DbName, GroupId} } = State) ->
@@ -319,7 +332,7 @@ prepare_group({RootDir, DbName, #group{sig=Sig}=Group}, ForceReset)->
                     % sigs match!
                     {ok, init_group(Db, Fd, Group, HeaderInfo)};
                 _ ->
-                    % this seems to happen on a new file
+                    % this happens on a new file
                     {ok, reset_file(Db, Fd, DbName, Group)}
                 end
             end;
@@ -339,13 +352,16 @@ get_index_header_data(#group{current_seq=Seq, purge_seq=PurgeSeq,
             id_btree_state=couch_btree:get_state(IdBtree),
             view_states=ViewStates}.
 
+hex_sig(GroupSig) ->
+    couch_util:to_hex(?b2l(GroupSig)).
+    
 index_file_name(RootDir, DbName, GroupSig) ->
     RootDir ++ "/." ++ ?b2l(DbName) ++ 
-        "_design/" ++ couch_util:to_hex(?b2l(GroupSig)) ++".view".
+        "_design/" ++ hex_sig(GroupSig) ++".view".
 
 index_file_name(compact, RootDir, DbName, GroupSig) ->
     RootDir ++ "/." ++ ?b2l(DbName) ++ 
-        "_design/" ++ couch_util:to_hex(?b2l(GroupSig)) ++".compact.view".
+        "_design/" ++ hex_sig(GroupSig) ++".compact.view".
 
 
 open_index_file(RootDir, DbName, GroupSig) ->
@@ -390,6 +406,19 @@ open_db_group(DbName, GroupId) ->
     Else ->
         Else
     end.
+
+get_group_info(#group{
+        fd = Fd,
+        sig = GroupSig,
+        def_lang = Lang
+    }, CompactorPid) ->
+    {ok, Size} = couch_file:bytes(Fd),
+    [
+        {signature, ?l2b(hex_sig(GroupSig))},
+        {language, Lang},
+        {disk_size, Size},
+        {compact_running, CompactorPid /= nil}   
+    ].
 
 % maybe move to another module
 design_doc_to_view_group(#doc{id=Id,body={Fields}}) ->

@@ -49,6 +49,14 @@ function() {
   }
   T(db.save(designDoc).ok);
 
+  // test that we get design doc info back
+  var dinfo = db.designInfo("_design/test");
+  TEquals("test", dinfo.name);
+  var vinfo = dinfo.view_index;
+  TEquals(51, vinfo.disk_size);
+  TEquals(false, vinfo.compact_running);
+  TEquals("64625dce94960fd5ca116e42aa9d011a", vinfo.signature);
+
   db.bulkSave(makeDocs(1, numDocs + 1));
 
   // test that the _all_docs view returns correctly with keys

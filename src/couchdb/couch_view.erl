@@ -17,7 +17,7 @@
     detuple_kvs/2,init/1,terminate/2,handle_call/3,handle_cast/2,handle_info/2,
     code_change/3,get_reduce_view/4,get_temp_reduce_view/5,get_temp_map_view/4,
     get_map_view/4,get_row_count/1,reduce_to_count/1,fold_reduce/7,
-    extract_map_view/1,get_group_server/2]).
+    extract_map_view/1,get_group_server/2,get_group_info/2]).
 
 -include("couch_db.hrl").
 
@@ -64,6 +64,9 @@ get_group(Db, GroupId, Stale) ->
             get_group_server(couch_db:name(Db), GroupId),
             MinUpdateSeq).
 
+get_group_info(Db, GroupId) ->
+    couch_view_group:request_group_info(get_group_server(couch_db:name(Db), GroupId)).
+    
 
 get_temp_group(Db, Language, DesignOptions, MapSrc, RedSrc) ->
     couch_view_group:request_group(

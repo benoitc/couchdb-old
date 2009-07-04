@@ -15,7 +15,8 @@
 
 -export([handle_request/1, handle_compact_req/2, handle_design_req/2, 
     db_req/2, couch_doc_open/4,handle_changes_req/2,
-    update_doc_result_to_json/1, update_doc_result_to_json/2]).
+    update_doc_result_to_json/1, update_doc_result_to_json/2,
+    handle_design_info_req/2]).
 
 -import(couch_httpd,
     [send_json/2,send_json/3,send_json/4,send_method_not_allowed/2,
@@ -145,9 +146,12 @@ send_changes(Req, Resp, Db, StartSeq, Prepend0) ->
             end
         end, {StartSeq, Prepend0}).
 
-handle_compact_req(#httpd{method='POST',path_parts=[DbName,_,Id|_]}=Req, _Db) ->
-    ok = couch_view_compactor:start_compact(DbName, Id),
-    send_json(Req, 202, {[{ok, true}]});
+handle_view_compact_req(#httpd{method='POST'}=Req, Db) ->
+    % delete unreferenced index files
+    
+    % compact remaining views
+    ok = couch_view_compactor:start_compact(Db#db.name),
+    send_json(Req, 202, {[{ok, true}]}).
 
 handle_compact_req(#httpd{method='POST'}=Req, Db) ->
     ok = couch_db:start_compact(Db),
@@ -165,6 +169,19 @@ handle_design_req(#httpd{
     
 handle_design_req(Req, Db) ->
     db_req(Req, Db).
+
+handle_design_info_req(#httpd{
+            method='GET',
+            path_parts=[_DbName, _Design, DesignName, _]
+        }=Req, Db) ->
+    DesignId = <<"_design/", DesignName/binary>>,
+    {ok, GroupInfoList} = couch_view:get_group_info(Db, DesignId),
+    ?LOG_ERROR("GroupInfoList ~p",[GroupInfoList]),
+    send_json(Req, 200, {[
+        {name, DesignName},
+        {view_index, {GroupInfoList}}
+    ]}).
+    
 
 create_db_req(#httpd{user_ctx=UserCtx}=Req, DbName) ->
     ok = couch_httpd:verify_is_server_admin(Req),
