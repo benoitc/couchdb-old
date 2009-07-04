@@ -22,12 +22,12 @@ couchTests.rewrite = function(debug) {
     language: "javascript",
     views: {
       test: {
-        map: "function (doc) { emit(null, null) }"
+        map: "function (doc) { emit(doc._id, null) }"
       }
     },
     rewrites: [{
-      match: ["any_view/<view>"],
-      rewrite: ["_design/rewrite_test/_view/<view>"]
+      match: ["any_view/<view>/<key>"],
+      rewrite: ["_design/rewrite_test/_view/<view>", {key: "<key>"}]
     },{
       match: ["any_doc/<doc_id>/<*>"],
       rewrite: ["<doc_id>/<*>"]
@@ -44,9 +44,10 @@ couchTests.rewrite = function(debug) {
   var prefix = "/test_suite_db/_design/rewrite_test/_rewrite/"; 
 
   // Test any_view rewrite rule
-  var xhr = CouchDB.request("GET", prefix+"any_view/test");
+  var xhr = CouchDB.request("GET", prefix+"any_view/test/foo");
   T(xhr.status == 200);
   T(JSON.parse(xhr.responseText).total_rows == 2);
+  T(JSON.parse(xhr.responseText).rows.length == 1);
 
   // Test any_doc rewrite rule
   var xhr = CouchDB.request("GET", prefix+"any_doc/foo");
