@@ -65,6 +65,7 @@ source_files = \
     couch_httpd_show.erl \
     couch_httpd_view.erl \
     couch_httpd_misc_handlers.erl \
+    couch_httpd_proxy_handler.erl \
     couch_httpd_stats_handlers.erl \
     couch_key_tree.erl \
     couch_log.erl \
@@ -110,6 +111,7 @@ compiled_files = \
     couch_httpd_show.beam \
     couch_httpd_view.beam \
     couch_httpd_misc_handlers.beam \
+    couch_httpd_proxy_handler.beam \
     couch_httpd_stats_handlers.beam \
     couch_key_tree.beam \
     couch_log.beam \
