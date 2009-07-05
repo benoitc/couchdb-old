@@ -11,6 +11,7 @@ configure
 autom4te.cache
 build-aux
 *.diff
+etc/couchdb/local_dev.ini
 
 # ./configure
 

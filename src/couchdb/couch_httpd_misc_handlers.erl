@@ -16,7 +16,6 @@
     handle_all_dbs_req/1,handle_replicate_req/1,handle_restart_req/1,
     handle_uuids_req/1,handle_config_req/1,handle_log_req/1,
     handle_task_status_req/1,handle_sleep_req/1,handle_whoami_req/1]).
-
 -export([increment_update_seq_req/2]).
 
 
@@ -235,3 +234,104 @@ handle_whoami_req(#httpd{method='GET', user_ctx=UserCtx}=Req) ->
     ]});
 handle_whoami_req(Req) ->
     send_method_not_allowed(Req, "GET").
+    
+handle_proxy_req(#httpd{mochi_req=MochiReq}=Req, DestPath) ->
+    DestPath1 = fix_dest_path(DestPath),
+    "/" ++ UrlPath = couch_httpd:path(Req),
+    case couch_httpd:partition(UrlPath) of
+        {_ActionKey, "/", RelativePath} ->
+            Path = lists:append([DestPath1, "/", RelativePath]),
+            
+            Headers = clean_request_headers(
+                        mochiweb_headers:to_list(MochiReq:get(headers))),
+            Method = mochiweb_to_ibrowse_method(MochiReq:get(method)),
+            
+            ReqBody = case couch_httpd:body(Req) of
+                undefined -> [];
+                B -> B
+            end,
+            
+            do_proxy_request(Req, {Path, Headers, Method, ReqBody}, _ActionKey, DestPath1);
+        {_ActionKey, "", _RelativePath} ->
+            RedirectPath = couch_httpd:path(Req) ++ "/",
+            couch_httpd:send_redirect(Req, RedirectPath)
+    end;
+handle_proxy_req(Req, _) ->
+    send_method_not_allowed(Req, "").
+    
+do_proxy_request(Req, {P, H, M, B}, SrcPath, DestPath) ->
+    case ibrowse:send_req(P, H, M, B) of
+         {ok, Status, RespHeaders, RespBody} ->
+             case is_redirect(list_to_integer(Status)) of
+                 true ->
+                     {LocationHeader, _} = proplists:split(RespHeaders, ["Location"]),
+                     [LocationHeader1|_] = LocationHeader,
+                     Path = proplists:get_value("Location", LocationHeader1),
+                     case mochiweb_util:partition(Path, DestPath) of
+                         {"", _, RelPath} ->
+                              RedirectPath = lists:append(["/", SrcPath, RelPath]),
+                              ?LOG_DEBUG("redirect to ~s", [RedirectPath]),
+                              couch_httpd:send_redirect(Req, RedirectPath);
+                         {_, "", ""} ->
+                             send_json(Req, 502, {[{error, <<"Bad Gateway">>}, {reason, << "Bad redirection" >>}]})
+                    end;
+                     
+                 false ->
+                    RespHeaders1 = fix_location(RespHeaders, {SrcPath, DestPath}),
+                    ?LOG_DEBUG("httpd ~p proxy response headers:~n ~p", [list_to_integer(Status), 
+                                                                        RespHeaders]),
+                    Body = list_to_binary(case RespBody of
+                        undefined -> [];
+                        Other -> Other
+                    end),
+
+                    {ok, Resp} = start_chunked_response(Req, list_to_integer(Status), RespHeaders1),
+                    couch_doc:bin_foldl(Body,
+                            fun(BinSegment, _) -> send_chunk(Resp, BinSegment) end,[]),
+                    send_chunk(Resp, "")
+            end;
+        {error, Reason} ->
+            send_json(Req, 502, {[{error, <<"Bad Gateway">>}, {reason, << Reason >>}]})
+    end.
+          
+is_redirect(Status) ->
+    case Status of
+        301 -> true;
+        302 -> true;
+        _ -> false
+    end.
+            
+%% convert Req#httpd.method to ibrowse method atom 
+mochiweb_to_ibrowse_method(Method) when is_list(Method) ->
+    list_to_atom(string:to_lower(Method));
+mochiweb_to_ibrowse_method(Method) when is_atom(Method) ->
+    mochiweb_to_ibrowse_method(atom_to_list(Method)).
+    
+%% ibrowse will recalculate Host and Content-Length headers,
+%% and will muck them up if they're manually specified
+clean_request_headers(Headers) ->
+    [{K,V} || {K,V} <- Headers,
+              K /= 'Host', K /= 'Content-Length'].
+             
+%% replace location header 
+fix_location([], _) -> [];
+fix_location([{"Location", ProxyDataPath}|Rest],
+             {DestPath, SrcPath}) ->
+    ProxyPath = lists:nthtail(length(SrcPath), ProxyDataPath),
+    [{"Location", DestPath++ProxyPath}|Rest];
+fix_location([H|T], C) ->
+    [H|fix_location(T, C)].
+  
+%% remove last trailing. 
+%% TODO: find a faster way to do it
+fix_dest_path(P) ->
+    P1 = case is_binary(P) of
+        true -> binary_to_list(P);
+        false -> P
+    end,
+    case lists:last(P1) of
+        $/ -> 
+            [_|P2] = lists:reverse(P1),
+            lists:reverse(P2);
+        _  -> P1
+    end.
