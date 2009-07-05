@@ -240,8 +240,12 @@ handle_proxy_req(#httpd{mochi_req=MochiReq}=Req, DestPath) ->
     "/" ++ UrlPath = couch_httpd:path(Req),
     case couch_httpd:partition(UrlPath) of
         {_ActionKey, "/", RelativePath} ->
-            Path = lists:append([DestPath1, "/", RelativePath]),
-            
+            Path = lists:append([DestPath1, "/", RelativePath,
+            case couch_httpd:qs(Req) of
+                [] -> [];
+                Qs -> "?" ++ mochiweb_util:urlencode(Qs)
+            end]),
+            ?LOG_DEBUG("Proxy path ~s", [Path]),
             Headers = clean_request_headers(
                         mochiweb_headers:to_list(MochiReq:get(headers))),
             Method = mochiweb_to_ibrowse_method(MochiReq:get(method)),
@@ -278,7 +282,6 @@ do_proxy_request(Req, {P, H, M, B}, SrcPath, DestPath) ->
                     ?LOG_DEBUG("httpd ~p proxy response headers:~n ~p", [list_to_integer(Status), 
                                                                         RespHeaders]),
                     Body = list_to_binary(get_body(RespBody)),
-
                     {ok, Resp} = start_chunked_response(Req, list_to_integer(Status), RespHeaders1),
                     couch_doc:bin_foldl(Body,
                             fun(BinSegment, _) -> send_chunk(Resp, BinSegment) end,[]),
