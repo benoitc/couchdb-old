@@ -246,10 +246,7 @@ handle_proxy_req(#httpd{mochi_req=MochiReq}=Req, DestPath) ->
                         mochiweb_headers:to_list(MochiReq:get(headers))),
             Method = mochiweb_to_ibrowse_method(MochiReq:get(method)),
             
-            ReqBody = case couch_httpd:body(Req) of
-                undefined -> [];
-                B -> B
-            end,
+            ReqBody = get_body(couch_httpd:body(Req)),
             
             do_proxy_request(Req, {Path, Headers, Method, ReqBody}, _ActionKey, DestPath1);
         {_ActionKey, "", _RelativePath} ->
@@ -280,10 +277,7 @@ do_proxy_request(Req, {P, H, M, B}, SrcPath, DestPath) ->
                     RespHeaders1 = fix_location(RespHeaders, {SrcPath, DestPath}),
                     ?LOG_DEBUG("httpd ~p proxy response headers:~n ~p", [list_to_integer(Status), 
                                                                         RespHeaders]),
-                    Body = list_to_binary(case RespBody of
-                        undefined -> [];
-                        Other -> Other
-                    end),
+                    Body = list_to_binary(get_body(RespBody)),
 
                     {ok, Resp} = start_chunked_response(Req, list_to_integer(Status), RespHeaders1),
                     couch_doc:bin_foldl(Body,
@@ -335,3 +329,11 @@ fix_dest_path(P) ->
             lists:reverse(P2);
         _  -> P1
     end.
+    
+    
+get_body(Body) ->
+    case Body of
+        undefined -> [];
+        Other -> Other
+    end.
+        
