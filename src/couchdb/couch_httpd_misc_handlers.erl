@@ -236,7 +236,7 @@ handle_whoami_req(Req) ->
     send_method_not_allowed(Req, "GET").
     
 handle_proxy_req(#httpd{mochi_req=MochiReq}=Req, DestPath) ->
-    DestPath1 = fix_dest_path(DestPath),
+    DestPath1 = fix_dest_path(DestPath, Req),
     "/" ++ UrlPath = couch_httpd:path(Req),
     case couch_httpd:partition(UrlPath) of
         {_ActionKey, "/", RelativePath} ->
@@ -275,8 +275,7 @@ do_proxy_request(Req, {P, H, M, B}, SrcPath, DestPath) ->
                               couch_httpd:send_redirect(Req, RedirectPath);
                          {_, "", ""} ->
                              send_json(Req, 502, {[{error, <<"Bad Gateway">>}, {reason, << "Bad redirection" >>}]})
-                    end;
-                     
+                    end;    
                  false ->
                     RespHeaders1 = fix_location(RespHeaders, {SrcPath, DestPath}),
                     ?LOG_DEBUG("httpd ~p proxy response headers:~n ~p", [list_to_integer(Status), 
@@ -321,16 +320,22 @@ fix_location([H|T], C) ->
   
 %% remove last trailing. 
 %% TODO: find a faster way to do it
-fix_dest_path(P) ->
+fix_dest_path(P, Req) ->
     P1 = case is_binary(P) of
         true -> binary_to_list(P);
         false -> P
     end,
-    case lists:last(P1) of
+    [C|_] = P1,
+    
+    Path = case [C] of
+        "/" -> couch_httpd:absolute_uri(Req, P1);
+        _ -> P1
+    end,
+    case lists:last(Path) of
         $/ -> 
-            [_|P2] = lists:reverse(P1),
+            [_|P2] = lists:reverse(Path),
             lists:reverse(P2);
-        _  -> P1
+        _  -> Path
     end.
     
     
