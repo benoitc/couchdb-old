@@ -30,9 +30,7 @@ handle_proxy_req(#httpd{mochi_req=MochiReq}=Req, DestPath) ->
             Headers = clean_request_headers(
                         mochiweb_headers:to_list(MochiReq:get(headers))),
             Method = mochiweb_to_ibrowse_method(MochiReq:get(method)),
-            
             ReqBody = get_body(couch_httpd:body(Req)),
-            
             do_proxy_request(Req, {Path, Headers, Method, ReqBody}, _ActionKey, DestPath1);
         {_ActionKey, "", _RelativePath} ->
             RedirectPath = couch_httpd:path(Req) ++ "/",
@@ -118,7 +116,6 @@ fix_dest_path(P, Req) ->
             lists:reverse(P2);
         _  -> Path
     end.
-    
     
 get_body(Body) ->
     case Body of
