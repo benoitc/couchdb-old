@@ -29,8 +29,8 @@
 cookie(Key, Value) ->
     cookie(Key, Value, []).
 
-%% @spec cookie(Key::string(), Value::string(), Options::[Option]) -> header() 
-%% where Option = {max_age, integer()} | {local_time, {date(), time()}} 
+%% @spec cookie(Key::string(), Value::string(), Options::[Option]) -> header()
+%% where Option = {max_age, integer()} | {local_time, {date(), time()}}
 %%                | {domain, string()} | {path, string()}
 %%                | {secure, true | false} | {http_only, true | false}
 %%
@@ -125,9 +125,9 @@ age_to_cookie_date(Age, LocalTime) ->
 %% @spec parse_cookie(string()) -> [{K::string(), V::string()}]
 %% @doc Parse the contents of a Cookie header field, ignoring cookie
 %% attributes, and return a simple property list.
-parse_cookie("") -> 
+parse_cookie("") ->
     [];
-parse_cookie(Cookie) -> 
+parse_cookie(Cookie) ->
     parse_cookie(Cookie, []).
 
 %% @spec test() -> ok
@@ -140,8 +140,8 @@ test() ->
 %% Internal API
 
 parse_cookie([], Acc) ->
-    lists:reverse(Acc); 
-parse_cookie(String, Acc) -> 
+    lists:reverse(Acc);
+parse_cookie(String, Acc) ->
     {{Token, Value}, Rest} = read_pair(String),
     Acc1 = case Token of
                "" ->
@@ -180,7 +180,7 @@ read_quoted([$\\, Any | Rest], Acc) ->
     read_quoted(Rest, [Any | Acc]);
 read_quoted([C | Rest], Acc) ->
     read_quoted(Rest, [C | Acc]).
-    
+
 skip_whitespace(String) ->
     F = fun (C) -> ?IS_WHITESPACE(C) end,
     lists:dropwhile(F, String).
@@ -189,7 +189,7 @@ read_token(String) ->
     F = fun (C) -> not ?IS_SEPARATOR(C) end,
     lists:splitwith(F, String).
 
-skip_past_separator([]) ->    
+skip_past_separator([]) ->
     [];
 skip_past_separator([$; | Rest]) ->
     Rest;
@@ -200,7 +200,7 @@ skip_past_separator([_ | Rest]) ->
 
 parse_cookie_test() ->
     %% RFC example
-    C1 = "$Version=\"1\"; Customer=\"WILE_E_COYOTE\"; $Path=\"/acme\"; 
+    C1 = "$Version=\"1\"; Customer=\"WILE_E_COYOTE\"; $Path=\"/acme\";
     Part_Number=\"Rocket_Launcher_0001\"; $Path=\"/acme\";
     Shipping=\"FedEx\"; $Path=\"/acme\"",
     [
@@ -238,8 +238,8 @@ cookie_test() ->
     C1 = cookie(<<"Customer">>, <<"WILE_E_COYOTE">>, [{path, <<"/acme">>}]),
 
     {"Set-Cookie","=NoKey; Version=1"} = cookie("", "NoKey", []),
-        
-        LocalTime = calendar:universal_time_to_local_time({{2007, 5, 15}, {13, 45, 33}}), 
+
+        LocalTime = calendar:universal_time_to_local_time({{2007, 5, 15}, {13, 45, 33}}),
     C2 = {"Set-Cookie",
           "Customer=WILE_E_COYOTE; "
           "Version=1; "
