@@ -254,6 +254,11 @@ var Render = (function() {
       var formFun = compileFunction(funSrc);
       runShowRenderFunction(formFun, [doc, req], funSrc, true);
     },
+    update : function(funSrc, doc, req) {
+      isShow = true;
+      var formFun = compileFunction(funSrc);
+      runUpdateRenderFunction(formFun, [doc, req], funSrc, true);
+    },
     list : function(head, req) {
       isShow = false;
       runListRenderFunction(funs[0], [head, req], funsrc[0], false);
@@ -271,6 +276,18 @@ function maybeWrapResponse(resp) {
 };
 
 function runShowRenderFunction(renderFun, args, funSrc, htmlErrors) {
+  try {
+    var resp = renderFun.apply(null, args);
+    if (resp) {
+      respond(["resp", maybeWrapResponse(resp)]);
+    } else {
+      renderError("undefined response from render function");
+    }
+  } catch(e) {
+    respondError(e, funSrc, htmlErrors);
+  }
+};
+function runUpdateRenderFunction(renderFun, args, funSrc, htmlErrors) {
   try {
     var resp = renderFun.apply(null, args);
     if (resp) {

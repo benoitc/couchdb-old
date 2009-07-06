@@ -12,7 +12,7 @@
 
 -module(couch_httpd_show).
     
--export([handle_doc_show_req/2, handle_view_list_req/2]).
+-export([handle_doc_show_req/2, handle_doc_update_req/2, handle_view_list_req/2]).
 
 
 -include("couch_db.hrl").
@@ -52,6 +52,37 @@ handle_doc_show_req(#httpd{method='GET'}=Req, _Db) ->
 
 handle_doc_show_req(Req, _Db) ->
     send_method_not_allowed(Req, "GET,HEAD").
+
+handle_doc_update_req(#httpd{
+        method='GET',
+        path_parts=[_DbName, _Design, DesignName, _Update, UpdateName, DocId]
+    }=Req, Db) ->
+    DesignId = <<"_design/", DesignName/binary>>,
+    #doc{body={Props}} = couch_httpd_db:couch_doc_open(Db, DesignId, nil, []),
+    Lang = proplists:get_value(<<"language">>, Props, <<"javascript">>),
+    UpdateSrc = get_nested_json_value({Props}, [<<"updates">>, UpdateName]),
+    Doc = try couch_httpd_db:couch_doc_open(Db, DocId, nil, [conflicts]) of
+        FoundDoc -> FoundDoc
+    catch
+        _ -> nil
+    end,
+    send_doc_update_response(Lang, UpdateSrc, DocId, Doc, Req, Db);
+
+handle_doc_update_req(#httpd{
+        method='GET',
+        path_parts=[_DbName, _Design, DesignName, _Update, UpdateName]
+    }=Req, Db) ->
+    DesignId = <<"_design/", DesignName/binary>>,
+    #doc{body={Props}} = couch_httpd_db:couch_doc_open(Db, DesignId, nil, []),
+    Lang = proplists:get_value(<<"language">>, Props, <<"javascript">>),
+    UpdateSrc = get_nested_json_value({Props}, [<<"updates">>, UpdateName]),
+    send_doc_update_response(Lang, UpdateSrc, nil, nil, Req, Db);
+
+handle_doc_update_req(#httpd{method='GET'}=Req, _Db) ->
+    send_error(Req, 404, <<"update_error">>, <<"Invalid path.">>);
+
+handle_doc_update_req(Req, _Db) ->
+    send_method_not_allowed(Req, "GET,HEAD,POST,PUT").
 
 handle_view_list_req(#httpd{method='GET',
         path_parts=[_DbName, _Design, DesignName, _List, ListName, ViewName]}=Req, Db) ->
@@ -359,6 +390,33 @@ send_doc_show_response(Lang, ShowSrc, DocId, #doc{revs=Revs}=Doc, #httpd{mochi_r
     % We know our etag now    
     couch_httpd:etag_respond(Req, CurrentEtag, fun() -> 
         [<<"resp">>, ExternalResp] = couch_query_servers:render_doc_show(Lang, ShowSrc, 
+            DocId, Doc, Req, Db),
+        JsonResp = apply_etag(ExternalResp, CurrentEtag),
+        couch_httpd_external:send_external_response(Req, JsonResp)
+    end).
+
+send_doc_update_response(Lang, UpdateSrc, DocId, nil, #httpd{mochi_req=MReq}=Req, Db) ->
+    % compute etag with no doc
+    Headers = MReq:get(headers),
+    Hlist = mochiweb_headers:to_list(Headers),
+    Accept = proplists:get_value('Accept', Hlist),
+    CurrentEtag = couch_httpd:make_etag({Lang, UpdateSrc, nil, Accept}),
+    couch_httpd:etag_respond(Req, CurrentEtag, fun() -> 
+        [<<"resp">>, ExternalResp] = couch_query_servers:render_doc_update(Lang, UpdateSrc, 
+            DocId, nil, Req, Db),
+        JsonResp = apply_etag(ExternalResp, CurrentEtag),
+        couch_httpd_external:send_external_response(Req, JsonResp)
+    end);
+
+send_doc_update_response(Lang, UpdateSrc, DocId, #doc{revs=Revs}=Doc, #httpd{mochi_req=MReq}=Req, Db) ->
+    % calculate the etag
+    Headers = MReq:get(headers),
+    Hlist = mochiweb_headers:to_list(Headers),
+    Accept = proplists:get_value('Accept', Hlist),
+    CurrentEtag = couch_httpd:make_etag({Lang, UpdateSrc, Revs, Accept}),
+    % We know our etag now    
+    couch_httpd:etag_respond(Req, CurrentEtag, fun() -> 
+        [<<"resp">>, ExternalResp] = couch_query_servers:render_doc_update(Lang, UpdateSrc, 
             DocId, Doc, Req, Db),
         JsonResp = apply_etag(ExternalResp, CurrentEtag),
         couch_httpd_external:send_external_response(Req, JsonResp)
