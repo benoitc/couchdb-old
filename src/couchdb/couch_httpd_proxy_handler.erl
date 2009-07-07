@@ -176,7 +176,12 @@ do_proxy_request(Url, Headers, Method, Body, Retries, Pause) ->
                 [StreamStatus, StreamHeaders]),
             ResponseCode = list_to_integer(StreamStatus),
             if
-            ResponseCode >= 200, ResponseCode < 300 ->
+            (ResponseCode == 301) or (ResponseCode == 302) ->
+                 Pid ! {self(), stop_ok},
+                 RedirectUrl = mochiweb_headers:get_value("Location",
+                     mochiweb_headers:make(StreamHeaders)),
+                 {redirect, RedirectUrl, StreamHeaders};
+            ResponseCode >= 200, ResponseCode < 400 ->
                 Pid ! {self(), continue},
                 {ok, fun() ->
                     Pid ! {self(), gimme_data},
@@ -189,11 +194,7 @@ do_proxy_request(Url, Headers, Method, Body, Retries, Pause) ->
                             throw(proxy_response_failed)
                     end
                 end, {ResponseCode, StreamHeaders}};
-             ResponseCode >= 300, ResponseCode < 400 ->
-                 Pid ! {self(), stop_ok},
-                 RedirectUrl = mochiweb_headers:get_value("Location",
-                     mochiweb_headers:make(StreamHeaders)),
-                 {redirect, RedirectUrl, StreamHeaders};
+             
              ResponseCode >= 400, ResponseCode < 500 ->
                  ?LOG_ERROR("streaming proxy response failed with code ~p: ~s",
                      [ResponseCode, Url]),
@@ -235,6 +236,7 @@ fix_location([H|T], C) ->
 parse_dest_path(DestPath, Req) when is_binary(DestPath) ->
     parse_dest_path(?b2l(DestPath), Req);
 parse_dest_path(DestPath, Req) when is_list(DestPath) ->
+    ?LOG_DEBUG("test partition", [mochiweb_util:partition(DestPath, "/")]),
     case mochiweb_util:partition(DestPath, "/") of
         {[], "/", _} -> remove_trailing(couch_httpd:absolute_uri(Req, DestPath));
         _ -> remove_trailing(DestPath)
