@@ -101,7 +101,6 @@ fix_location([H|T], C) ->
 parse_dest_path(DestPath, Req) when is_binary(DestPath) ->
     parse_dest_path(?b2l(DestPath), Req);
 parse_dest_path(DestPath, Req) when is_list(DestPath) ->
-    ?LOG_DEBUG("test absolute ~p", [mochiweb_util:partition(DestPath, "/")]),
     case mochiweb_util:partition(DestPath, "/") of
         {[], "/", _} -> remove_trailing(couch_httpd:absolute_uri(Req, DestPath));
         _ -> remove_trailing(DestPath)
