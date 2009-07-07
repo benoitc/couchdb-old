@@ -17,7 +17,7 @@
 -include("couch_db.hrl").
 
 handle_proxy_req(#httpd{mochi_req=MochiReq}=Req, DestPath) ->
-    DestPath1 = fix_dest_path(DestPath, Req),
+    {_, DestPath1} = parse_dest_path(DestPath, Req),
     "/" ++ UrlPath = couch_httpd:path(Req),
     case couch_httpd:partition(UrlPath) of
         {_ActionKey, "/", RelativePath} ->
@@ -97,23 +97,20 @@ fix_location([{"Location", ProxyDataPath}|Rest],
 fix_location([H|T], C) ->
     [H|fix_location(T, C)].
   
-%% remove last trailing. 
-%% TODO: find a faster way to do it
-fix_dest_path(P, Req) ->
-    P1 = case is_binary(P) of
-        true -> binary_to_list(P);
-        false -> P
-    end,
-    [C|_] = P1,
+  
+parse_dest_path(DestPath, Req) when is_binary(DestPath) ->
+    parse_dest_path(?b2l(DestPath), Req);
+parse_dest_path(DestPath, Req) when is_list(DestPath) ->
+    case mochiweb_util:partition(DestPath, "/") of
+        {[], "/", _} -> {local, remove_trailing(couch_httpd:absolute_url(Req, DestPath))};
+        _ -> {remote, remove_trailing(DestPath)}
+    end.
     
-    Path = case [C] of
-        "/" -> couch_httpd:absolute_uri(Req, P1);
-        _ -> P1
-    end,
+remove_trailing(Path) ->
     case lists:last(Path) of
         $/ -> 
-            [_|P2] = lists:reverse(Path),
-            lists:reverse(P2);
+            [_|P] = lists:reverse(Path),
+            lists:reverse(P);
         _  -> Path
     end.
     
