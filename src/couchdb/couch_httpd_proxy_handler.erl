@@ -210,13 +210,6 @@ do_proxy_request(Url, Headers, Method, Body, Retries, Pause) ->
         end
     end.
           
-is_redirect(Status) ->
-    case Status of
-        301 -> true;
-        302 -> true;
-        _ -> false
-    end.
-            
 %% convert Req#httpd.method to ibrowse method atom 
 mochiweb_to_ibrowse_method(Method) when is_list(Method) ->
     list_to_atom(string:to_lower(Method));
