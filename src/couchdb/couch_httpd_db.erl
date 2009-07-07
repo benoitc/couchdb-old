@@ -204,11 +204,7 @@ handle_db_view_req(#httpd{method='GET',
     case ListName of
         nil -> couch_httpd_view:design_doc_view(Req, Db, DName, ViewName, nil);
         _ ->
-             DesignId = <<"_design/", DName/binary>>,
-            #doc{body={Props}} = couch_httpd_db:couch_doc_open(Db, DesignId, nil, []),
-            Lang = proplists:get_value(<<"language">>, Props, <<"javascript">>),
-            ListSrc = couch_httpd_show:get_nested_json_value({Props}, [<<"lists">>, ListName]),
-            couch_httpd_show:send_view_list_response(Lang, ListSrc, ViewName, DesignId, Req, Db, nil)
+            couch_httpd_show:handle_view_list(Req, DName, ListName, ViewName, Db, nil)
     end;    
 
 handle_db_view_req(#httpd{method='POST',
@@ -231,15 +227,11 @@ handle_db_view_req(#httpd{method='POST',
             throw({bad_request, "`keys` member must be a array."})
         end;
     _ ->
-        DesignId = <<"_design/", DName/binary>>,
-        #doc{body={Props}} = couch_httpd_db:couch_doc_open(Db, DesignId, nil, []),
-        Lang = proplists:get_value(<<"language">>, Props, <<"javascript">>),
-        ListSrc = couch_httpd_show:get_nested_json_value({Props}, [<<"lists">>, ListName]),
         ReqBody = couch_httpd:body(Req),
         {Props2} = ?JSON_DECODE(ReqBody),
         Keys = proplists:get_value(<<"keys">>, Props2, nil),
-        couch_httpd_show:send_view_list_response(Lang, ListSrc, ViewName, DesignId, 
-                    Req#httpd{req_body=ReqBody}, Db, Keys)
+        couch_httpd_show:handle_view_list(Req#httpd{req_body=ReqBody}, DName, ListName, ViewName, 
+                                Db, Keys)
     end;
 
 handle_db_view_req(Req, _Db) ->
@@ -665,16 +657,7 @@ db_doc_req(#httpd{method='GET'}=Req, Db, DocId) ->
         end;
     _ ->
         {DesignName, ShowName} = Format,
-        DesignId = <<"_design/", DesignName/binary>>,
-        #doc{body={Props}} = couch_doc_open(Db, DesignId, nil, []),
-        Lang = proplists:get_value(<<"language">>, Props, <<"javascript">>),
-        ShowSrc = couch_httpd_show:get_nested_json_value({Props}, [<<"shows">>, ShowName]),
-        Doc = try couch_doc_open(Db, DocId, Rev, [conflicts]) of
-            FoundDoc -> FoundDoc
-        catch
-            _ -> nil
-        end,
-        couch_httpd_show:send_doc_show_response(Lang, ShowSrc, DocId, Doc, Req, Db)
+        couch_httpd_show:handle_doc_show(Req, DesignName, ShowName, DocId, Db)
     end;
 
 db_doc_req(#httpd{method='POST'}=Req, Db, DocId) ->
