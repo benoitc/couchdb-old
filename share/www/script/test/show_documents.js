@@ -147,6 +147,14 @@ couchTests.show_documents = function(debug) {
 
   // Fix for COUCHDB-379
   T(equals(xhr.getResponseHeader("Server").substr(0,7), "CouchDB"));
+  
+  
+  xhr = CouchDB.request("GET", "/test_suite_db/"+docid+"?show=template/hello");
+  T(xhr.responseText == "Hello World");
+  T(/charset=utf-8/.test(xhr.getResponseHeader("Content-Type")))
+
+  // Fix for COUCHDB-379
+  T(equals(xhr.getResponseHeader("Server").substr(0,7), "CouchDB"));
 
   // // error stacktraces
   // xhr = CouchDB.request("GET", "/test_suite_db/_design/template/_show/render-error/"+docid);
@@ -155,6 +163,7 @@ couchTests.show_documents = function(debug) {
   // hello template world (no docid)
   xhr = CouchDB.request("GET", "/test_suite_db/_design/template/_show/hello");
   T(xhr.responseText == "Empty World");
+  
 
   // // hello template world (non-existing docid)
   xhr = CouchDB.request("GET", "/test_suite_db/_design/template/_show/hello/nonExistingDoc");
@@ -163,7 +172,10 @@ couchTests.show_documents = function(debug) {
   // show with doc
   xhr = CouchDB.request("GET", "/test_suite_db/_design/template/_show/just-name/"+docid);
   T(xhr.responseText == "Just Rusty");
-
+  
+  xhr = CouchDB.request("GET", "/test_suite_db/"+docid+"?show=template/just-name");
+  T(xhr.responseText == "Just Rusty");
+  
   // show with missing doc
   xhr = CouchDB.request("GET", "/test_suite_db/_design/template/_show/just-name/missingdoc");
 
