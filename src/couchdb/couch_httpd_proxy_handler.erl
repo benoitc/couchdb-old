@@ -17,25 +17,25 @@
 -include("couch_db.hrl").
 
 handle_proxy_req(#httpd{mochi_req=MochiReq}=Req, DestPath) ->
-    {_, DestPath1} = parse_dest_path(DestPath, Req),
+    DestPath1 = parse_dest_path(DestPath, Req),
     "/" ++ UrlPath = couch_httpd:path(Req),
     case couch_httpd:partition(UrlPath) of
-        {_ActionKey, "/", RelativePath} ->
-            Path = lists:append([DestPath1, "/", RelativePath,
+    {_ActionKey, "/", RelativePath} ->
+        RawPath = lists:append([DestPath1, "/", RelativePath,
             case couch_httpd:qs(Req) of
                 [] -> [];
                 Qs -> "?" ++ mochiweb_util:urlencode(Qs)
             end]),
-            ?LOG_DEBUG("Proxy path ~s", [Path]),
-            Headers = clean_request_headers(
-                        mochiweb_headers:to_list(MochiReq:get(headers))),
-            Method = mochiweb_to_ibrowse_method(MochiReq:get(method)),
-            ReqBody = get_body(couch_httpd:body(Req)),
-            do_proxy_request(Req, {Path, Headers, Method, ReqBody}, _ActionKey, DestPath1);
-        {_ActionKey, "", _RelativePath} ->
-            RedirectPath = couch_httpd:path(Req) ++ "/",
-            couch_httpd:send_redirect(Req, RedirectPath)
-    end;
+        ?LOG_DEBUG("Proxy path ~s", [RawPath]),
+        Headers = clean_request_headers(
+                    mochiweb_headers:to_list(MochiReq:get(headers))),
+        Method = mochiweb_to_ibrowse_method(MochiReq:get(method)),
+        ReqBody = get_body(couch_httpd:body(Req)),
+        do_proxy_request(Req, {RawPath, Headers, Method, ReqBody}, _ActionKey, DestPath1);
+    {_ActionKey, "", _RelativePath} ->
+        RedirectPath = couch_httpd:path(Req) ++ "/",
+        couch_httpd:send_redirect(Req, RedirectPath)
+end;
 handle_proxy_req(Req, _) ->
     couch_httpd:send_method_not_allowed(Req, "").
     
@@ -101,16 +101,15 @@ fix_location([H|T], C) ->
 parse_dest_path(DestPath, Req) when is_binary(DestPath) ->
     parse_dest_path(?b2l(DestPath), Req);
 parse_dest_path(DestPath, Req) when is_list(DestPath) ->
+    ?LOG_DEBUG("test absolute ~p", [mochiweb_util:partition(DestPath, "/")]),
     case mochiweb_util:partition(DestPath, "/") of
-        {[], "/", _} -> {local, remove_trailing(couch_httpd:absolute_url(Req, DestPath))};
-        _ -> {remote, remove_trailing(DestPath)}
+        {[], "/", _} -> remove_trailing(couch_httpd:absolute_uri(Req, DestPath));
+        _ -> remove_trailing(DestPath)
     end.
     
 remove_trailing(Path) ->
     case lists:last(Path) of
-        $/ -> 
-            [_|P] = lists:reverse(Path),
-            lists:reverse(P);
+        $/ -> lists:sublist(Path, 1, length(Path) -1);
         _  -> Path
     end.
     
