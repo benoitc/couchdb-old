@@ -13,7 +13,8 @@
 -module(couch_httpd_show).
 
 -export([handle_doc_show_req/2, handle_view_list_req/2,
-        get_nested_json_value/2, send_doc_show_response/6]).
+        get_nested_json_value/2, send_doc_show_response/6,
+        send_view_list_response/7]).
 
 
 -include("couch_db.hrl").

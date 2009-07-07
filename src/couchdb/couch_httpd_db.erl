@@ -16,7 +16,8 @@
 -export([handle_request/1, handle_compact_req/2, handle_design_req/2,
     db_req/2, couch_doc_open/4,handle_changes_req/2,
     update_doc_result_to_json/1, update_doc_result_to_json/2,
-    handle_design_info_req/2, handle_view_cleanup_req/2]).
+    handle_design_info_req/2, handle_view_cleanup_req/2,
+    handle_db_view_req/2]).
 
 -import(couch_httpd,
     [send_json/2,send_json/3,send_json/4,send_method_not_allowed/2,
@@ -193,7 +194,57 @@ handle_design_info_req(#httpd{
 handle_design_info_req(Req, _Db) ->
     send_method_not_allowed(Req, "GET").
 
+handle_db_view_req(#httpd{method='GET',
+        path_parts=[_Db, _View, DName, ViewName]}=Req, Db) ->
+    QueryArgs = couch_httpd_view:parse_view_params(Req, nil, nil),
+    #view_query_args{
+        list = ListName
+    } = QueryArgs,
+    ?LOG_DEBUG("ici ~p", [ListName]),
+    case ListName of
+        nil -> couch_httpd_view:design_doc_view(Req, Db, DName, ViewName, nil);
+        _ ->
+             DesignId = <<"_design/", DName/binary>>,
+            #doc{body={Props}} = couch_httpd_db:couch_doc_open(Db, DesignId, nil, []),
+            Lang = proplists:get_value(<<"language">>, Props, <<"javascript">>),
+            ListSrc = couch_httpd_show:get_nested_json_value({Props}, [<<"lists">>, ListName]),
+            couch_httpd_show:send_view_list_response(Lang, ListSrc, ViewName, DesignId, Req, Db, nil)
+    end;    
 
+handle_db_view_req(#httpd{method='POST',
+        path_parts=[_Db, _View, DName, ViewName]}=Req, Db) ->
+    QueryArgs = couch_httpd_view:parse_view_params(Req, nil, nil),
+    #view_query_args{
+        list = ListName
+    } = QueryArgs,     
+    case ListName of 
+    nil ->     
+        {Fields} = couch_httpd:json_body_obj(Req),
+        case proplists:get_value(<<"keys">>, Fields, nil) of
+        nil ->
+            Fmt = "POST to view ~p/~p in database ~p with no keys member.",
+            ?LOG_DEBUG(Fmt, [DName, ViewName, Db]),
+            couch_httpd_view:design_doc_view(Req, Db, DName, ViewName, nil);
+        Keys when is_list(Keys) ->
+            couch_httpd_view:design_doc_view(Req, Db, DName, ViewName, Keys);
+        _ ->
+            throw({bad_request, "`keys` member must be a array."})
+        end;
+    _ ->
+        DesignId = <<"_design/", DName/binary>>,
+        #doc{body={Props}} = couch_httpd_db:couch_doc_open(Db, DesignId, nil, []),
+        Lang = proplists:get_value(<<"language">>, Props, <<"javascript">>),
+        ListSrc = couch_httpd_show:get_nested_json_value({Props}, [<<"lists">>, ListName]),
+        ReqBody = couch_httpd:body(Req),
+        {Props2} = ?JSON_DECODE(ReqBody),
+        Keys = proplists:get_value(<<"keys">>, Props2, nil),
+        couch_httpd_show:send_view_list_response(Lang, ListSrc, ViewName, DesignId, 
+                    Req#httpd{req_body=ReqBody}, Db, Keys)
+    end;
+
+handle_db_view_req(Req, _Db) ->
+    send_method_not_allowed(Req, "GET,POST,HEAD").
+    
 create_db_req(#httpd{user_ctx=UserCtx}=Req, DbName) ->
     ok = couch_httpd:verify_is_server_admin(Req),
     case couch_server:create(DbName, [{user_ctx, UserCtx}]) of
@@ -558,8 +609,6 @@ all_docs_view(Req, Db, Keys) ->
             couch_httpd_view:finish_view_fold(Req, TotalRowCount, {ok, FoldResult})
         end
     end).
-
-
 
 db_doc_req(#httpd{method='DELETE'}=Req, Db, DocId) ->
     % check for the existence of the doc to handle the 404 case.

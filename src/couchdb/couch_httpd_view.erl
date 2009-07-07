@@ -55,7 +55,7 @@ design_doc_view(Req, Db, Id, ViewName, Keys) ->
 handle_view_req(#httpd{method='GET',
         path_parts=[_Db, _Design, DName, _View, ViewName]}=Req, Db) ->
     design_doc_view(Req, Db, DName, ViewName, nil);
-
+    
 handle_view_req(#httpd{method='POST',
         path_parts=[_Db, _Design, DName, _View, ViewName]}=Req, Db) ->
     {Fields} = couch_httpd:json_body_obj(Req),
@@ -269,6 +269,8 @@ parse_view_param("reduce", Value) ->
     [{reduce, parse_bool_param(Value)}];
 parse_view_param("include_docs", Value) ->
     [{include_docs, parse_bool_param(Value)}];
+parse_view_param("list", Value) ->
+    [{list, ?l2b(Value)}];
 parse_view_param("callback", _) ->
     []; % Verified in the JSON response functions
 parse_view_param(Key, Value) ->
@@ -298,6 +300,8 @@ validate_view_query(end_docid, Value, Args) ->
     Args#view_query_args{end_docid=Value};
 validate_view_query(limit, Value, Args) ->
     Args#view_query_args{limit=Value};
+validate_view_query(list, Value, Args) ->
+    Args#view_query_args{list=Value};
 validate_view_query(stale, _, Args) ->
     Args;
 validate_view_query(descending, true, Args) ->
