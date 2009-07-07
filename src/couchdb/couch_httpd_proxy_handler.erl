@@ -84,6 +84,7 @@ proxy_respond1(Source, Resp, State) ->
 	    couch_httpd:send_chunk(State, "")
     end.
 
+%% code borrowed to couch_rep
 proxy_loop(ReqId, Conn) ->
     couch_util:should_flush(),
     receive
