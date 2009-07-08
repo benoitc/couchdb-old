@@ -31,26 +31,26 @@ handle_proxy_req(#httpd{mochi_req=MochiReq}=Req, DestPath) ->
                 Qs -> "?" ++ mochiweb_util:urlencode(Qs)
             end]),
         ?LOG_DEBUG("Proxy path ~s", [RawPath]),
-        Headers = clean_request_headers(
-                    mochiweb_headers:to_list(MochiReq:get(headers))),
+        Headers = mochiweb_headers:to_list(MochiReq:get(headers)),
         Method = mochiweb_to_ibrowse_method(MochiReq:get(method)),
-        ReqBody = case State = recv_stream_body(Req, ?MAX_RECV_BODY) of 
+        {ReqBody, Headers1} = case State = recv_stream_body(Req, ?MAX_RECV_BODY) of 
             {<<>>, empty_done} ->  
-                [];
+                {[], clean_request_headers1(Headers)};
             {Hunk, done} ->
-                Hunk;
+                ?LOG_DEBUG("test", []),
+                {Hunk, clean_request_headers1(Headers)};
             _ ->
-                {fun
+                {{fun
                     ({<<>>, done}) ->
                         eof;
                     ({Hunk, done}) ->
                         {ok, Hunk, {<<>>, done}};
                     ({Hunk, Next}) ->
                         {ok, Hunk, Next()}
-                end, State}
+                end, State}, clean_request_headers(Headers)}
             end,
 
-        case do_proxy_request(RawPath, Headers, Method, ReqBody) of
+        case do_proxy_request(RawPath, Headers1, Method, ReqBody) of
             {redirect, RedirectUrl, _} ->
                 case mochiweb_util:partition(RedirectUrl, DestPath1) of
                      {"", _, RelPath} ->
@@ -248,7 +248,11 @@ mochiweb_to_ibrowse_method(Method) when is_atom(Method) ->
 clean_request_headers(Headers) ->
     [{K,V} || {K,V} <- Headers,
               K /= 'Host'].
-              
+          
+clean_request_headers1(Headers) ->
+    [{K,V} || {K,V} <- Headers,
+              K /= 'Host', K /= 'Content-Length'].
+    
   
 parse_dest_path(DestPath, Req) when is_binary(DestPath) ->
     parse_dest_path(?b2l(DestPath), Req);

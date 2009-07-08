@@ -355,7 +355,7 @@ set_max_pipeline_size(Host, Port, Max) when is_integer(Max), Max > 0 ->
 
 do_send_req(Conn_Pid, Parsed_url, Headers, Method, Body, Options, Timeout) ->
     case catch ibrowse_http_client:send_req(Conn_Pid, Parsed_url,
-					    Headers, Method, Body,
+					    Headers, Method, ensure_bin(Body),
 					    Options, Timeout) of
 	{'EXIT', {timeout, _}} ->
 	    {error, req_timedout};
