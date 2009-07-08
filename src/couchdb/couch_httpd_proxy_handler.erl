@@ -17,6 +17,9 @@
 -include("couch_db.hrl").
 -include("../ibrowse/ibrowse.hrl").
 
+-define(MAX_RECV_BODY, (1024*1024)).
+-define(IDLE_TIMEOUT, infinity).
+
 handle_proxy_req(#httpd{mochi_req=MochiReq}=Req, DestPath) ->
     DestPath1 = parse_dest_path(DestPath, Req),
     "/" ++ UrlPath = couch_httpd:path(Req),
@@ -31,7 +34,22 @@ handle_proxy_req(#httpd{mochi_req=MochiReq}=Req, DestPath) ->
         Headers = clean_request_headers(
                     mochiweb_headers:to_list(MochiReq:get(headers))),
         Method = mochiweb_to_ibrowse_method(MochiReq:get(method)),
-        ReqBody = get_body(couch_httpd:body(Req)),
+        ReqBody = case State = recv_stream_body(Req, ?MAX_RECV_BODY) of 
+            {<<>>, empty_done} ->  
+                [];
+            {Hunk, done} ->
+                Hunk;
+            _ ->
+                {fun
+                    ({<<>>, done}) ->
+                        eof;
+                    ({Hunk, done}) ->
+                        {ok, Hunk, {<<>>, done}};
+                    ({Hunk, Next}) ->
+                        {ok, Hunk, Next()}
+                end, State}
+            end,
+
         case do_proxy_request(RawPath, Headers, Method, ReqBody) of
             {redirect, RedirectUrl, _} ->
                 case mochiweb_util:partition(RedirectUrl, DestPath1) of
@@ -58,7 +76,8 @@ handle_proxy_req(#httpd{mochi_req=MochiReq}=Req, DestPath) ->
         couch_httpd:send_redirect(Req, RedirectPath)
 end;
 handle_proxy_req(Req, _) ->
-    couch_httpd:send_method_not_allowed(Req, "").
+    couch_httpd:send_method_not_allowed(Req, "GET,POST,PUT,DELETE,COPY").
+    
 
 proxy_respond(Source, State) when is_function(Source) ->
     proxy_respond({Source}, State);
@@ -141,11 +160,15 @@ do_proxy_request(Url, _Headers, _Method, _Body, 0, _Pause) ->
     
 do_proxy_request(Url, Headers, Method, Body, Retries, Pause) ->
     #url{host=Host, port=Port} = ibrowse_lib:parse_url(Url),
-    {ok, Conn} = ibrowse:spawn_link_worker_process(Host, Port),
+    {ok, Conn} = ibrowse:spawn_link_worker_process(Host, Port),  
     Pid = spawn_link(fun() -> proxy_loop(nil, Conn) end),
-    Opts = [{stream_to, Pid}, {response_format, binary}],
+    Opts = [
+        {stream_to, Pid},
+        {max_pipeline_size, 101},
+        {response_format, binary}],
+    Headers1 = Headers ++ [{"connection","Keep-Alive"}],
     ReqId = 
-    case ibrowse:send_req_direct(Conn, Url, Headers, Method, Body, Opts, infinity) of
+    case ibrowse:send_req_direct(Conn, Url, Headers1, Method, Body, Opts, infinity) of
     {ibrowse_req_id, X} ->
              X;
     {error, Reason} ->
@@ -171,6 +194,8 @@ do_proxy_request(Url, Headers, Method, Body, Retries, Pause) ->
              catch ibrowse:stop_worker_process(Conn),
              do_proxy_request(Url, Headers, Method, Body,
                      Retries-1, Pause);
+        {'EXIT', Pid, normal} ->
+            catch ibrowse:stop_worker_process(Conn);
         {Pid, {status, StreamStatus, StreamHeaders}} ->
             ?LOG_DEBUG("streaming proxy response Status ~p Headers ~p",
                 [StreamStatus, StreamHeaders]),
@@ -222,21 +247,12 @@ mochiweb_to_ibrowse_method(Method) when is_atom(Method) ->
 %% and will muck them up if they're manually specified
 clean_request_headers(Headers) ->
     [{K,V} || {K,V} <- Headers,
-              K /= 'Host', K /= 'Content-Length'].
-             
-%% replace location header 
-fix_location([], _) -> [];
-fix_location([{"Location", ProxyDataPath}|Rest],
-             {DestPath, SrcPath}) ->
-    ProxyPath = lists:nthtail(length(SrcPath), ProxyDataPath),
-    [{"Location", DestPath++ProxyPath}|Rest];
-fix_location([H|T], C) ->
-    [H|fix_location(T, C)].
+              K /= 'Host'].
+              
   
 parse_dest_path(DestPath, Req) when is_binary(DestPath) ->
     parse_dest_path(?b2l(DestPath), Req);
 parse_dest_path(DestPath, Req) when is_list(DestPath) ->
-    ?LOG_DEBUG("test partition", [mochiweb_util:partition(DestPath, "/")]),
     case mochiweb_util:partition(DestPath, "/") of
         {[], "/", _} -> remove_trailing(couch_httpd:absolute_uri(Req, DestPath));
         _ -> remove_trailing(DestPath)
@@ -248,8 +264,95 @@ remove_trailing(Path) ->
         _  -> Path
     end.
     
-get_body(Body) ->
-    case Body of
-        undefined -> [];
-        Other -> Other
+%% Following code is from Webmachine project
+%% @author Andy Gross <andy@basho.com> 
+%% @author Justin Sheehy <justin@basho.com>
+%% @copyright 2007-2009 Basho Technologies
+%% Portions derived from code Copyright 2007-2008 Bob Ippolito, Mochi Media
+%%
+%%    Licensed under the Apache License, Version 2.0 (the "License");
+%%    you may not use this file except in compliance with the License.
+%%    You may obtain a copy of the License at
+%%
+%%        http://www.apache.org/licenses/LICENSE-2.0
+%%
+%%    Unless required by applicable law or agreed to in writing, software
+%%    distributed under the License is distributed on an "AS IS" BASIS,
+%%    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%    See the License for the specific language governing permissions and
+%%    limitations under the License.
+
+body_length(#httpd{mochi_req=MochiReq}) ->
+    case MochiReq:get_header_value("transfer-encoding") of
+        undefined ->
+            case MochiReq:get_header_value("content-length") of
+                undefined -> undefined;
+                Length -> list_to_integer(Length)
+            end;
+        chunked -> chunked;
+        Unknown -> {unknown_transfer_encoding, Unknown}
+    end.
+
+recv_stream_body(#httpd{mochi_req=MochiReq}=Req, MaxHunkSize) ->
+    case MochiReq:get_header_value("expect") of
+	{"100-continue", _} ->
+	    MochiReq:start_raw_response({100, gb_trees:empty()});
+	_Else ->
+	    ok
+    end,
+    case body_length(Req) of
+        {unknown_transfer_encoding, _} -> {<<>>, empty_done};
+        undefined -> {<<>>, empty_done};
+        0 -> {<<>>, empty_done};
+        chunked -> recv_chunked_body(MochiReq:get(socket), MaxHunkSize);
+        Length -> recv_unchunked_body(MochiReq:get(socket), MaxHunkSize, Length)
+    end.
+
+recv_unchunked_body(Socket, MaxHunk, DataLeft) ->
+    case MaxHunk >= DataLeft of
+        true ->
+            {ok,Data1} = gen_tcp:recv(Socket,DataLeft,?IDLE_TIMEOUT),
+            {Data1, done};
+        false ->
+            {ok,Data2} = gen_tcp:recv(Socket,MaxHunk,?IDLE_TIMEOUT),
+            {Data2,
+             fun() -> recv_unchunked_body(
+                        Socket, MaxHunk, DataLeft-MaxHunk)
+             end}
+    end.
+    
+recv_chunked_body(Socket, MaxHunk) ->
+    case read_chunk_length(Socket) of
+        0 -> {<<>>, done};
+        ChunkLength -> recv_chunked_body(Socket,MaxHunk,ChunkLength)
+    end.
+recv_chunked_body(Socket, MaxHunk, LeftInChunk) ->
+    case MaxHunk >= LeftInChunk of
+        true ->
+            {ok,Data1} = gen_tcp:recv(Socket,LeftInChunk,?IDLE_TIMEOUT),
+            {Data1,
+             fun() -> recv_chunked_body(Socket, MaxHunk)
+             end};
+        false ->
+            {ok,Data2} = gen_tcp:recv(Socket,MaxHunk,?IDLE_TIMEOUT),
+            {Data2,
+             fun() -> recv_chunked_body(Socket, MaxHunk, LeftInChunk-MaxHunk)
+             end}
+    end.
+
+read_chunk_length(Socket) ->
+    inet:setopts(Socket, [{packet, line}]),
+    case gen_tcp:recv(Socket, 0, ?IDLE_TIMEOUT) of
+        {ok, Header} ->
+            inet:setopts(Socket, [{packet, raw}]),
+            Splitter = fun (C) ->
+                               C =/= $\r andalso C =/= $\n andalso C =/= $
+                       end,
+            {Hex, _Rest} = lists:splitwith(Splitter, binary_to_list(Header)),
+            case Hex of
+                [] -> 0;
+                _ -> erlang:list_to_integer(Hex, 16)
+            end;
+        _ ->
+            exit(normal)
     end.
