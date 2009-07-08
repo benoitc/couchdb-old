@@ -37,7 +37,6 @@ handle_proxy_req(#httpd{mochi_req=MochiReq}=Req, DestPath) ->
             {<<>>, empty_done} ->  
                 {[], clean_request_headers1(Headers)};
             {Hunk, done} ->
-                ?LOG_DEBUG("test", []),
                 {Hunk, clean_request_headers1(Headers)};
             _ ->
                 {{fun
