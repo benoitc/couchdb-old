@@ -33,7 +33,7 @@ handle_proxy_req(#httpd{mochi_req=MochiReq}=Req, DestPath) ->
         ?LOG_DEBUG("Proxy path ~s", [RawPath]),
         Headers = mochiweb_headers:to_list(MochiReq:get(headers)),
         Method = mochiweb_to_ibrowse_method(MochiReq:get(method)),
-        {ReqBody, Headers1} = case State = recv_stream_body(Req, ?MAX_RECV_BODY) of 
+        {ReqBody, Headers1} = case State = recv_stream_body(Req, 4096) of 
             {<<>>, empty_done} ->  
                 {[], clean_request_headers1(Headers)};
             {Hunk, done} ->
@@ -193,8 +193,6 @@ do_proxy_request(Url, Headers, Method, Body, Retries, Pause) ->
              catch ibrowse:stop_worker_process(Conn),
              do_proxy_request(Url, Headers, Method, Body,
                      Retries-1, Pause);
-        {'EXIT', Pid, normal} ->
-            catch ibrowse:stop_worker_process(Conn);
         {Pid, {status, StreamStatus, StreamHeaders}} ->
             ?LOG_DEBUG("streaming proxy response Status ~p Headers ~p",
                 [StreamStatus, StreamHeaders]),
