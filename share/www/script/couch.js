@@ -296,9 +296,10 @@ CouchDB.login = function(username, password) {
 }
 
 CouchDB.logout = function() {
-  CouchDB.last_req = CouchDB.request("POST", "/_logout", {});
-  headers: {"Content-Type": "application/x-www-form-urlencoded",
-    "X-CouchDB-WWW-Authenticate": "Cookie"},
+  CouchDB.last_req = CouchDB.request("POST", "/_logout", {
+    headers: {"Content-Type": "application/x-www-form-urlencoded",
+      "X-CouchDB-WWW-Authenticate": "Cookie"}
+  });
   return JSON.parse(CouchDB.last_req.responseText);
 }
 
