@@ -133,17 +133,18 @@ ensure_users_view_exists(Db, DDocId, VName) ->
     try couch_httpd_db:couch_doc_open(Db, DDocId, nil, []) of
         Foo -> ok
     catch 
-        _:_Error -> 
-            ?LOG_ERROR("create the design document ~p", [DDocId]),
+        _:Error -> 
+            ?LOG_ERROR("create the design document ~p : ~p", [DDocId, Error]),
             % create the design document
             {ok, AuthDesign} = auth_design_doc(DDocId, VName),
             {ok, Rev} = couch_db:update_doc(Db, AuthDesign, []),
+            ?LOG_ERROR("created the design document", []),
             ok
     end.
 
 auth_design_doc(DocId, VName) ->
     DocProps = [
-        {<<"_id">>,<<"javascript">>},
+        {<<"_id">>, DocId},
         {<<"language">>,<<"javascript">>},
         {<<"views">>,
             {[{VName,
@@ -152,7 +153,7 @@ auth_design_doc(DocId, VName) ->
                 }]}
             }]}
         }],
-    {ok, couch_doc:from_json_obj(DocProps)}.
+    {ok, couch_doc:from_json_obj({DocProps})}.
 
 cookie_auth_user(_Req, undefined) -> nil;
 cookie_auth_user(#httpd{mochi_req=MochiReq}=Req, DbName) ->

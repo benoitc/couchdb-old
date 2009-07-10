@@ -47,20 +47,6 @@ couchTests.cookie_auth = function(debug) {
         roles: ["_admin"]
       }).ok);
 
-      // Create the design doc with auth view
-      var designDoc = {
-        _id:"_design/_auth",
-        language: "javascript",
-        views: {
-          users: {
-            map: (function (doc) {
-              if (doc.type == 'user') emit(doc.username, doc);
-            }).toString()
-          }
-        }
-      }
-      T(usersDb.save(designDoc).ok);
-
       var validationDoc = {
         _id : "_design/validate",
         validate_doc_update: "(" + (function (newDoc, oldDoc, userCtx) {
