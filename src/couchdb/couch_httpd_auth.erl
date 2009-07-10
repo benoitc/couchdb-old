@@ -19,7 +19,7 @@
 -export([cookie_auth_header/2]).
 -export([handle_session_req/1]).
 
--import(couch_httpd, [header_value/2, send_json/4, send_method_not_allowed/2]).
+-import(couch_httpd, [header_value/2, send_json/2,send_json/4, send_method_not_allowed/2]).
 -import(erlang, [integer_to_list/2, list_to_integer/2]).
 
 special_test_authentication_handler(Req) ->
@@ -247,6 +247,10 @@ handle_login_req(#httpd{method='POST', mochi_req=MochiReq}=Req, #db{}=Db) ->
 
 handle_session_req(#httpd{method='POST'}=Req) ->
     % login
+    DbName = couch_config:get("couch_httpd_auth", "authentication_db"),
+    case couch_db:open(?l2b(DbName), [{user_ctx, #user_ctx{roles=[<<"_admin">>]}}]) of
+        {ok, Db} -> handle_login_req(Req, Db)
+    end;
 handle_session_req(#httpd{method='GET', user_ctx=UserCtx}=Req) ->
     % whoami
     Name = UserCtx#user_ctx.name,
@@ -262,26 +266,8 @@ handle_session_req(#httpd{method='GET', user_ctx=UserCtx}=Req) ->
         {name, Name},
         {roles, Roles}
     ]});
-
-    
-    
 handle_session_req(#httpd{method='DELETE'}=Req) ->
     % logout
-handle_session_req(Req) ->
-    send_method_not_allowed(Req, "GET,HEAD,POST,DELETE").
-
-
-% Login handler
-handle_login_req(#httpd{method='POST'}=Req) ->
-    DbName = couch_config:get("couch_httpd_auth", "authentication_db"),
-    case couch_db:open(?l2b(DbName), [{user_ctx, #user_ctx{roles=[<<"_admin">>]}}]) of
-        {ok, Db} -> handle_login_req(Req, Db)
-    end;
-handle_login_req(Req) ->
-    send_method_not_allowed(Req, "POST").
-
-% Logout handler
-handle_logout_req(#httpd{method='POST'}=Req) ->
     Cookie = mochiweb_cookies:cookie("AuthSession", "", [{path, "/"}, {http_only, true}]),
     {Code, Headers} = case couch_httpd:qs_value(Req, "next", nil) of
         nil ->
@@ -290,5 +276,28 @@ handle_logout_req(#httpd{method='POST'}=Req) ->
             {302, [Cookie, {"Location", couch_httpd:absolute_uri(Req, Redirect)}]}
     end,
     send_json(Req, Code, Headers, {[{ok, true}]});
-handle_logout_req(Req) ->
-    send_method_not_allowed(Req, "POST").
+handle_session_req(Req) ->
+    send_method_not_allowed(Req, "GET,HEAD,POST,DELETE").
+
+
+% % Login handler
+% handle_login_req(#httpd{method='POST'}=Req) ->
+%     DbName = couch_config:get("couch_httpd_auth", "authentication_db"),
+%     case couch_db:open(?l2b(DbName), [{user_ctx, #user_ctx{roles=[<<"_admin">>]}}]) of
+%         {ok, Db} -> handle_login_req(Req, Db)
+%     end;
+% handle_login_req(Req) ->
+%     send_method_not_allowed(Req, "POST").
+% 
+% % Logout handler
+% handle_logout_req(#httpd{method='POST'}=Req) ->
+%     Cookie = mochiweb_cookies:cookie("AuthSession", "", [{path, "/"}, {http_only, true}]),
+%     {Code, Headers} = case couch_httpd:qs_value(Req, "next", nil) of
+%         nil ->
+%             {200, [Cookie]};
+%         Redirect ->
+%             {302, [Cookie, {"Location", couch_httpd:absolute_uri(Req, Redirect)}]}
+%     end,
+%     send_json(Req, Code, Headers, {[{ok, true}]});
+% handle_logout_req(Req) ->
+%     send_method_not_allowed(Req, "POST").

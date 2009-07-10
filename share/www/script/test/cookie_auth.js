@@ -60,6 +60,7 @@ couchTests.cookie_auth = function(debug) {
           }
         }
       }
+      T(usersDb.save(designDoc).ok);
 
       var validationDoc = {
         _id : "_design/validate",
@@ -76,16 +77,11 @@ couchTests.cookie_auth = function(debug) {
         }).toString() + ")"
       };
 
-      // var userDb = new CouchDB("test_suite_db",
-      //   {"X-CouchDB-WWW-Authenticate": "Cookie"}
-      // );
-      T(usersDb.save(designDoc).ok);
       T(db.save(validationDoc).ok);
 
       
 
       T(CouchDB.login('Jason Davies', password).ok);
-      console.log("yoooo")
       // update the credentials document
       var doc = usersDb.open("a1");
       doc.foo=2;
@@ -106,7 +102,7 @@ couchTests.cookie_auth = function(debug) {
       T(!CouchDB.login('Robert Allen Zimmerman', 'd00d').ok);
 
       // test redirect
-      xhr = CouchDB.request("POST", "/_login?next=/", {
+      xhr = CouchDB.request("POST", "/_session?next=/", {
         headers: {"Content-Type": "application/x-www-form-urlencoded"},
         body: "username=Jason%20Davies&password="+encodeURIComponent(password)
       });
@@ -130,15 +126,4 @@ couchTests.cookie_auth = function(debug) {
     testFun
   );
 
-  // db.deleteDb();
-  // db.createDb();
-
-  // run_on_modified_server(
-  //   [{section: "httpd",
-  //     key: "authentication_handler",
-  //     value: '{couch_httpd_auth, cookie_authentication_handler, "test_suite_db"}'},
-  //    {section: "couch_httpd_auth",
-  //     key: "secret", value: generateSecret(64)}],
-  //   testFun
-  // );
 };
