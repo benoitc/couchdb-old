@@ -14,15 +14,15 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/1, request_group/2]).
--export([design_doc_to_view_group/1]).
+-export([start_link/1, request_group/2, request_group_info/1]).
+-export([open_db_group/2, open_temp_group/5, design_doc_to_view_group/1,design_root/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
 -include("couch_db.hrl").
-	 
+
 -record(group_state, {
     type,
     db_name,
@@ -47,6 +47,22 @@ request_group(Pid, Seq) ->
         throw(Error)
     end.
 
+request_group_info(Pid) ->
+    case gen_server:call(Pid, request_group_info) of
+    {ok, GroupInfoList} ->
+        {ok, GroupInfoList};
+    Error ->
+        throw(Error)
+    end.
+
+request_index_files(Pid) ->
+    case gen_server:call(Pid, request_index_files) of
+    {ok, Filelist} ->
+        {ok, Filelist};
+    Error ->
+        throw(Error)
+    end.
+
 
 % from template
 start_link(InitArgs) ->
@@ -54,7 +70,7 @@ start_link(InitArgs) ->
             {InitArgs, self(), Ref = make_ref()}, []) of
     {ok, Pid} ->
         {ok, Pid};
-    ignore -> 
+    ignore ->
         receive
         {Ref, Pid, Error} ->
             case process_info(self(), trap_exit) of
@@ -67,9 +83,7 @@ start_link(InitArgs) ->
         Error
     end.
 
-% init differentiates between temp and design_doc views. It creates a closure
-% which spawns the appropriate view_updater. (It might also spawn the first
-% view_updater run.)
+% init creates a closure which spawns the appropriate view_updater.
 init({InitArgs, ReturnPid, Ref}) ->
     process_flag(trap_exit, true),
     case prepare_group(InitArgs, false) of
@@ -95,8 +109,7 @@ init({InitArgs, ReturnPid, Ref}) ->
 % view group, and the couch_view_updater, which when spawned, updates the
 % group and sends it back here. We employ a caching mechanism, so that between
 % database writes, we don't have to spawn a couch_view_updater with every view
-% request. This should give us more control, and the ability to request view
-% statuses eventually.
+% request.
 
 % The caching mechanism: each request is submitted with a seq_id for the
 % database at the time it was read. We guarantee to return a view from that
@@ -105,7 +118,7 @@ init({InitArgs, ReturnPid, Ref}) ->
 % If the request sequence is higher than our current high_target seq, we set
 % that as the highest seqence. If the updater is not running, we launch it.
 
-handle_call({request_group, RequestSeq}, From, 
+handle_call({request_group, RequestSeq}, From,
         #group_state{
             db_name=DbName,
             group=#group{current_seq=Seq}=Group,
@@ -115,13 +128,13 @@ handle_call({request_group, RequestSeq}, From,
     {ok, Db} = couch_db:open(DbName, []),
     Group2 = Group#group{db=Db},
     Pid = spawn_link(fun()-> couch_view_updater:update(Group2) end),
-    
+
     {noreply, State#group_state{
         updater_pid=Pid,
         group=Group2,
         waiting_list=[{From,RequestSeq}|WaitList]
         }, infinity};
-        
+
 
 % If the request seqence is less than or equal to the seq_id of a known Group,
 % we respond with that Group.
@@ -137,10 +150,16 @@ handle_call({request_group, RequestSeq}, From,
         #group_state{waiting_list=WaitList}=State) ->
     {noreply, State#group_state{
         waiting_list=[{From, RequestSeq}|WaitList]
-        }, infinity}.
+        }, infinity};
 
+handle_call(request_group_info, _From, #group_state{
+            group = Group,
+            compactor_pid = CompactorPid
+        } = State) ->
+    GroupInfo = get_group_info(Group, CompactorPid),
+    {reply, {ok, GroupInfo}, State}.
 
-handle_cast({start_compact, CompactFun}, #group_state{ compactor_pid=nil, 
+handle_cast({start_compact, CompactFun}, #group_state{ compactor_pid=nil,
         group=Group, init_args={view, RootDir, DbName, GroupId} } = State) ->
     ?LOG_INFO("Starting view group compaction", []),
     {ok, Db} = couch_db:open(DbName, []),
@@ -152,20 +171,19 @@ handle_cast({start_compact, _}, State) ->
     %% compact already running, this is a no-op
     {noreply, State};
 
-handle_cast({compact_done, #group{fd=NewFd, current_seq=NewSeq} = NewGroup}, 
-        #group_state{ 
-            group = #group{current_seq=OldSeq} = Group,
-            init_args = {view, RootDir, DbName, GroupId}, 
+handle_cast({compact_done, #group{fd=NewFd, current_seq=NewSeq} = NewGroup},
+        #group_state{
+            group = #group{current_seq=OldSeq, sig=GroupSig} = Group,
+            init_args = {view, RootDir, DbName, _GroupId},
             updater_pid = nil,
             ref_counter = RefCounter
         } = State) when NewSeq >= OldSeq ->
     ?LOG_INFO("View Group compaction complete", []),
-    BaseName = RootDir ++ "/." ++ ?b2l(DbName) ++ ?b2l(GroupId),
-    FileName = BaseName ++ ".view",
-    CompactName = BaseName ++".compact.view",
+    FileName = index_file_name(RootDir, DbName, GroupSig),
+    CompactName = index_file_name(compact, RootDir, DbName, GroupSig),
     file:delete(FileName),
     ok = file:rename(CompactName, FileName),
-    
+
     %% cleanup old group
     couch_ref_counter:drop(RefCounter),
     {ok, NewRefCounter} = couch_ref_counter:start([NewFd]),
@@ -173,20 +191,20 @@ handle_cast({compact_done, #group{fd=NewFd, current_seq=NewSeq} = NewGroup},
         nil -> ok;
         Else -> couch_db:close(Else)
     end,
-    
+
     erlang:send_after(1000, self(), delayed_commit),
     {noreply, State#group_state{
-        group=NewGroup, 
+        group=NewGroup,
         ref_counter=NewRefCounter,
         compactor_pid=nil
     }};
-handle_cast({compact_done, NewGroup}, #group_state{ 
+handle_cast({compact_done, NewGroup}, #group_state{
         init_args={view, _RootDir, DbName, GroupId} } = State) ->
     ?LOG_INFO("View index compaction still behind main file", []),
     couch_db:close(NewGroup#group.db),
     {ok, Db} = couch_db:open(DbName, []),
-    Pid = spawn_link(fun() -> 
-        {_,Ref} = erlang:spawn_monitor(fun() -> 
+    Pid = spawn_link(fun() ->
+        {_,Ref} = erlang:spawn_monitor(fun() ->
             couch_view_updater:update(NewGroup#group{db = Db})
         end),
         receive
@@ -224,8 +242,7 @@ handle_info({'EXIT', FromPid, {new_group, #group{db=Db}=Group}},
             waiting_list=WaitList,
             waiting_commit=WaitingCommit}=State) when UpPid == FromPid ->
     ok = couch_db:close(Db),
-
-    if Group#group.type == view andalso not WaitingCommit ->
+    if not WaitingCommit ->
         erlang:send_after(1000, self(), delayed_commit);
     true -> ok
     end,
@@ -241,8 +258,8 @@ handle_info({'EXIT', FromPid, {new_group, #group{db=Db}=Group}},
         {noreply, State#group_state{waiting_commit=true,
                 waiting_list=StillWaiting, group=Group2, updater_pid=Pid}}
     end;
-    
-handle_info({'EXIT', FromPid, reset}, 
+
+handle_info({'EXIT', FromPid, reset},
         #group_state{
             init_args=InitArgs,
             updater_pid=UpPid,
@@ -257,10 +274,10 @@ handle_info({'EXIT', FromPid, reset},
     Error ->
         {stop, normal, reply_all(State, Error)}
     end;
-    
+
 handle_info({'EXIT', _FromPid, normal}, State) ->
     {noreply, State};
-    
+
 handle_info({'EXIT', FromPid, {{nocatch, Reason}, _Trace}}, State) ->
     ?LOG_DEBUG("Uncaught throw() in linked pid: ~p", [{FromPid, Reason}]),
     {stop, Reason, State};
@@ -268,7 +285,7 @@ handle_info({'EXIT', FromPid, {{nocatch, Reason}, _Trace}}, State) ->
 handle_info({'EXIT', FromPid, Reason}, State) ->
     ?LOG_DEBUG("Exit from linked pid: ~p", [{FromPid, Reason}]),
     {stop, Reason, State};
-    
+
 handle_info({'DOWN',_,_,_,_}, State) ->
     ?LOG_INFO("Shutting down view group server, monitored db is closing.", []),
     {stop, normal, reply_all(State, shutdown)}.
@@ -288,13 +305,13 @@ code_change(_OldVsn, State, _Extra) ->
 % reply_with_group/3
 % for each item in the WaitingList {Pid, Seq}
 % if the Seq is =< GroupSeq, reply
-reply_with_group(Group=#group{current_seq=GroupSeq}, [{Pid, Seq}|WaitList], 
+reply_with_group(Group=#group{current_seq=GroupSeq}, [{Pid, Seq}|WaitList],
         StillWaiting, RefCounter) when Seq =< GroupSeq ->
     gen_server:reply(Pid, {ok, Group, RefCounter}),
     reply_with_group(Group, WaitList, StillWaiting, RefCounter);
 
 % else
-% put it in the continuing waiting list    
+% put it in the continuing waiting list
 reply_with_group(Group, [{Pid, Seq}|WaitList], StillWaiting, RefCounter) ->
     reply_with_group(Group, WaitList, [{Pid, Seq}|StillWaiting], RefCounter);
 
@@ -306,12 +323,13 @@ reply_all(#group_state{waiting_list=WaitList}=State, Reply) ->
     [catch gen_server:reply(Pid, Reply) || {Pid, _} <- WaitList],
     State#group_state{waiting_list=[]}.
 
-prepare_group({view, RootDir, DbName, GroupId}, ForceReset)->
-    case open_db_group(DbName, GroupId) of
-    {ok, Db, #group{sig=Sig}=Group} ->
-        case open_index_file(RootDir, DbName, GroupId) of
+prepare_group({RootDir, DbName, #group{sig=Sig}=Group}, ForceReset)->
+    case couch_db:open(DbName, []) of
+    {ok, Db} ->
+        case open_index_file(RootDir, DbName, Sig) of
         {ok, Fd} ->
             if ForceReset ->
+                % this can happen if we missed a purge
                 {ok, reset_file(Db, Fd, DbName, Group)};
             true ->
                 % 09 UPGRADE CODE
@@ -321,33 +339,19 @@ prepare_group({view, RootDir, DbName, GroupId}, ForceReset)->
                     % sigs match!
                     {ok, init_group(Db, Fd, Group, HeaderInfo)};
                 _ ->
+                    % this happens on a new file
                     {ok, reset_file(Db, Fd, DbName, Group)}
                 end
             end;
         Error ->
-            catch delete_index_file(RootDir, DbName, GroupId),
+            catch delete_index_file(RootDir, DbName, Sig),
             Error
         end;
-    Error ->
-        catch delete_index_file(RootDir, DbName, GroupId),
-        Error
-    end;
-prepare_group({slow_view, DbName, Fd, Lang, DesignOptions, MapSrc, RedSrc}, _ForceReset) ->
-    case couch_db:open(DbName, []) of
-    {ok, Db} ->
-        View = #view{map_names=[<<"_temp">>],
-            id_num=0,
-            btree=nil,
-            def=MapSrc,
-            reduce_funs= if RedSrc==[] -> []; true -> [{<<"_temp">>, RedSrc}] end},
-        {ok, init_group(Db, Fd, #group{type=slow_view, name= <<"_temp">>, db=Db,
-            views=[View], def_lang=Lang, design_options=DesignOptions}, nil)};
-    Error ->
-        Error
+    Else ->
+        Else
     end.
 
-
-get_index_header_data(#group{current_seq=Seq, purge_seq=PurgeSeq, 
+get_index_header_data(#group{current_seq=Seq, purge_seq=PurgeSeq,
             id_btree=IdBtree,views=Views}) ->
     ViewStates = [couch_btree:get_state(Btree) || #view{btree=Btree} <- Views],
     #index_header{seq=Seq,
@@ -355,15 +359,48 @@ get_index_header_data(#group{current_seq=Seq, purge_seq=PurgeSeq,
             id_btree_state=couch_btree:get_state(IdBtree),
             view_states=ViewStates}.
 
+hex_sig(GroupSig) ->
+    couch_util:to_hex(?b2l(GroupSig)).
 
-open_index_file(RootDir, DbName, GroupId) ->
-    FileName = RootDir ++ "/." ++ ?b2l(DbName) ++ ?b2l(GroupId) ++".view",
+design_root(RootDir, DbName) ->
+    RootDir ++ "/." ++ ?b2l(DbName) ++ "_design/".
+
+index_file_name(RootDir, DbName, GroupSig) ->
+    design_root(RootDir, DbName) ++ hex_sig(GroupSig) ++".view".
+
+index_file_name(compact, RootDir, DbName, GroupSig) ->
+    design_root(RootDir, DbName) ++ hex_sig(GroupSig) ++".compact.view".
+
+
+open_index_file(RootDir, DbName, GroupSig) ->
+    FileName = index_file_name(RootDir, DbName, GroupSig),
     case couch_file:open(FileName) of
     {ok, Fd}        -> {ok, Fd};
     {error, enoent} -> couch_file:open(FileName, [create]);
     Error           -> Error
     end.
-    
+
+open_temp_group(DbName, Language, DesignOptions, MapSrc, RedSrc) ->
+    case couch_db:open(DbName, []) of
+    {ok, Db} ->
+        View = #view{map_names=[<<"_temp">>],
+            id_num=0,
+            btree=nil,
+            def=MapSrc,
+            reduce_funs= if RedSrc==[] -> []; true -> [{<<"_temp">>, RedSrc}] end},
+
+        {ok, Db, #group{
+            name = <<"_temp">>,
+            db=Db,
+            views=[View],
+            def_lang=Language,
+            design_options=DesignOptions,
+            sig = erlang:md5(term_to_binary({[View], Language, DesignOptions}))
+        }};
+    Error ->
+        Error
+    end.
+
 open_db_group(DbName, GroupId) ->
     case couch_db:open(DbName, []) of
     {ok, Db} ->
@@ -378,12 +415,28 @@ open_db_group(DbName, GroupId) ->
         Else
     end.
 
+get_group_info(#group{
+        fd = Fd,
+        sig = GroupSig,
+        def_lang = Lang
+    }, CompactorPid) ->
+    {ok, Size} = couch_file:bytes(Fd),
+    [
+        {signature, ?l2b(hex_sig(GroupSig))},
+        {language, Lang},
+        {disk_size, Size},
+        {compact_running, CompactorPid /= nil}
+    ].
+
 % maybe move to another module
 design_doc_to_view_group(#doc{id=Id,body={Fields}}) ->
     Language = proplists:get_value(<<"language">>, Fields, <<"javascript">>),
     {DesignOptions} = proplists:get_value(<<"options">>, Fields, {[]}),
     {RawViews} = proplists:get_value(<<"views">>, Fields, {[]}),
-
+    % sort the views by name to avoid spurious signature changes
+    SortedRawViews = lists:sort(fun({Name1, _}, {Name2, _}) ->
+            Name1 >= Name2
+        end, RawViews),
     % add the views to a dictionary object, with the map source as the key
     DictBySrc =
     lists:foldl(
@@ -402,7 +455,7 @@ design_doc_to_view_group(#doc{id=Id,body={Fields}}) ->
                 View#view{reduce_funs=[{Name,RedSrc}|View#view.reduce_funs]}
             end,
             dict:store(MapSrc, View2, DictBySrcAcc)
-        end, dict:new(), RawViews),
+        end, dict:new(), SortedRawViews),
     % number the views
     {Views, _N} = lists:mapfoldl(
         fun({_Src, View}, N) ->
@@ -410,7 +463,7 @@ design_doc_to_view_group(#doc{id=Id,body={Fields}}) ->
         end, 0, dict:to_list(DictBySrc)),
 
     Group = #group{name=Id, views=Views, def_lang=Language, design_options=DesignOptions},
-    Group#group{sig=erlang:md5(term_to_binary(Group))}.
+    Group#group{sig=erlang:md5(term_to_binary({Views, Language, DesignOptions}))}.
 
 reset_group(#group{views=Views}=Group) ->
     Views2 = [View#view{btree=nil} || View <- Views],
@@ -423,9 +476,8 @@ reset_file(Db, Fd, DbName, #group{sig=Sig,name=Name} = Group) ->
     ok = couch_file:write_header(Fd, {Sig, nil}),
     init_group(Db, Fd, reset_group(Group), nil).
 
-delete_index_file(RootDir, DbName, GroupId) ->
-    file:delete(RootDir ++ "/." ++ binary_to_list(DbName)
-            ++ binary_to_list(GroupId) ++ ".view").
+delete_index_file(RootDir, DbName, GroupSig) ->
+    file:delete(index_file_name(RootDir, DbName, GroupSig)).
 
 init_group(Db, Fd, #group{views=Views}=Group, nil) ->
     init_group(Db, Fd, Group,
@@ -438,11 +490,11 @@ init_group(Db, Fd, #group{def_lang=Lang,views=Views}=Group, IndexHeader) ->
     Views2 = lists:zipwith(
         fun(BtreeState, #view{reduce_funs=RedFuns}=View) ->
             FunSrcs = [FunSrc || {_Name, FunSrc} <- RedFuns],
-            ReduceFun = 
+            ReduceFun =
                 fun(reduce, KVs) ->
                     KVs2 = couch_view:expand_dups(KVs,[]),
                     KVs3 = couch_view:detuple_kvs(KVs2,[]),
-                    {ok, Reduced} = couch_query_servers:reduce(Lang, FunSrcs, 
+                    {ok, Reduced} = couch_query_servers:reduce(Lang, FunSrcs,
                         KVs3),
                     {length(KVs3), Reduced};
                 (rereduce, Reds) ->

@@ -59,7 +59,7 @@ set_update_frequency(Msecs) ->
 
 update(StatusText) ->
     update("~s", [StatusText]).
-    
+
 update(Format, Data) ->
     {LastUpdateTime, Frequency} = get(task_status_update),
     case timer:now_diff(Now = now(), LastUpdateTime) >= Frequency of
@@ -107,11 +107,11 @@ handle_call(all, _, Server) ->
 
 handle_cast({update_status, Pid, StatusText}, Server) ->
     [{Pid, {Type, TaskName, _StatusText}}] = ets:lookup(?MODULE, Pid),
+    ?LOG_DEBUG("New task status for ~s: ~s",[TaskName, StatusText]),
     true = ets:insert(?MODULE, {Pid, {Type, TaskName, StatusText}}),
     {noreply, Server};
 handle_cast(stop, State) ->
     {stop, normal, State}.
-
 
 handle_info({'DOWN', _MonitorRef, _Type, Pid, _Info}, Server) ->
     %% should we also erlang:demonitor(_MonitorRef), ?

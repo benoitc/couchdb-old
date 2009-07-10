@@ -11,7 +11,7 @@
 % the License.
 
 -module(couch_httpd_show).
-    
+
 -export([handle_doc_show_req/2, handle_view_list_req/2]).
 
 
@@ -21,7 +21,7 @@
     [send_json/2,send_json/3,send_json/4,send_method_not_allowed/2,
     start_json_response/2,send_chunk/2,send_chunked_error/2,
     start_chunked_response/3, send_error/4]).
-    
+
 handle_doc_show_req(#httpd{
         method='GET',
         path_parts=[_DbName, _Design, DesignName, _Show, ShowName, DocId]
@@ -92,7 +92,7 @@ send_view_list_response(Lang, ListSrc, ViewName, DesignId, Req, Db, Keys) ->
     Stale = couch_httpd_view:get_stale_type(Req),
     Reduce = couch_httpd_view:get_reduce_type(Req),
     case couch_view:get_map_view(Db, DesignId, ViewName, Stale) of
-    {ok, View, Group} ->    
+    {ok, View, Group} ->
         QueryArgs = couch_httpd_view:parse_view_params(Req, Keys, map),
         output_map_list(Req, Lang, ListSrc, View, Group, Db, QueryArgs, Keys);
     {not_found, _Reason} ->
@@ -138,14 +138,14 @@ output_map_list(#httpd{mochi_req=MReq, user_ctx=UserCtx}=Req, Lang, ListSrc, Vie
 
         StartListRespFun = make_map_start_resp_fun(QueryServer, Db),
         SendListRowFun = make_map_send_row_fun(QueryServer),
-    
+
         FoldlFun = couch_httpd_view:make_view_fold_fun(Req, QueryArgs, CurrentEtag, Db, RowCount,
             #view_fold_helper_funs{
                 reduce_count = fun couch_view:reduce_to_count/1,
                 start_response = StartListRespFun,
                 send_row = SendListRowFun
             }),
-        FoldAccInit = {Limit, SkipCount, undefined, []},
+        FoldAccInit = {Limit, SkipCount, undefined, [], nil},
         {ok, FoldResult} = couch_view:fold(View, Start, Dir, FoldlFun, FoldAccInit),
         finish_list(Req, QueryServer, CurrentEtag, FoldResult, StartListRespFun, RowCount)
     end);
@@ -170,7 +170,7 @@ output_map_list(#httpd{mochi_req=MReq, user_ctx=UserCtx}=Req, Lang, ListSrc, Vie
         StartListRespFun = make_map_start_resp_fun(QueryServer, Db),
         SendListRowFun = make_map_send_row_fun(QueryServer),
 
-        FoldAccInit = {Limit, SkipCount, undefined, []},
+        FoldAccInit = {Limit, SkipCount, undefined, [], nil},
         {ok, FoldResult} = lists:foldl(
             fun(Key, {ok, FoldAcc}) ->
                 FoldlFun = couch_httpd_view:make_view_fold_fun(Req, QueryArgs#view_query_args{
@@ -199,7 +199,7 @@ make_reduce_start_resp_fun(QueryServer, _Req, Db, _CurrentEtag) ->
     end.
 
 start_list_resp(QueryServer, Req, Db, Head, Etag) ->
-    [<<"start">>,Chunks,JsonResp] = couch_query_servers:render_list_head(QueryServer, 
+    [<<"start">>,Chunks,JsonResp] = couch_query_servers:render_list_head(QueryServer,
         Req, Db, Head),
     JsonResp2 = apply_etag(JsonResp, Etag),
     #extern_resp_args{
@@ -265,9 +265,9 @@ output_reduce_list(#httpd{mochi_req=MReq, user_ctx=UserCtx}=Req, Lang, ListSrc, 
     couch_httpd:etag_respond(Req, CurrentEtag, fun() ->
         StartListRespFun = make_reduce_start_resp_fun(QueryServer, Req, Db, CurrentEtag),
         SendListRowFun = make_reduce_send_row_fun(QueryServer, Db),
-    
-        {ok, GroupRowsFun, RespFun} = couch_httpd_view:make_reduce_fold_funs(Req, 
-            GroupLevel, QueryArgs, CurrentEtag, 
+
+        {ok, GroupRowsFun, RespFun} = couch_httpd_view:make_reduce_fold_funs(Req,
+            GroupLevel, QueryArgs, CurrentEtag,
             #reduce_fold_helper_funs{
                 start_response = StartListRespFun,
                 send_row = SendListRowFun
@@ -299,9 +299,9 @@ output_reduce_list(#httpd{mochi_req=MReq, user_ctx=UserCtx}=Req, Lang, ListSrc, 
     couch_httpd:etag_respond(Req, CurrentEtag, fun() ->
         StartListRespFun = make_reduce_start_resp_fun(QueryServer, Req, Db, CurrentEtag),
         SendListRowFun = make_reduce_send_row_fun(QueryServer, Db),
-    
+
         {ok, GroupRowsFun, RespFun} = couch_httpd_view:make_reduce_fold_funs(Req,
-            GroupLevel, QueryArgs, CurrentEtag, 
+            GroupLevel, QueryArgs, CurrentEtag,
             #reduce_fold_helper_funs{
                 start_response = StartListRespFun,
                 send_row = SendListRowFun
@@ -316,16 +316,22 @@ output_reduce_list(#httpd{mochi_req=MReq, user_ctx=UserCtx}=Req, Lang, ListSrc, 
     end).
 
 finish_list(Req, QueryServer, Etag, FoldResult, StartFun, TotalRows) ->
-    case FoldResult of
-        {_, _, undefined, _} ->
-            {ok, Resp, BeginBody} = 
+    FoldResult2 = case FoldResult of
+        {Limit, SkipCount, Response, RowAcc} ->
+            {Limit, SkipCount, Response, RowAcc, nil};
+        Else ->
+            Else
+    end,
+    case FoldResult2 of
+        {_, _, undefined, _, _} ->
+            {ok, Resp, BeginBody} =
                 render_head_for_empty_list(StartFun, Req, Etag, TotalRows),
             [<<"end">>, Chunks] = couch_query_servers:render_list_tail(QueryServer),
             Chunk = BeginBody ++ ?b2l(?l2b(Chunks)),
             send_non_empty_chunk(Resp, Chunk);
-        {_, _, Resp, stop} ->
+        {_, _, Resp, stop, _} ->
             ok;
-        {_, _, Resp, _} ->
+        {_, _, Resp, _, _} ->
             [<<"end">>, Chunks] = couch_query_servers:render_list_tail(QueryServer),
             send_non_empty_chunk(Resp, ?b2l(?l2b(Chunks)))
     end,
@@ -378,9 +384,9 @@ set_or_replace_header({Key, NewValue}, [], Acc) ->
     [{Key, NewValue}|Acc].
 
 apply_etag({ExternalResponse}, CurrentEtag) ->
-    % Here we embark on the delicate task of replacing or creating the  
-    % headers on the JsonResponse object. We need to control the Etag and 
-    % Vary headers. If the external function controls the Etag, we'd have to 
+    % Here we embark on the delicate task of replacing or creating the
+    % headers on the JsonResponse object. We need to control the Etag and
+    % Vary headers. If the external function controls the Etag, we'd have to
     % run it to check for a match, which sort of defeats the purpose.
     case proplists:get_value(<<"headers">>, ExternalResponse, nil) of
     nil ->
@@ -397,4 +403,4 @@ apply_etag({ExternalResponse}, CurrentEtag) ->
             Field
         end || Field <- ExternalResponse]}
     end.
-    
+

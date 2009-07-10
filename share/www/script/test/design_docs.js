@@ -49,6 +49,14 @@ function() {
   }
   T(db.save(designDoc).ok);
 
+  // test that we get design doc info back
+  var dinfo = db.designInfo("_design/test");
+  TEquals("test", dinfo.name);
+  var vinfo = dinfo.view_index;
+  TEquals(51, vinfo.disk_size);
+  TEquals(false, vinfo.compact_running);
+  TEquals("64625dce94960fd5ca116e42aa9d011a", vinfo.signature);
+
   db.bulkSave(makeDocs(1, numDocs + 1));
 
   // test that the _all_docs view returns correctly with keys
@@ -66,16 +74,16 @@ function() {
     T(db.ensureFullCommit().ok);
     restartServer();
   };
-  
+
   // test when language not specified, Javascript is implied
   var designDoc2 = {
     _id:"_design/test2",
-    // language: "javascript", 
+    // language: "javascript",
     views: {
       single_doc: {map: "function(doc) { if (doc._id == \"1\") { emit(1, null) }}"}
     }
   };
-  
+
   T(db.save(designDoc2).ok);
   T(db.view("test2/single_doc").total_rows == 1);
 
@@ -105,10 +113,14 @@ function() {
   T(db.deleteDoc(designDoc).ok);
   T(db.open(designDoc._id) == null);
   T(db.view("test/no_docs") == null);
-  
+
   T(db.ensureFullCommit().ok);
   restartServer();
   T(db.open(designDoc._id) == null);
   T(db.view("test/no_docs") == null);
+
+  // trigger ddoc cleanup
+  T(db.viewCleanup().ok);
+
 });
 };

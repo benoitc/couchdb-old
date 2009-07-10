@@ -18,7 +18,7 @@
 
 update(#group{db=#db{name=DbName}=Db,name=GroupName,current_seq=Seq,purge_seq=PurgeSeq}=Group) ->
     couch_task_status:add_task(<<"View Group Indexer">>, <<DbName/binary," ",GroupName/binary>>, <<"Starting index update">>),
-    
+
     DbPurgeSeq = couch_db:get_purge_seq(Db),
     Group2 =
     if DbPurgeSeq == PurgeSeq ->
@@ -30,7 +30,7 @@ update(#group{db=#db{name=DbName}=Db,name=GroupName,current_seq=Seq,purge_seq=Pu
         couch_task_status:update(<<"Resetting view index due to lost purge entries.">>),
         exit(reset)
     end,
-    
+
     ViewEmptyKVs = [{View, []} || View <- Group2#group.views],
     % compute on all docs modified since we last computed.
     TotalChanges = couch_db:count_changes_since(Db, Seq),
@@ -95,9 +95,9 @@ process_doc(Db, DocInfo, {Docs, #group{sig=Sig,name=GroupId,design_options=Desig
     % This fun computes once for each document
 
     #doc_info{id=DocId, revs=[#rev_info{deleted=Deleted}|_]} = DocInfo,
-    IncludeDesign = proplists:get_value(<<"include_design">>, 
+    IncludeDesign = proplists:get_value(<<"include_design">>,
         DesignOptions, false),
-    LocalSeq = proplists:get_value(<<"local_seq">>, 
+    LocalSeq = proplists:get_value(<<"local_seq">>,
         DesignOptions, false),
     DocOpts = case LocalSeq of
         true ->
@@ -106,26 +106,6 @@ process_doc(Db, DocInfo, {Docs, #group{sig=Sig,name=GroupId,design_options=Desig
             [conflicts, deleted_conflicts]
     end,
     case {IncludeDesign, DocId} of
-    {_, GroupId} ->
-        % uh oh. this is the design doc with our definitions. See if
-        % anything in the definition changed.
-        case couch_db:open_doc_int(Db, DocInfo, DocOpts) of
-        {ok, Doc} ->
-            case couch_view_group:design_doc_to_view_group(Doc) of
-            #group{sig=Sig} ->
-                % The same md5 signature, keep on computing
-                case IncludeDesign of
-                true ->
-                    {[Doc | Docs], Group, ViewKVs, DocIdViewIdKeys};
-                _ ->
-                    {Docs, Group, ViewKVs, DocIdViewIdKeys}
-                end;
-            _ ->
-                exit(reset)
-            end;
-        {not_found, deleted} ->
-            exit(reset)
-        end;
     {false, <<?DESIGN_DOC_PREFIX, _/binary>>} -> % we skip design docs
         {Docs, Group, ViewKVs, DocIdViewIdKeys};
     _ ->
@@ -133,15 +113,15 @@ process_doc(Db, DocInfo, {Docs, #group{sig=Sig,name=GroupId,design_options=Desig
         if Deleted ->
             {Docs, [{DocId, []} | DocIdViewIdKeys]};
         true ->
-            {ok, Doc} = couch_db:open_doc_int(Db, DocInfo, 
+            {ok, Doc} = couch_db:open_doc_int(Db, DocInfo,
                 DocOpts),
             {[Doc | Docs], DocIdViewIdKeys}
         end,
-        
+
         case couch_util:should_flush() of
         true ->
             {Group1, Results} = view_compute(Group, Docs2),
-            {ViewKVs3, DocIdViewIdKeys3} = view_insert_query_results(Docs2, 
+            {ViewKVs3, DocIdViewIdKeys3} = view_insert_query_results(Docs2,
                 Results, ViewKVs, DocIdViewIdKeys2),
             {ok, Group2} = write_changes(Group1, ViewKVs3, DocIdViewIdKeys3,
                 DocInfo#doc_info.high_seq),
@@ -179,7 +159,7 @@ view_insert_doc_query_results(#doc{id=DocId}=Doc, [ResultKVs|RestResults], [{Vie
                 [{Key,Value},{PrevKey,PrevVal}|AccRest]
             end;
         (KV, []) ->
-           [KV] 
+           [KV]
         end, [], lists:sort(ResultKVs)),
     NewKVs = [{{Key, DocId}, Value} || {Key, Value} <- ResultKVs2],
     NewViewKVsAcc = [{View, NewKVs ++ KVs} | ViewKVsAcc],
