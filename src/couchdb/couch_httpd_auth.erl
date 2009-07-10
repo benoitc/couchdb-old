@@ -17,7 +17,7 @@
 -export([cookie_authentication_handler/1]).
 -export([null_authentication_handler/1]).
 -export([cookie_auth_header/2]).
--export([handle_login_req/1, handle_logout_req/1]).
+-export([handle_session_req/1]).
 
 -import(couch_httpd, [header_value/2, send_json/4, send_method_not_allowed/2]).
 -import(erlang, [integer_to_list/2, list_to_integer/2]).
@@ -242,6 +242,34 @@ handle_login_req(#httpd{method='POST', mochi_req=MochiReq}=Req, #db{}=Db) ->
         _Else ->
             throw({unauthorized, <<"Name or password is incorrect.">>})
     end.
+
+% Session Handler
+
+handle_session_req(#httpd{method='POST'}=Req) ->
+    % login
+handle_session_req(#httpd{method='GET', user_ctx=UserCtx}=Req) ->
+    % whoami
+    Name = UserCtx#user_ctx.name,
+    Roles = UserCtx#user_ctx.roles,
+    ForceLogin = couch_httpd:qs_value(Req, "basic", "false"),
+    case {Name, ForceLogin} of
+        {null, "true"} ->
+            throw({unauthorized, <<"Please login.">>});
+        _False -> ok
+    end,
+    send_json(Req, {[
+        {ok, true},
+        {name, Name},
+        {roles, Roles}
+    ]});
+
+    
+    
+handle_session_req(#httpd{method='DELETE'}=Req) ->
+    % logout
+handle_session_req(Req) ->
+    send_method_not_allowed(Req, "GET,HEAD,POST,DELETE").
+
 
 % Login handler
 handle_login_req(#httpd{method='POST'}=Req) ->

@@ -61,7 +61,7 @@ couchTests.security_validation = function(debug) {
       }
 
       // test force_login=true. 
-      var resp = wrongPasswordDb.request("GET", "/_whoami?force_login=true");    
+      var resp = wrongPasswordDb.request("GET", "/_session?basic=true");    
       var err = JSON.parse(resp.responseText);
       T(err.error == "unauthorized");
       T(resp.status == 401);
@@ -105,7 +105,7 @@ couchTests.security_validation = function(debug) {
       T(userDb.save(designDoc).ok);
 
       // test the _whoami endpoint
-      var resp = userDb.request("GET", "/_whoami");
+      var resp = userDb.request("GET", "/_session");
       var user = JSON.parse(resp.responseText)
       T(user.name == "Damien Katz");
       // test that the roles are listed properly
