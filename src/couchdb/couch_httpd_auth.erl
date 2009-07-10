@@ -107,7 +107,7 @@ get_user(Db, UserName) ->
     DesignId = <<"_design/_auth">>,
     ViewName = <<"users">>,
     % if the design doc or the view doesn't exist, then make it
-    ensure_users_view_exists(),
+    ensure_users_view_exists(Db, DesignId, ViewName),
     
     case (catch couch_view:get_map_view(Db, DesignId, ViewName, nil)) of
     {ok, View, _Group} ->
@@ -120,16 +120,39 @@ get_user(Db, UserName) ->
         _Else -> nil
         end;
     {not_found, _Reason} ->
-        case (catch couch_view:get_reduce_view(Db, DesignId, ViewName, nil)) of
-        {ok, _ReduceView, _Group} ->
-            not_implemented;
-        {not_found, _Reason} ->
-            nil
-        end
+        nil
+        % case (catch couch_view:get_reduce_view(Db, DesignId, ViewName, nil)) of
+        % {ok, _ReduceView, _Group} ->
+        %     not_implemented;
+        % {not_found, _Reason} ->
+        %     nil
+        % end
     end.
 
-ensure_users_view_exists() -> 
-    ok.
+ensure_users_view_exists(Db, DDocId, VName) -> 
+    try couch_httpd_db:couch_doc_open(Db, DDocId, nil, []) of
+        Foo -> ok
+    catch 
+        _:_Error -> 
+            ?LOG_ERROR("create the design document ~p", [DDocId]),
+            % create the design document
+            {ok, AuthDesign} = auth_design_doc(DDocId, VName),
+            {ok, Rev} = couch_db:update_doc(Db, AuthDesign, []),
+            ok
+    end.
+
+auth_design_doc(DocId, VName) ->
+    DocProps = [
+        {<<"_id">>,<<"javascript">>},
+        {<<"language">>,<<"javascript">>},
+        {<<"views">>,
+            {[{VName,
+                {[{<<"map">>,
+                    <<"function (doc) {\n if (doc.type == \"user\") {\n        emit(doc.username, doc);\n}\n}">>
+                }]}
+            }]}
+        }],
+    {ok, couch_doc:from_json_obj(DocProps)}.
 
 cookie_auth_user(_Req, undefined) -> nil;
 cookie_auth_user(#httpd{mochi_req=MochiReq}=Req, DbName) ->
@@ -158,15 +181,16 @@ cookie_auth_user(#httpd{mochi_req=MochiReq}=Req, DbName) ->
                         Hash = ?l2b(string:join(HashParts, ":")),
                         Timeout = 600,
                         case (catch list_to_integer(TimeStr, 16)) of
-                        TimeStamp when CurrentTime < TimeStamp + Timeout andalso ExpectedHash == Hash ->
-                            TimeLeft = TimeStamp + Timeout - CurrentTime,
-                            ?LOG_DEBUG("Successful cookie auth as: ~p", [User]),
-                            Req#httpd{user_ctx=#user_ctx{
-                                name=?l2b(User),
-                                roles=proplists:get_value(<<"roles">>, Result, [])
-                            }, auth={FullSecret, TimeLeft < Timeout*0.9}};
-                        _Else ->
-                            nil
+                            TimeStamp when CurrentTime < TimeStamp + Timeout 
+                            andalso ExpectedHash == Hash ->
+                                TimeLeft = TimeStamp + Timeout - CurrentTime,
+                                ?LOG_DEBUG("Successful cookie auth as: ~p", [User]),
+                                Req#httpd{user_ctx=#user_ctx{
+                                    name=?l2b(User),
+                                    roles=proplists:get_value(<<"roles">>, Result, [])
+                                }, auth={FullSecret, TimeLeft < Timeout*0.9}};
+                            _Else ->
+                                nil
                         end
                     end
                 end

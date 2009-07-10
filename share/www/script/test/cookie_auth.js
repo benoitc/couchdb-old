@@ -51,7 +51,6 @@ couchTests.cookie_auth = function(debug) {
       var designDoc = {
         _id:"_design/_auth",
         language: "javascript",
-        secret: generateSecret(40),
         views: {
           users: {
             map: (function (doc) {
