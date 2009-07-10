@@ -106,6 +106,9 @@ cookie_authentication_handler(Req) ->
 get_user(Db, UserName) ->
     DesignId = <<"_design/_auth">>,
     ViewName = <<"users">>,
+    % if the design doc or the view doesn't exist, then make it
+    ensure_users_view_exists(),
+    
     case (catch couch_view:get_map_view(Db, DesignId, ViewName, nil)) of
     {ok, View, _Group} ->
         FoldlFun = fun
@@ -124,6 +127,9 @@ get_user(Db, UserName) ->
             nil
         end
     end.
+
+ensure_users_view_exists() -> 
+    ok.
 
 cookie_auth_user(_Req, undefined) -> nil;
 cookie_auth_user(#httpd{mochi_req=MochiReq}=Req, DbName) ->
