@@ -131,13 +131,13 @@ get_user(Db, UserName) ->
 
 ensure_users_view_exists(Db, DDocId, VName) -> 
     try couch_httpd_db:couch_doc_open(Db, DDocId, nil, []) of
-        Foo -> ok
+        _Foo -> ok
     catch 
         _:Error -> 
             ?LOG_ERROR("create the design document ~p : ~p", [DDocId, Error]),
             % create the design document
             {ok, AuthDesign} = auth_design_doc(DDocId, VName),
-            {ok, Rev} = couch_db:update_doc(Db, AuthDesign, []),
+            {ok, _Rev} = couch_db:update_doc(Db, AuthDesign, []),
             ?LOG_ERROR("created the design document", []),
             ok
     end.
@@ -180,7 +180,8 @@ cookie_auth_user(#httpd{mochi_req=MochiReq}=Req, DbName) ->
                         FullSecret = <<Secret/binary, UserSalt/binary>>,
                         ExpectedHash = crypto:sha_mac(FullSecret, User ++ ":" ++ TimeStr),
                         Hash = ?l2b(string:join(HashParts, ":")),
-                        Timeout = 600,
+                        Timeout = to_int(couch_config:get("couch_httpd_auth", "timeout", 600)),
+                        ?LOG_DEBUG("timeout ~p", [Timeout]),
                         case (catch list_to_integer(TimeStr, 16)) of
                             TimeStamp when CurrentTime < TimeStamp + Timeout 
                             andalso ExpectedHash == Hash ->
@@ -304,6 +305,11 @@ handle_session_req(#httpd{method='DELETE'}=Req) ->
 handle_session_req(Req) ->
     send_method_not_allowed(Req, "GET,HEAD,POST,DELETE").
 
+
+to_int(Value) when is_list(Value) ->
+    list_to_integer(Value);
+to_int(Value) when is_integer(Value) ->
+    Value.
 
 % % Login handler
 % handle_login_req(#httpd{method='POST'}=Req) ->
