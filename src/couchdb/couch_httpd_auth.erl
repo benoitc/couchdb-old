@@ -131,11 +131,16 @@ get_user(Db, UserName) ->
     end.
     
 ensure_users_db_exists(DbName) ->
-    case couch_db:create(DbName, [{user_ctx, #user_ctx{roles=[<<"_admin">>]}}]) of
-    {ok, Db} -> 
+    case couch_db:open(DbName, [{user_ctx, #user_ctx{roles=[<<"_admin">>]}}]) of
+    {ok, Db} ->
         couch_db:close(Db),
         ok;
-    _Error -> ok
+    _Error -> 
+        ?LOG_ERROR("Create the db ~p", [DbName]),
+        {ok, Db} = couch_db:create(DbName, [{user_ctx, #user_ctx{roles=[<<"_admin">>]}}]),
+        ?LOG_ERROR("Created the db ~p", [DbName]),
+        couch_db:close(Db),
+        ok
     end.
     
 ensure_users_view_exists(Db, DDocId, VName) -> 
@@ -164,13 +169,16 @@ auth_design_doc(DocId, VName) ->
         }],
     {ok, couch_doc:from_json_obj({DocProps})}.
     
-user_doc(DocId, Username, PasswordHash, Email, Active) ->
+user_doc(DocId, Username, UserSalt, PasswordHash, Email, Active, Roles) ->
     DocProps = [
         {<<"_id">>, DocId},
+        {<<"type">>, <<"user">>},
         {<<"username">>, Username},
         {<<"password_sha">>, PasswordHash},
+        {<<"salt">>, UserSalt},
         {<<"email">>, Email},
-        {<<"active">>, Active}],
+        {<<"active">>, Active},
+        {<<"roles">>, Roles}],
     {ok, couch_doc:from_json_obj({DocProps})}.
 
 cookie_auth_user(_Req, undefined) -> nil;
@@ -332,18 +340,26 @@ create_user_req(#httpd{method='POST', mochi_req=MochiReq}=Req, Db) ->
         _ ->
             []
     end,
+    Roles = proplists:get_all_values("roles", Form),
     UserName = ?l2b(proplists:get_value("username", Form, "")),
     Password = ?l2b(proplists:get_value("password", Form, "")),
     Email = ?l2b(proplists:get_value("email", Form, "")),
     Active = couch_httpd_view:parse_bool_param(proplists:get_value("active", Form, "true")),
     case get_user(Db, UserName) of
     nil -> 
+        Roles1 = case Roles of
+        [] -> Roles;
+        _ ->
+            ok = couch_httpd:verify_is_server_admin(Req),
+            [?l2b(R) || R <- Roles]
+        end,
+            
         UserSalt = couch_util:new_uuid(),
         PasswordHash = couch_util:encodeBase64(crypto:sha(<<UserSalt/binary, Password/binary>>)),
         DocId = couch_util:new_uuid(),
-        {ok, UserDoc} = user_doc(DocId, UserName, PasswordHash, Email, Active),
+        {ok, UserDoc} = user_doc(DocId, UserName, UserSalt, PasswordHash, Email, Active, Roles1),
         {ok, _Rev} = couch_db:update_doc(Db, UserDoc, []),
-        ?LOG_DEBUG("User ~s (~s) created.", [?b2l(UserName), ?b2l(DocId)]),
+        ?LOG_DEBUG("User ~s (~s) with password, ~s created.", [?b2l(UserName), ?b2l(DocId), ?b2l(Password)]),
         {Code, Headers} = case couch_httpd:qs_value(Req, "next", nil) of
             nil ->
                 {200, []};
@@ -352,6 +368,7 @@ create_user_req(#httpd{method='POST', mochi_req=MochiReq}=Req, Db) ->
         end,
         send_json(Req, Code, Headers, {[{ok, true}]});
     _Result -> 
+        ?LOG_DEBUG("Can't create ~s: already exists", [?b2l(UserName)]),
          throw({forbidden, <<"User already exist.">>})
     end.
     

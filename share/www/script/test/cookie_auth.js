@@ -97,12 +97,13 @@ couchTests.cookie_auth = function(debug) {
       usersDb.deleteDb();
       // test user creation
       T(CouchDB.create_user("test", "testpassword", "test@somemail.com", ['read', 'write']).ok);
-      // make sure we create a unique user
-      T(!CouchDB.create_user("test", "testpassword", "test@somemail.com", ['read', 'write']).ok);
+      
+      //make sure we create a unique user
+      T(!CouchDB.create_user("test", "testpassword2", "test2@somemail.com", ['read', 'write']).ok);
       
       // test login
-      T(CouchDB.login('test', "testpassword").ok);
-      T(!CouchDB.login('test', "badpassword").ok);
+      T(CouchDB.login("test", "testpassword").ok);
+      T(!CouchDB.login('test', "testpassword2").ok);
 
     } finally {
       // Make sure we erase any auth cookies so we don't affect other tests
