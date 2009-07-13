@@ -334,6 +334,31 @@ CouchDB.create_user = function(username, password, email, roles) {
   return JSON.parse(CouchDB.last_req.responseText);
 }
 
+CouchDB.update_user = function(username, email, roles, password, old_password) {
+  roles_str = ""
+  if (roles) {
+    for (var i=0; i< roles.length; i++) {
+      roles_str += "&roles=" + encodeURIComponent(roles[i]);
+    }
+  }
+  
+  body = "email="+ encodeURIComponent(email)+ roles_str;
+        
+  if (typeof(password) != "undefined" && password)
+    body += "&password=" + password;
+    
+  if (typeof(old_password) != "undefined" && old_password)
+    body += "&old_password=" + old_password;
+  
+  CouchDB.last_req = CouchDB.request("PUT", "/_user/"+encodeURIComponent(username), {
+    headers: {"Content-Type": "application/x-www-form-urlencoded",
+      "X-CouchDB-WWW-Authenticate": "Cookie"},
+    body: body
+    
+  });
+  return JSON.parse(CouchDB.last_req.responseText);
+}
+
 CouchDB.allDbs = function() {
   CouchDB.last_req = CouchDB.request("GET", "/_all_dbs");
     CouchDB.maybeThrowError(CouchDB.last_req);

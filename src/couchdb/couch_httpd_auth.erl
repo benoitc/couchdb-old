@@ -169,7 +169,10 @@ auth_design_doc(DocId, VName) ->
         }],
     {ok, couch_doc:from_json_obj({DocProps})}.
     
+
 user_doc(DocId, Username, UserSalt, PasswordHash, Email, Active, Roles) ->
+    user_doc(DocId, Username, UserSalt, PasswordHash, Email, Active, Roles, nil).
+user_doc(DocId, Username, UserSalt, PasswordHash, Email, Active, Roles, Rev) ->
     DocProps = [
         {<<"_id">>, DocId},
         {<<"type">>, <<"user">>},
@@ -179,7 +182,12 @@ user_doc(DocId, Username, UserSalt, PasswordHash, Email, Active, Roles) ->
         {<<"email">>, Email},
         {<<"active">>, Active},
         {<<"roles">>, Roles}],
-    {ok, couch_doc:from_json_obj({DocProps})}.
+    DocProps1 = case Rev of
+    nil -> DocProps;
+    _Rev -> 
+        [{<<"_rev">>, Rev}] ++ DocProps
+    end,
+    {ok, couch_doc:from_json_obj({DocProps1})}.
 
 cookie_auth_user(_Req, undefined) -> nil;
 cookie_auth_user(#httpd{mochi_req=MochiReq}=Req, DbName) ->
@@ -372,15 +380,98 @@ create_user_req(#httpd{method='POST', mochi_req=MochiReq}=Req, Db) ->
          throw({forbidden, <<"User already exist.">>})
     end.
     
+update_user_req(#httpd{method='PUT', mochi_req=MochiReq, user_ctx=UserCtx}=Req, Db, UserName) ->
+    Name = UserCtx#user_ctx.name,
+    UserRoles = UserCtx#user_ctx.roles,
+    case User = get_user(Db, UserName) of
+    nil ->
+        throw({not_found, <<"User don't exist">>});
+    _Result ->
+        ReqBody = MochiReq:recv_body(),
+        Form = case MochiReq:get_primary_header_value("content-type") of
+            "application/x-www-form-urlencoded" ++ _ ->
+                mochiweb_util:parse_qs(ReqBody);
+            _ ->
+                []
+        end,
+        Roles = proplists:get_all_values("roles", Form),
+        Password = ?l2b(proplists:get_value("password", Form, "")),
+        Email = ?l2b(proplists:get_value("email", Form, "")),
+        Active = couch_httpd_view:parse_bool_param(proplists:get_value("active", Form, "true")),
+        OldPassword = proplists:get_value("old_password", Form, ""),
+        OldPassword1 = ?l2b(OldPassword),
+        UserSalt = proplists:get_value(<<"salt">>, User, <<>>),
+        OldRev = proplists:get_value(<<"_rev">>, User, <<>>),
+        DocId = proplists:get_value(<<"_id">>, User, <<>>),
+        CurrentPasswordHash = proplists:get_value(<<"password_sha">>, User, nil),
+        
+        
+        Roles1 = case Roles of
+        [] -> Roles;
+        _ ->
+            ok = couch_httpd:verify_is_server_admin(Req),
+            [?l2b(R) || R <- Roles]
+        end,
+        
+        PasswordHash = case lists:member(<<"_admin">>, UserRoles) of
+        true ->
+            Hash = case Password of
+                <<>> -> CurrentPasswordHash;
+                _Else ->
+                    H = couch_util:encodeBase64(crypto:sha(<<UserSalt/binary, Password/binary>>)),
+                    H
+                end,
+            Hash;
+        false when Name == UserName ->
+            %% for user we test old password before allowing change
+            Hash = case Password of
+                <<>> -> 
+                    CurrentPasswordHash;
+                _P when length(OldPassword) == 0 ->
+                    throw({forbidden, <<"Old password is incorrect.">>});
+                _Else ->
+                    OldPasswordHash = couch_util:encodeBase64(crypto:sha(<<UserSalt/binary, OldPassword1/binary>>)),
+                    ?LOG_DEBUG("~p == ~p", [CurrentPasswordHash, OldPasswordHash]),
+                    Hash1 = case CurrentPasswordHash of
+                        ExpectedHash when ExpectedHash == OldPasswordHash ->
+                            H = couch_util:encodeBase64(crypto:sha(<<UserSalt/binary, Password/binary>>)),
+                            H;
+                        _ ->
+                            throw({forbidden, <<"Old password is incorrect.">>})
+                        end,
+                    Hash1
+                end,
+            Hash;
+        _ ->
+            throw({forbidden, <<"You aren't allowed to change this password.">>})
+        end, 
+        {ok, UserDoc} = user_doc(DocId, UserName, UserSalt, PasswordHash, Email, Active, Roles1, OldRev),
+        {ok, _Rev} = couch_db:update_doc(Db, UserDoc, []),
+        ?LOG_DEBUG("User ~s (~s)updated.", [?b2l(UserName), ?b2l(DocId)]),
+        {Code, Headers} = case couch_httpd:qs_value(Req, "next", nil) of
+        nil -> {200, []};
+        Redirect ->
+            {302, [{"Location", couch_httpd:absolute_uri(Req, Redirect)}]}
+        end,
+        send_json(Req, Code, Headers, {[{ok, true}]})
+    end.
+
 handle_user_req(#httpd{method='POST'}=Req) ->
     DbName = couch_config:get("couch_httpd_auth", "authentication_db"),
     ensure_users_db_exists(?l2b(DbName)),
     case couch_db:open(?l2b(DbName), [{user_ctx, #user_ctx{roles=[<<"_admin">>]}}]) of
         {ok, Db} -> create_user_req(Req, Db)
     end;
-    
+handle_user_req(#httpd{method='PUT', path_parts=[_]}=_Req) ->
+    throw({bad_request, <<"Username is missing">>});
+handle_user_req(#httpd{method='PUT', path_parts=[_, UserName]}=Req) ->
+    DbName = couch_config:get("couch_httpd_auth", "authentication_db"),
+    ensure_users_db_exists(?l2b(DbName)),
+    case couch_db:open(?l2b(DbName), [{user_ctx, #user_ctx{roles=[<<"_admin">>]}}]) of
+        {ok, Db} -> update_user_req(Req, Db, UserName)
+    end;
 handle_user_req(Req) ->
-     send_method_not_allowed(Req, "GET,HEAD,POST,DELETE").
+     send_method_not_allowed(Req, "GET,HEAD,POST,PUT,DELETE").
 
 to_int(Value) when is_binary(Value) ->
     to_int(?b2l(Value)); 
