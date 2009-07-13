@@ -316,6 +316,24 @@ CouchDB.logout = function() {
   return JSON.parse(CouchDB.last_req.responseText);
 }
 
+CouchDB.create_user = function(username, password, email, roles) {
+  roles_str = ""
+  if (roles) {
+    for (var i=0; i< roles.length; i++) {
+      roles_str += "&roles=" + encodeURIComponent(roles[i]);
+    }
+  }
+  
+  CouchDB.last_req = CouchDB.request("POST", "/_user", {
+    headers: {"Content-Type": "application/x-www-form-urlencoded",
+      "X-CouchDB-WWW-Authenticate": "Cookie"},
+    body: "username=" + encodeURIComponent(username) + "&password=" + encodeURIComponent(password) 
+          + "&email="+ encodeURIComponent(email)+ roles_str
+    
+  });
+  return JSON.parse(CouchDB.last_req.responseText);
+}
+
 CouchDB.allDbs = function() {
   CouchDB.last_req = CouchDB.request("GET", "/_all_dbs");
     CouchDB.maybeThrowError(CouchDB.last_req);

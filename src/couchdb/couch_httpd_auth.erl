@@ -18,6 +18,7 @@
 -export([null_authentication_handler/1]).
 -export([cookie_auth_header/2]).
 -export([handle_session_req/1]).
+-export([handle_user_req/1]).
 
 -import(couch_httpd, [header_value/2, send_json/2,send_json/4, send_method_not_allowed/2]).
 -import(erlang, [integer_to_list/2, list_to_integer/2]).
@@ -128,7 +129,15 @@ get_user(Db, UserName) ->
         %     nil
         % end
     end.
-
+    
+ensure_users_db_exists(DbName) ->
+    case couch_db:create(DbName, [{user_ctx, #user_ctx{roles=[<<"_admin">>]}}]) of
+    {ok, Db} -> 
+        couch_db:close(Db),
+        ok;
+    _Error -> ok
+    end.
+    
 ensure_users_view_exists(Db, DDocId, VName) -> 
     try couch_httpd_db:couch_doc_open(Db, DDocId, nil, []) of
         _Foo -> ok
@@ -153,6 +162,15 @@ auth_design_doc(DocId, VName) ->
                 }]}
             }]}
         }],
+    {ok, couch_doc:from_json_obj({DocProps})}.
+    
+user_doc(DocId, Username, PasswordHash, Email, Active) ->
+    DocProps = [
+        {<<"_id">>, DocId},
+        {<<"username">>, Username},
+        {<<"password_sha">>, PasswordHash},
+        {<<"email">>, Email},
+        {<<"active">>, Active}],
     {ok, couch_doc:from_json_obj({DocProps})}.
 
 cookie_auth_user(_Req, undefined) -> nil;
@@ -304,8 +322,51 @@ handle_session_req(#httpd{method='DELETE'}=Req) ->
     send_json(Req, Code, Headers, {[{ok, true}]});
 handle_session_req(Req) ->
     send_method_not_allowed(Req, "GET,HEAD,POST,DELETE").
+    
+create_user_req(#httpd{method='POST', mochi_req=MochiReq}=Req, Db) ->
+    ReqBody = MochiReq:recv_body(),
+    Form = case MochiReq:get_primary_header_value("content-type") of
+        "application/x-www-form-urlencoded" ++ _ ->
+            ?LOG_INFO("body parsed ~p", [mochiweb_util:parse_qs(ReqBody)]),
+            mochiweb_util:parse_qs(ReqBody);
+        _ ->
+            []
+    end,
+    UserName = ?l2b(proplists:get_value("username", Form, "")),
+    Password = ?l2b(proplists:get_value("password", Form, "")),
+    Email = ?l2b(proplists:get_value("email", Form, "")),
+    Active = couch_httpd_view:parse_bool_param(proplists:get_value("active", Form, "true")),
+    case get_user(Db, UserName) of
+    nil -> 
+        UserSalt = couch_util:new_uuid(),
+        PasswordHash = couch_util:encodeBase64(crypto:sha(<<UserSalt/binary, Password/binary>>)),
+        DocId = couch_util:new_uuid(),
+        {ok, UserDoc} = user_doc(DocId, UserName, PasswordHash, Email, Active),
+        {ok, _Rev} = couch_db:update_doc(Db, UserDoc, []),
+        ?LOG_DEBUG("User ~s (~s) created.", [?b2l(UserName), ?b2l(DocId)]),
+        {Code, Headers} = case couch_httpd:qs_value(Req, "next", nil) of
+            nil ->
+                {200, []};
+            Redirect ->
+                {302, [{"Location", couch_httpd:absolute_uri(Req, Redirect)}]}
+        end,
+        send_json(Req, Code, Headers, {[{ok, true}]});
+    _Result -> 
+         throw({forbidden, <<"User already exist.">>})
+    end.
+    
+handle_user_req(#httpd{method='POST'}=Req) ->
+    DbName = couch_config:get("couch_httpd_auth", "authentication_db"),
+    ensure_users_db_exists(?l2b(DbName)),
+    case couch_db:open(?l2b(DbName), [{user_ctx, #user_ctx{roles=[<<"_admin">>]}}]) of
+        {ok, Db} -> create_user_req(Req, Db)
+    end;
+    
+handle_user_req(Req) ->
+     send_method_not_allowed(Req, "GET,HEAD,POST,DELETE").
 
-
+to_int(Value) when is_binary(Value) ->
+    to_int(?b2l(Value)); 
 to_int(Value) when is_list(Value) ->
     list_to_integer(Value);
 to_int(Value) when is_integer(Value) ->

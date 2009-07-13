@@ -93,6 +93,16 @@ couchTests.cookie_auth = function(debug) {
       });
       // should this be a redirect code instead of 200?
       T(xhr.status == 200);
+      
+      usersDb.deleteDb();
+      // test user creation
+      T(CouchDB.create_user("test", "testpassword", "test@somemail.com", ['read', 'write']).ok);
+      // make sure we create a unique user
+      T(!CouchDB.create_user("test", "testpassword", "test@somemail.com", ['read', 'write']).ok);
+      
+      // test login
+      T(CouchDB.login('test', "testpassword").ok);
+      T(!CouchDB.login('test', "badpassword").ok);
 
     } finally {
       // Make sure we erase any auth cookies so we don't affect other tests
