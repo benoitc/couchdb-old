@@ -87,8 +87,7 @@ proxy_respond({Source}, State) when is_function(Source) ->
         _:_ -> couch_httpd:send_chunk(State, "")
     end;
 proxy_respond(Body, State) ->
-    couch_doc:bin_foldl(Body,
-        fun(BinSegment, _) -> couch_httpd:send_chunk(State, BinSegment) end,[]),
+    couch_httpd:send_chunk(State, Body),
     couch_httpd:send_chunk(State, "").
 
 proxy_respond1(Source, Resp, State) ->
