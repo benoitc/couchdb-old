@@ -64,12 +64,38 @@ get_changes_timeout(Req, Resp) ->
             fun() -> send_chunk(Resp, "\n"), ok end}
     end.
 
+
+changes_response_type(Req) ->
+	case couch_httpd:qs_value(Req, "longpoll", "false") of
+	"true" -> longpoll;
+	"false" ->
+		case couch_httpd:qs_value(Req, "continuous", "false") of
+		"true" -> continuous;
+		"false" -> normal
+		end
+	end.
+	
 handle_changes_req(#httpd{method='GET',path_parts=[DbName|_]}=Req, Db) ->
     StartSeq = list_to_integer(couch_httpd:qs_value(Req, "since", "0")),
     {ok, Resp} = start_json_response(Req, 200),
     send_chunk(Resp, "{\"results\":[\n"),
-    case couch_httpd:qs_value(Req, "continuous", "false") of
-    "true" ->
+    case changes_response_type(Req) of
+	longpoll ->
+		Self = self(),
+		{ok, Notify} = couch_db_update_notifier:start_link(
+			fun({_, DbName0}) when DbName0 == DbName ->
+				Self ! db_updated;
+			(_) ->
+				ok
+			end),
+		{Timeout, TimeoutFun} = get_changes_timeout(Req, Resp),
+		try
+			longpolling_changes(Req, Resp, Db, StartSeq, Timeout, TimeoutFun)
+		after
+			couch_db_update_notifier:stop(Notify),
+            get_rest_db_updated()
+		end;
+    continuous ->
         Self = self(),
         {ok, Notify} = couch_db_update_notifier:start_link(
             fun({_, DbName0}) when DbName0 == DbName ->
@@ -86,8 +112,7 @@ handle_changes_req(#httpd{method='GET',path_parts=[DbName|_]}=Req, Db) ->
             couch_db_update_notifier:stop(Notify),
             get_rest_db_updated() % clean out any remaining update messages
         end;
-
-    "false" ->
+    _ ->
         {ok, {LastSeq, _Prepend}} =
                 send_changes(Req, Resp, Db, StartSeq, <<"">>),
         send_chunk(Resp, io_lib:format("\n],\n\"last_seq\":~w}\n", [LastSeq])),
@@ -124,6 +149,20 @@ keep_sending_changes(#httpd{user_ctx=UserCtx,path_parts=[DbName|_]}=Req, Resp, D
         end_json_response(Resp)
     end.
 
+longpolling_changes(#httpd{user_ctx=UserCtx,path_parts=[DbName|_]}=Req, Resp, Db, StartSeq, Timeout, TimeoutFun) ->
+	{ok, {EndSeq, Prepend2}} = send_changes(Req, Resp, Db, StartSeq, <<"">>),
+    couch_db:close(Db),
+	case wait_db_updated(Timeout, TimeoutFun) of
+	updated ->
+		{ok, Db2} = couch_db:open(DbName, [{user_ctx, UserCtx}]),
+		{ok, {EndSeq2, _Prepend}} = send_changes(Req, Resp, Db2, EndSeq, Prepend2),
+	    couch_db:close(Db2),
+		send_chunk(Resp, io_lib:format("\n],\n\"last_seq\":~w}\n", [EndSeq2]));
+	stop ->
+		send_chunk(Resp, io_lib:format("\n],\n\"last_seq\":~w}\n", [EndSeq]))
+	end,
+	end_json_response(Resp).
+	
 send_changes(Req, Resp, Db, StartSeq, Prepend0) ->
     Style = list_to_existing_atom(
             couch_httpd:qs_value(Req, "style", "main_only")),
