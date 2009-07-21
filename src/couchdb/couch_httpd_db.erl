@@ -80,22 +80,11 @@ handle_changes_req(#httpd{method='GET',path_parts=[DbName|_]}=Req, Db) ->
     {ok, Resp} = start_json_response(Req, 200),
     send_chunk(Resp, "{\"results\":[\n"),
     case changes_response_type(Req) of
-	longpoll ->
-		Self = self(),
-		{ok, Notify} = couch_db_update_notifier:start_link(
-			fun({_, DbName0}) when DbName0 == DbName ->
-				Self ! db_updated;
-			(_) ->
-				ok
-			end),
-		{Timeout, TimeoutFun} = get_changes_timeout(Req, Resp),
-		try
-			longpolling_changes(Req, Resp, Db, StartSeq, Timeout, TimeoutFun)
-		after
-			couch_db_update_notifier:stop(Notify),
-            get_rest_db_updated()
-		end;
-    continuous ->
+    normal ->
+        {ok, {LastSeq, _Prepend}} =
+                send_changes(Req, Resp, Db, StartSeq, <<"">>),
+        end_sending_changes(Resp, LastSeq);
+	ResponseType ->
         Self = self(),
         {ok, Notify} = couch_db_update_notifier:start_link(
             fun({_, DbName0}) when DbName0 == DbName ->
@@ -107,16 +96,11 @@ handle_changes_req(#httpd{method='GET',path_parts=[DbName|_]}=Req, Db) ->
         couch_stats_collector:track_process_count(Self,
                             {httpd, clients_requesting_changes}),
         try
-            keep_sending_changes(Req, Resp, Db, StartSeq, <<"">>, Timeout, TimeoutFun)
+            keep_sending_changes(Req, Resp, Db, StartSeq, <<"">>, Timeout, TimeoutFun, ResponseType)
         after
             couch_db_update_notifier:stop(Notify),
             get_rest_db_updated() % clean out any remaining update messages
-        end;
-    _ ->
-        {ok, {LastSeq, _Prepend}} =
-                send_changes(Req, Resp, Db, StartSeq, <<"">>),
-        send_chunk(Resp, io_lib:format("\n],\n\"last_seq\":~w}\n", [LastSeq])),
-        end_json_response(Resp)
+        end
     end;
 
 handle_changes_req(#httpd{path_parts=[_,<<"_changes">>]}=Req, _Db) ->
@@ -136,33 +120,27 @@ get_rest_db_updated() ->
     receive db_updated -> get_rest_db_updated()
     after 0 -> updated
     end.
+    
+end_sending_changes(Resp, EndSeq) ->
+    send_chunk(Resp, io_lib:format("\n],\n\"last_seq\":~w}\n", [EndSeq])),
+    end_json_response(Resp).
 
-keep_sending_changes(#httpd{user_ctx=UserCtx,path_parts=[DbName|_]}=Req, Resp, Db, StartSeq, Prepend, Timeout, TimeoutFun) ->
+keep_sending_changes(#httpd{user_ctx=UserCtx,path_parts=[DbName|_]}=Req, Resp, Db, StartSeq, Prepend, Timeout, TimeoutFun, ResponseType) ->
     {ok, {EndSeq, Prepend2}} = send_changes(Req, Resp, Db, StartSeq, Prepend),
     couch_db:close(Db),
-    case wait_db_updated(Timeout, TimeoutFun) of
-    updated ->
-        {ok, Db2} = couch_db:open(DbName, [{user_ctx, UserCtx}]),
-        keep_sending_changes(Req, Resp, Db2, EndSeq, Prepend2, Timeout, TimeoutFun);
-    stop ->
-        send_chunk(Resp, io_lib:format("\n],\n\"last_seq\":~w}\n", [EndSeq])),
-        end_json_response(Resp)
+    if
+    EndSeq > StartSeq, ResponseType =:= longpoll ->
+        end_sending_changes(Resp, EndSeq);
+    true ->
+        case wait_db_updated(Timeout, TimeoutFun) of
+        updated ->
+            {ok, Db2} = couch_db:open(DbName, [{user_ctx, UserCtx}]),
+            keep_sending_changes(Req, Resp, Db2, EndSeq, Prepend2, Timeout, TimeoutFun, ResponseType);
+        stop ->
+            end_sending_changes(Resp, EndSeq)
+        end
     end.
 
-longpolling_changes(#httpd{user_ctx=UserCtx,path_parts=[DbName|_]}=Req, Resp, Db, StartSeq, Timeout, TimeoutFun) ->
-	{ok, {EndSeq, Prepend2}} = send_changes(Req, Resp, Db, StartSeq, <<"">>),
-    couch_db:close(Db),
-	case wait_db_updated(Timeout, TimeoutFun) of
-	updated ->
-		{ok, Db2} = couch_db:open(DbName, [{user_ctx, UserCtx}]),
-		{ok, {EndSeq2, _Prepend}} = send_changes(Req, Resp, Db2, EndSeq, Prepend2),
-	    couch_db:close(Db2),
-		send_chunk(Resp, io_lib:format("\n],\n\"last_seq\":~w}\n", [EndSeq2]));
-	stop ->
-		send_chunk(Resp, io_lib:format("\n],\n\"last_seq\":~w}\n", [EndSeq]))
-	end,
-	end_json_response(Resp).
-	
 send_changes(Req, Resp, Db, StartSeq, Prepend0) ->
     Style = list_to_existing_atom(
             couch_httpd:qs_value(Req, "style", "main_only")),

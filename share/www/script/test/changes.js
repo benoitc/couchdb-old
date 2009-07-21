@@ -124,27 +124,37 @@ couchTests.changes = function(debug) {
     T(str.charAt(str.length - 2) == "\n")
 
 
-	// test longpolling
-	xhr = CouchDB.newXhr();
-	
-	xhr.open("GET", "/test_suite_db/_changes?longpoll=true", true);
+    // test longpolling
+    xhr = CouchDB.newXhr();
+
+    xhr.open("GET", "/test_suite_db/_changes?longpoll=true", true);
     xhr.send("");
 
-	
-	
-	var docBarz = {_id:"barz", bar:1};
+    sleep(100);
+    var lines = xhr.responseText.split("\n");
+    T(lines[5]=='"last_seq":3}');
+
+    xhr = CouchDB.newXhr();
+
+    xhr.open("GET", "/test_suite_db/_changes?longpoll=true&since=3", true);
+    xhr.send("");
+
+    sleep(100);
+    var lines = xhr.responseText.split("\n");
+
+    var docBarz = {_id:"barz", bar:1};
     db.save(docBarz);
 
-	sleep(100);
+    sleep(100);
 
     var lines = xhr.responseText.split("\n");
 
-	change = parse_changes_line(lines[4]);
+    change = parse_changes_line(lines[1]);
 
     T(change.seq == 4);
     T(change.id == "barz");
     T(change.changes[0].rev == docBarz._rev);
-	T(lines[6]=='"last_seq":4}');
+    T(lines[3]=='"last_seq":4}');
 	
   }
   
