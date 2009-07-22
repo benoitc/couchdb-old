@@ -44,7 +44,7 @@ couchTests.changes = function(debug) {
   T(jsonp_flag == 1);
 
 
-  req = CouchDB.request("GET", "/test_suite_db/_changes?continuous=true&timeout=10");
+  req = CouchDB.request("GET", "/test_suite_db/_changes?feed=continuous&timeout=10");
   var resp = JSON.parse(req.responseText);
   T(resp.results.length == 1 && resp.last_seq==1)
   T(resp.results[0].changes[0].rev == docFoo._rev)
@@ -75,7 +75,7 @@ couchTests.changes = function(debug) {
     }
 
 
-    xhr.open("GET", "/test_suite_db/_changes?continuous=true", true);
+    xhr.open("GET", "/test_suite_db/_changes?feed=continuous", true);
     xhr.send("");
 
     var docBar = {_id:"bar", bar:1};
@@ -113,7 +113,7 @@ couchTests.changes = function(debug) {
     xhr = CouchDB.newXhr();
 
     //verify the hearbeat newlines are sent
-    xhr.open("GET", "/test_suite_db/_changes?continuous=true&heartbeat=10", true);
+    xhr.open("GET", "/test_suite_db/_changes?feed=continuous&heartbeat=10", true);
     xhr.send("");
 
     sleep(100);
@@ -127,7 +127,7 @@ couchTests.changes = function(debug) {
     // test longpolling
     xhr = CouchDB.newXhr();
 
-    xhr.open("GET", "/test_suite_db/_changes?longpoll=true", true);
+    xhr.open("GET", "/test_suite_db/_changes?feed=longpoll", true);
     xhr.send("");
 
     sleep(100);
@@ -136,11 +136,10 @@ couchTests.changes = function(debug) {
 
     xhr = CouchDB.newXhr();
 
-    xhr.open("GET", "/test_suite_db/_changes?longpoll=true&since=3", true);
+    xhr.open("GET", "/test_suite_db/_changes?feed=longpoll&since=3", true);
     xhr.send("");
 
     sleep(100);
-    var lines = xhr.responseText.split("\n");
 
     var docBarz = {_id:"barz", bar:1};
     db.save(docBarz);
