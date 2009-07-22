@@ -69,9 +69,8 @@ handle_changes_req(#httpd{method='GET',path_parts=[DbName|_]}=Req, Db) ->
     StartSeq = list_to_integer(couch_httpd:qs_value(Req, "since", "0")),
     {ok, Resp} = start_json_response(Req, 200),
     send_chunk(Resp, "{\"results\":[\n"),
-    case couch_httpd:qs_value(Req, "feed", "false") of
-	ResponseType when ResponseType == "continuous" orelse ResponseType == "longpoll"->
-	    ?LOG_DEBUG("ici", []),
+    case couch_httpd:qs_value(Req, "feed", "normal") of
+    ResponseType when ResponseType == "continuous" orelse ResponseType == "longpoll"->
         Self = self(),
         {ok, Notify} = couch_db_update_notifier:start_link(
             fun({_, DbName0}) when DbName0 == DbName ->
@@ -88,10 +87,10 @@ handle_changes_req(#httpd{method='GET',path_parts=[DbName|_]}=Req, Db) ->
             couch_db_update_notifier:stop(Notify),
             get_rest_db_updated() % clean out any remaining update messages
         end;
-    "false" ->
-           {ok, {LastSeq, _Prepend}} =
-                   send_changes(Req, Resp, Db, StartSeq, <<"">>),
-           end_sending_changes(Resp, LastSeq)
+    "normal" ->
+        {ok, {LastSeq, _Prepend}} =
+                send_changes(Req, Resp, Db, StartSeq, <<"">>),
+        end_sending_changes(Resp, LastSeq)
     end;
 
 handle_changes_req(#httpd{path_parts=[_,<<"_changes">>]}=Req, _Db) ->
