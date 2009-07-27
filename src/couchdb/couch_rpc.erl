@@ -12,6 +12,10 @@
 %%  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %%  See the License for the specific language governing permissions and
 %%  limitations under the License.
+%%
+%% Some code based on hovercraft from  J Chris Anderson <jchris@couch.io>
+%% Copyright 2009 J Chris Anderson <jchris@couch.io> under Apache 2 License.
+%%
 
 -module(couch_rpc).
 
@@ -210,19 +214,12 @@ ejson_to_couch_doc({DocProps}) ->
         end,
     couch_doc:from_json_obj(Doc).
     
-
-    
 start_map_view_fold_fun(_Req, _Etag, _RowCount, Offset, Acc) ->
     {ok, nil, []}.
 
 map_row_fold_fun(_Resp, Db, {{Key, DocId}, Value}, _IncludeDocs, Acc) ->
     Acc1 = [{{Key, DocId}, Value}|Acc],
     {ok, Acc1}.
-    
-%%view_row(Resp, Db, {{Key, DocId}, Value}, IncludeDocs, RowFront) ->
-%%    JsonObj = view_row_obj(Db, {{Key, DocId}, Value}, IncludeDocs),
-%%    
-%%    {ok, ",\r\n"}.
 
 start_reduce_view_fold_fun(Req, Etag, _Acc0) ->
     {ok, nil, []}.
