@@ -74,6 +74,7 @@ source_files = \
     couch_rep.erl \
     couch_rep_changes_feed.erl \
     couch_rep_sup.erl \
+	couch_rpc.erl \
     couch_server.erl \
     couch_server_sup.erl \
     couch_stats_aggregator.erl \
@@ -119,6 +120,7 @@ compiled_files = \
     couch_rep.beam \
     couch_rep_changes_feed.beam \
     couch_rep_sup.beam \
+	couch_rpc.beam \
     couch_server.beam \
     couch_server_sup.beam \
     couch_stats_aggregator.beam \

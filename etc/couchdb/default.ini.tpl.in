@@ -47,6 +47,7 @@ query_servers={couch_query_servers, start_link, []}
 httpd={couch_httpd, start_link, []}
 stats_aggregator={couch_stats_aggregator, start, []}
 stats_collector={couch_stats_collector, start, []}
+rpc={couch_rpc, start_link, []}
 
 [httpd_global_handlers]
 / = {couch_httpd_misc_handlers, handle_welcome_req, <<"Welcome">>}
