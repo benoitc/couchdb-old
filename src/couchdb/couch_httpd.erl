@@ -15,7 +15,7 @@
 
 -export([start_link/0, stop/0, handle_request/5]).
 
--export([header_value/2,header_value/3,qs_value/2,qs_value/3,qs/1,path/1,absolute_uri/2]).
+-export([header_value/2,header_value/3,body_length/1,qs_value/2,qs_value/3,qs/1,path/1,absolute_uri/2]).
 -export([verify_is_server_admin/1,unquote/1,quote/1,recv/2,recv_chunked/4,error_info/1]).
 -export([parse_form/1,json_body/1,json_body_obj/1,body/1,doc_etag/1, make_etag/1, etag_respond/3]).
 -export([primary_header_value/2,partition/1,serve_file/3, server_header/0]).
@@ -234,6 +234,17 @@ header_value(#httpd{mochi_req=MochiReq}, Key, Default) ->
     undefined -> Default;
     Value -> Value
     end.
+    
+body_length(Req) ->
+    case header_value(Req, "Transfer-Encoding") of
+        undefined ->
+            case header_value(Req, "Content-Length") of
+                undefined -> undefined;
+                Length -> list_to_integer(Length)
+            end;
+        "chunked" -> chunked;
+        Unknown -> {unknown_transfer_encoding, Unknown}
+    end.
 
 primary_header_value(#httpd{mochi_req=MochiReq}, Key) ->
     MochiReq:get_primary_header_value(Key).
@@ -280,7 +291,7 @@ recv_chunked(#httpd{mochi_req=MochiReq}, MaxChunkSize, ChunkFun, InitState) ->
     % Fun({Length, Binary}, State)
     % called with Length == 0 on the last time.
     MochiReq:stream_body(MaxChunkSize, ChunkFun, InitState).
-
+    
 body(#httpd{mochi_req=MochiReq, req_body=ReqBody}) ->
     case ReqBody of
         undefined ->
