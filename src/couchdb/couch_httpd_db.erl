@@ -833,7 +833,6 @@ db_attachment_req(#httpd{method='GET'}=Req, Db, DocId, FileNameParts) ->
                 ], integer_to_list(Len)),
             couch_doc:att_foldl(Att,
                     fun(BinSegment, _) -> send(Resp, BinSegment) end,[])
-            %%send_chunk(Resp, "")
         end)
     end;
 
