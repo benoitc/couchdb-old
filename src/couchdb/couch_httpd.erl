@@ -354,7 +354,7 @@ start_chunked_response(#httpd{mochi_req=MochiReq}=Req, Code, Headers) ->
     
 start_response_length(#httpd{mochi_req=MochiReq}=Req, Code, Headers, Length) ->
     couch_stats_collector:increment({httpd_status_codes, Code}),
-     {ok, MochiReq:start_response_length({Code, Headers ++ server_header() ++ couch_httpd_auth:cookie_auth_header(Req, Headers), Length})}.
+    {ok, MochiReq:start_response_length({Code, Headers ++ server_header() ++ couch_httpd_auth:cookie_auth_header(Req, Headers), Length})}.
     
 send_chunk(Resp, Data) ->
     Resp:write_chunk(Data),
